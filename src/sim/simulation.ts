@@ -19,7 +19,9 @@
  *        the networks have spare capacity for the extra demand.
  *      - Not serviced: the building stops operating (no residents/jobs count)
  *        and its happy counter resets.
- *   3. Bump `version` so the renderer knows to rebuild its instances.
+ *   3. Every MONTH_TICKS ticks, book the month: collect taxes from operating
+ *      buildings, pay upkeep on utility buildings (economy.ts).
+ *   4. Bump `version` so the renderer knows to rebuild its instances.
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
@@ -27,6 +29,16 @@ import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
 import { applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
 import { Tile, ToolId } from './types';
+import { bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+
+/** Result of trying to apply a tool, so the UI can explain what happened. */
+export interface ApplyResult {
+  changed: number;
+  spent: number;
+  refunded: number;
+  /** True if we stopped early because the money ran out. */
+  broke: boolean;
+}
 
 export interface CityStats {
   population: number;
@@ -95,7 +107,8 @@ export class Simulation {
       t.happyTicks++;
       if (t.happyTicks < GROW_TICKS || t.level >= MAX_LEVEL) return;
       // Small random delay so a freshly zoned block doesn't pop up all at once.
-      if (Math.random() > 0.35) return;
+      // Higher taxes make the chance smaller (economy.ts growthFactor).
+      if (Math.random() > 0.35 * growthFactor(w.taxRates[t.zone])) return;
       const extra = DEMAND[t.zone];
       if (sparePower[s.powerNet] < extra.power || spareWater[s.waterNet] < extra.water) return;
       sparePower[s.powerNet] -= extra.power;
@@ -104,25 +117,90 @@ export class Simulation {
       t.structure = 'building';
       t.happyTicks = 0;
     });
+    if (w.tick % MONTH_TICKS === 0) this.bookMonth();
     this.version++;
   }
 
-  /** Try to apply a tool to many tiles at once (a drag). Returns tiles changed. */
-  apply(tool: ToolId, tiles: Array<[number, number]>): number {
-    let changed = 0;
+  /**
+   * End of month: collect taxes, pay upkeep, archive the ledger.
+   * Construction spending was already recorded live as it happened.
+   */
+  private bookMonth(): void {
+    const w = this.world;
+    const l = w.ledger;
+    const m = this.projectMonth();
+    l.taxes = m.taxes;
+    l.upkeep = m.upkeep;
+    const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
+    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower;
+    w.cash += Math.round(income - upkeep);
+    w.lastLedger = l;
+    w.ledger = emptyLedger();
+  }
+
+  /** What taxes and upkeep would be if the month ended right now. */
+  projectMonth(): Ledger {
+    const w = this.world;
+    const l = emptyLedger();
+    w.tiles.forEach((t, i) => {
+      if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
+      if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower') l.upkeep[t.structure] += UPKEEP[t.structure];
+    });
+    for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
+    return l;
+  }
+
+  /** Total cost to apply `tool` to these tiles (only tiles where it's valid). */
+  quote(tool: ToolId, tiles: Array<[number, number]>): number {
+    let cost = 0;
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      if (canPlace(tool, t)) {
-        applyTool(tool, t);
-        changed++;
-      }
+      if (canPlace(tool, t)) cost += placementCost(tool, t);
     }
+    return cost;
+  }
+
+  /** Can we start building with this tool at all? (Bulldoze always allowed.) */
+  canAfford(tool: ToolId, cost: number): boolean {
+    if (tool === 'bulldoze' || tool === 'inspect') return true;
+    return this.world.cash >= cost && this.world.cash > 0;
+  }
+
+  /**
+   * Apply a tool to many tiles at once (a drag), paying as we go.
+   * Tiles are built in drag order until the money runs out, so a road you
+   * can only half afford gets built halfway rather than not at all.
+   */
+  apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
+    const w = this.world;
+    const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
+    for (const [x, z] of tiles) {
+      const t = w.at(x, z);
+      if (!canPlace(tool, t)) continue;
+      const cost = placementCost(tool, t);
+      if (tool !== 'bulldoze' && cost > w.cash) {
+        res.broke = true;
+        break;
+      }
+      if (tool === 'bulldoze') {
+        const refund = bulldozeRefund(t);
+        w.cash += refund - cost;
+        res.refunded += refund;
+        w.ledger.refunds += refund;
+      }
+      w.cash -= tool === 'bulldoze' ? 0 : cost;
+      res.spent += cost;
+      w.ledger.construction += cost;
+      applyTool(tool, t);
+      res.changed++;
+    }
+    const changed = res.changed;
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
       this.version++;
     }
-    return changed;
+    return res;
   }
 
   status(i: number): TileStatus {

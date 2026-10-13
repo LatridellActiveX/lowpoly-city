@@ -7,6 +7,11 @@
  * tiles. That sounds expensive but it's a few thousand matrix writes — well
  * under a millisecond — and it's far simpler than tracking individual edits.
  *
+ * Zoned buildings come from the design catalogue in buildings.ts (5 designs
+ * per zone x 3 levels, each split into walls/accent/fixed pools). The ground
+ * is 4,096 instanced squares tinted by terrain type (terrain.ts), and trees,
+ * bushes and rocks are instanced too (nature.ts).
+ *
  * Things that move every frame (spinning turbine blades, bobbing warning
  * markers) are updated separately in `animate()`, touching only those pools.
  */
@@ -17,6 +22,10 @@ import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS } from './models';
 import { tileCenter } from './scene';
+import { buildDesigns, pickLook } from './buildings';
+import { GROUND_COLORS, NATURE } from './nature';
+import { Deco, grassShade, groundType } from '../sim/terrain';
+import { hash2 } from '../sim/random';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -56,9 +65,22 @@ export class CityRenderer {
     add('road', MODELS.road(), solid, 1024, false);
     add('roadDash', MODELS.roadDash(), solid, 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
-    add('house', MODELS.house());
-    add('shop', MODELS.shop());
-    add('factory', MODELS.factory());
+    // Ground squares (no shadows cast, but they receive them).
+    add('ground', MODELS.tilePlane(), new THREE.MeshLambertMaterial(), GRID_SIZE * GRID_SIZE, false);
+    // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
+    const designs = buildDesigns();
+    for (const zone of ['residential', 'commercial', 'industrial'] as const) {
+      designs[zone].forEach((levels, k) =>
+        levels.forEach((parts, lv) => {
+          for (const which of ['walls', 'accent', 'fixed'] as const) add(`${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
+        }),
+      );
+    }
+    add('pine', NATURE.pine(), solid, 512);
+    add('oak', NATURE.oak(), solid, 512);
+    add('birch', NATURE.birch(), solid, 512);
+    add('bush', NATURE.bush(), solid, 256);
+    add('rock', NATURE.rock(), solid, 256);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
@@ -98,12 +120,34 @@ export class CityRenderer {
     const tiles = sim.world.tiles;
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
+    const seed = sim.world.seed;
     tiles.forEach((t, i) => {
       const [x, z] = coords(i);
       const center = tileCenter(x, z);
-      // Every tile gets a stable pseudo-random rotation (0/90/180/270) so
-      // rows of identical houses don't look copy-pasted.
-      const turn = Math.floor(t.variant * 4) * (Math.PI / 2);
+      // A stable pseudo-random quarter-turn for things that don't face a road.
+      const turn = Math.floor(hash2(x, z, seed + 7) * 4) * (Math.PI / 2);
+
+      // ---- Ground colour: terrain type + a gentle per-tile shade ----
+      const g = groundType(x, z, seed);
+      const shade = 0.92 + grassShade(x, z, seed);
+      this.c.setHex(GROUND_COLORS[g]).multiplyScalar(shade);
+      P.ground.add(this.place(center.clone().setY(0.002)), this.c);
+
+      // ---- Decorations: jittered, scaled and rotated by hash ----
+      if (t.deco) {
+        const kind = (['', 'pine', 'oak', 'birch', 'bush', 'rock'] as const)[t.deco];
+        const jx = (hash2(x, z, seed + 41) - 0.5) * 0.4;
+        const jz = (hash2(x, z, seed + 43) - 0.5) * 0.4;
+        const size = 0.85 + hash2(x, z, seed + 47) * 0.45;
+        const tint = 0.85 + hash2(x, z, seed + 53) * 0.15;
+        const pos = center.clone().add(new THREE.Vector3(jx, 0, jz));
+        P[kind].add(this.place(pos, hash2(x, z, seed + 59) * Math.PI * 2, size, size), this.c.setRGB(tint, tint, tint));
+        // Dense forest tiles get a second, smaller tree for a fuller canopy.
+        if (t.deco <= Deco.Birch && hash2(x, z, seed + 61) > 0.6) {
+          const p2 = center.clone().add(new THREE.Vector3(-jx * 0.9, 0, -jz * 0.9 + 0.12));
+          P[kind].add(this.place(p2, hash2(x, z, seed + 67) * 6, size * 0.7, size * 0.7), this.c.setRGB(tint, tint, tint));
+        }
+      }
 
       if (t.road) {
         P.road.add(this.place(center));
@@ -134,13 +178,17 @@ export class CityRenderer {
         if (t.level > 0) {
           const st = sim.status(i);
           // Non-operating buildings are drawn dimmed grey so problems stand out.
-          const tint = st.operating ? this.c.setHex(0xffffff) : this.c.setHex(0x8a8a8a);
           const lv = t.level;
-          const model = t.zone === 'residential' ? 'house' : t.zone === 'commercial' ? 'shop' : 'factory';
-          // Bigger level => wider and much taller building.
-          const w = 0.75 + lv * 0.08;
-          const h = model === 'house' ? 0.8 + lv * 0.45 : 0.7 + lv * 0.55;
-          P[model].add(this.place(center, turn, w, h, w), tint);
+          const look = pickLook(t.zone, x, z, seed);
+          // Turn the building so its front (+z in model space) faces a road.
+          const face = this.roadFacing(x, z, has) ?? turn;
+          const key = `${t.zone}.${look.design}.${lv}`;
+          const dim = st.operating ? 1 : 0.55;
+          const m = this.place(center, face);
+          P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
+          P[`${key}.accent`].add(m, this.c.setHex(look.accent).multiplyScalar(dim));
+          P[`${key}.fixed`].add(m, this.c.setScalar(dim));
+          const h = 0.35 + lv * 0.3;
           if (!st.operating) {
             // Marker colour says what's missing first: grey road, yellow power, blue water.
             const col = !st.roadAccess ? 0xbbbbbb : !st.powered ? 0xffd21f : 0x29a3ff;
@@ -173,6 +221,18 @@ export class CityRenderer {
     });
 
     for (const p of Object.values(P)) p.end();
+  }
+
+  /**
+   * Angle that turns a model's front (+z) toward a neighbouring road.
+   * rotateY(a) maps +z to (sin a, 0, cos a), so to face direction (dx, dz)
+   * we need a = atan2(dx, dz). Prefers south, east, north, west in that order.
+   */
+  private roadFacing(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
+    for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+      if (has(x + dx, z + dz, (n) => n.road)) return Math.atan2(dx, dz);
+    }
+    return null;
   }
 
   /** Per-frame motion: spin blades, bob markers. */

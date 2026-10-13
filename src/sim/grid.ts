@@ -9,6 +9,8 @@
  *                                      z = floor(index / GRID_SIZE)
  */
 import { GRID_SIZE, Tile } from './types';
+import { defaultTaxRates, emptyLedger, Ledger, MONTH_TICKS, STARTING_CASH, TaxRates } from './economy';
+import { scatterDecorations } from './terrain';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -20,7 +22,8 @@ export function emptyTile(): Tile {
     structure: 'none',
     level: 0,
     happyTicks: 0,
-    variant: Math.random(),
+    variant: 0,
+    deco: 0,
   };
 }
 
@@ -66,9 +69,34 @@ export class World {
   tiles: Tile[];
   /** Simulation clock: number of ticks since the city was founded. */
   tick = 0;
+  /** Per-city seed for terrain noise and building variety. */
+  seed: number;
+  /** Money in the bank. Can go negative (that just blocks building). */
+  cash = STARTING_CASH;
+  /** Tax rate per zone, 0..0.2. */
+  taxRates: TaxRates = defaultTaxRates();
+  /** Books for the month in progress, and the last finished month. */
+  ledger: Ledger = emptyLedger();
+  lastLedger: Ledger | null = null;
 
-  constructor(tiles?: Tile[]) {
+  /**
+   * Pass `tiles` + `seed` when loading a save. With no arguments a fresh city
+   * is created: a random seed is chosen and trees/rocks are scattered.
+   */
+  constructor(tiles?: Tile[], seed?: number) {
+    this.seed = seed ?? Math.floor(Math.random() * 1e9);
     this.tiles = tiles ?? Array.from({ length: GRID_SIZE * GRID_SIZE }, emptyTile);
+    if (!tiles) scatterDecorations(this.tiles, this.seed);
+  }
+
+  /** Current month number (1-based), for the clock. */
+  get month(): number {
+    return Math.floor(this.tick / MONTH_TICKS) + 1;
+  }
+
+  /** Day within the month (1..30), for the clock. */
+  get day(): number {
+    return Math.floor(((this.tick % MONTH_TICKS) / MONTH_TICKS) * 30) + 1;
   }
 
   /** Get the tile at (x, z). Callers must check inBounds first. */

@@ -17,7 +17,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 /** One coloured, positioned part of a model. */
-function part(
+export function part(
   geo: THREE.BufferGeometry,
   color: number,
   pos: [number, number, number] = [0, 0, 0],
@@ -37,18 +37,37 @@ function part(
   return g;
 }
 
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
+export function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const g = mergeGeometries(parts)!;
   g.computeVertexNormals();
   return g;
 }
 
 /** A box whose BASE (not centre) sits at y. */
-const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
+export const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d).translate(0, h / 2, 0);
 
 /** Pyramid roof: a 4-sided cone rotated 45 degrees so its edges line up with the walls. */
-const pyramid = (w: number, h: number) =>
+export const pyramid = (w: number, h: number) =>
   new THREE.ConeGeometry(w * Math.SQRT1_2, h, 4).rotateY(Math.PI / 4).translate(0, h / 2, 0);
+
+/**
+ * Gable roof: a triangular prism. The ridge runs along x; the slopes face
+ * +z and -z. `w` = length along x, `d` = depth, `h` = ridge height.
+ * `ridge` (0..1) moves the ridge off-centre for a lopsided "saltbox" roof.
+ */
+export function gable(w: number, h: number, d: number, ridge = 0.5): THREE.BufferGeometry {
+  const shape = new THREE.Shape();
+  shape.moveTo(-d / 2, 0);
+  shape.lineTo(d / 2, 0);
+  shape.lineTo(-d / 2 + d * ridge, h);
+  shape.closePath();
+  // The shape is drawn in the x/y plane and extruded along z, then rotated so
+  // the extrusion runs along x.
+  const g = new THREE.ExtrudeGeometry(shape, { depth: w, bevelEnabled: false });
+  g.translate(0, 0, -w / 2);
+  g.rotateY(Math.PI / 2);
+  return g;
+}
 
 export const MODELS = {
   /** Road surface (instance colour is white; the slab is asphalt grey). */
