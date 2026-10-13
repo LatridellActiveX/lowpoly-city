@@ -389,7 +389,14 @@ export class Simulation {
     for (const i of this.completed) {
       if (tiles[i].zone !== 'residential' || edgeTile < 0 || cars() >= this.settings.maxCars) continue;
       const home = roadNextTo(tiles, i);
-      if (home >= 0) this.traffic.spawn(w, 'car', edgeTile, home, 'moving in');
+      // PR 5: the residents only count once their car pulls up (onArrive).
+      // If the trip can't start (no route), spawn() returns false and they
+      // move in straight away so a disconnected town still grows.
+      if (home >= 0) {
+        const t = tiles[i];
+        t.movingIn = true;
+        if (!this.traffic.spawn(w, 'car', edgeTile, home, 'moving in', undefined, () => (t.movingIn = false))) t.movingIn = false;
+      }
     }
     const homes: number[] = [];
     const work: number[] = [];
@@ -398,7 +405,7 @@ export class Simulation {
       if (!t.zone || t.level === 0) return;
       if (t.zone === 'residential') {
         homes.push(i);
-        pop += RESIDENTS_PER_LEVEL * t.level;
+        pop += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0));
       } else work.push(i);
     });
     const target = Math.min(this.settings.maxCars, Math.floor(pop / COMMUTE_PEOPLE));
@@ -457,7 +464,7 @@ export class Simulation {
         inactive++;
         return;
       }
-      if (t.zone === 'residential') population += RESIDENTS_PER_LEVEL * t.level;
+      if (t.zone === 'residential') population += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0)); // PR 5: not until their car arrives
       jobs += JOBS_PER_LEVEL[t.zone] * t.level;
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>

@@ -32,6 +32,7 @@ export function emptyTile(): Tile {
     construct: 0,
     stock: 0,
     part: 0,
+    movingIn: false,
   };
 }
 

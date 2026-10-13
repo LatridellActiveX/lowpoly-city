@@ -4,7 +4,8 @@
  * VEHICLES ARE SHORT-LIVED: a vehicle is created for one trip (commute,
  * delivery, move-in), follows a path of ROAD tiles, and is removed when it
  * arrives. Vehicles are not saved; deliveries already in flight are lost on
- * reload (the factory simply ships again later).
+ * reload (the factory simply ships again later), and families still driving
+ * in move in immediately on load (PR 5, Tile.movingIn).
  *
  * PATHFINDING: A* ("A-star")
  * --------------------------
@@ -30,7 +31,12 @@
  *   2. Traffic lights: every road tile with 3+ road neighbours is an
  *      intersection with a timed light (see lightGreen()). A vehicle about to
  *      enter one on a red axis stops at STOP_T.
- *   3. If a vehicle has been stuck for STUCK_SECONDS (gridlock), it gives up
+ *   3. PR 5 JUNCTION OCCUPANCY: a vehicle that's inside an intersection
+ *      "holds" it. Another vehicle may only enter (pass STOP_T) if every
+ *      holder is travelling the same way or the exact opposite way (those
+ *      lanes don't cross). Crossing or turning traffic waits at the stop
+ *      line, so cars queue instead of driving through each other.
+ *   4. If a vehicle has been stuck for STUCK_SECONDS (gridlock), it gives up
  *      and is removed — its arrival callback still runs, so deliveries aren't
  *      lost.
  * Positions are interpolated between tile centres; the renderer adds the
@@ -243,6 +249,24 @@ export class Traffic {
       if (!l) lanes.set(k, (l = []));
       l.push(v.t);
     }
+    // ---- PR 5: who is inside each intersection right now ----
+    // A vehicle is physically inside junction J during the last part of the
+    // segment INTO J (t > STOP_T) and the first half of the segment OUT of J.
+    // We record its travel direction there (0..3 = E, W, S, N).
+    const inJunction = new Map<number, Array<{ id: number; dir: number }>>();
+    const hold = (j: number, id: number, dir: number) => {
+      let l = inJunction.get(j);
+      if (!l) inJunction.set(j, (l = []));
+      l.push({ id, dir });
+    };
+    for (const v of this.vehicles) {
+      const a = v.path[v.seg], b = v.path[v.seg + 1];
+      if (b === undefined) continue;
+      if (v.t > STOP_T && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
+      if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a));
+    }
+    /** Opposite directions: E↔W (0,1) and S↔N (2,3) — straight-through lanes that never cross. */
+    const compatible = (d1: number, d2: number) => d1 === d2 || (d1 >> 1 === d2 >> 1);
     const done: Vehicle[] = [];
     for (const v of this.vehicles) {
       const cur = tiles[v.path[v.seg]];
@@ -266,9 +290,20 @@ export class Traffic {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
         if (lightState(v.path[v.seg + 1], world.clock).green !== axis) limit = Math.min(limit, STOP_T);
       }
+      // 3. PR 5: yield to crossing traffic already inside the junction ahead.
+      const jNext = v.path[v.seg + 1];
+      const myDir = dirOf(v.path[v.seg], jNext);
+      const enteringJunction = v.t <= STOP_T && isIntersection(tiles, jNext);
+      if (enteringJunction) {
+        const holders = inJunction.get(jNext);
+        if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) limit = Math.min(limit, STOP_T);
+      }
       const want = v.t + speed * dt;
       const nt = Math.max(v.t, Math.min(want, limit));
       v.stuck = nt - v.t < 1e-4 ? v.stuck + dt : 0;
+      // Crossed the stop line this frame? Then we hold the junction from now
+      // on, so a crossing car later in this same loop has to wait for us.
+      if (enteringJunction && nt > STOP_T) hold(jNext, v.id, myDir);
       v.t = nt;
       if (v.stuck > STUCK_SECONDS) {
         this.stats.gaveUp++;

@@ -87,6 +87,13 @@ export interface Tile {
    * Only the anchor produces power, pays upkeep and gets drawn.
    */
   part: number;
+  /**
+   * PR 5: a home that just finished a construction stage is waiting for its
+   * new residents' car (driving in from the highway). While true, the newest
+   * level's residents aren't counted yet — they move in when the car ARRIVES.
+   * Vehicles aren't saved, so loading a save moves everyone in at once.
+   */
+  movingIn: boolean;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */

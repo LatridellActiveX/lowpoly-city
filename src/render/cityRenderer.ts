@@ -25,7 +25,7 @@ import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
-import { buildGroundMesh, NATURE } from './nature';
+import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { SIGNAL_COLORS, SIGNAL_LAMPS, VEHICLES, vehiclePose } from './vehicles';
 import { isIntersection, lightState } from '../sim/traffic';
@@ -127,6 +127,8 @@ export class CityRenderer {
   private readonly group = new THREE.Group();
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
+  /** PR 5 smooth river/lake surface (rebuilt with the ground when the seed changes). */
+  private waterMesh: THREE.Mesh | null = null;
   private lastOverlay: OverlayMode = 'none';
   /** PR 4: smokestack tops of fuelled power plants. */
   private stacks: THREE.Vector3[] = [];
@@ -343,6 +345,13 @@ export class CityRenderer {
       }
       this.groundMesh = buildGroundMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
       this.group.add(this.groundMesh);
+      // PR 5: one smooth-shored water mesh instead of per-tile water squares.
+      if (this.waterMesh) {
+        this.group.remove(this.waterMesh);
+        this.waterMesh.geometry.dispose();
+      }
+      this.waterMesh = buildWaterMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
+      if (this.waterMesh) this.group.add(this.waterMesh);
       this.groundSeed = seed;
     }
     tiles.forEach((t, i) => {
@@ -367,11 +376,7 @@ export class CityRenderer {
         }
       }
 
-      if (t.water) {
-        // River/lake surface. A gentle per-tile tint wobble keeps it from looking flat.
-        const k = 0.92 + hash2(x, z, seed + 5) * 0.1;
-        P.water.add(this.place(center), this.c.setRGB(k, k, k));
-      }
+      // (PR 5: water is drawn by the single smooth waterMesh, see buildWaterMesh.)
 
       if (t.road) {
         this.addRoad(t, x, z, center, has);
