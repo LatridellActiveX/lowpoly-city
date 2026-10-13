@@ -88,7 +88,8 @@ export interface HistoryPoint {
 export const HISTORY_EVERY_TICKS = 20;
 export const HISTORY_MAX = 500;
 /** PR 4: about one car on the road per this many residents (before the Settings cap). */
-export const COMMUTE_PEOPLE = 6;
+/** PR 5: 6 → 12 — half as many commuter cars (rush-hour curve unchanged). */
+export const COMMUTE_PEOPLE = 12;
 
 export class Simulation {
   /** Session-only ring buffer of stats for the graphs (not saved). */

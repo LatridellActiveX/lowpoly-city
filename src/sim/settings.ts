@@ -27,7 +27,8 @@ export interface Settings {
 }
 
 const KEY = 'lowpoly-city-settings';
-export const defaultSettings = (): Settings => ({ maxCars: 150, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1 });
+// PR 5: maxCars default 150 → 75 (half the commuters; see COMMUTE_PEOPLE).
+export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1 });
 
 export function loadSettings(): Settings {
   try {

@@ -98,7 +98,8 @@ export const TICKS_PER_SECOND = 1;
 /** PR 4: ticks of (serviced) building work to finish one construction stage. */
 export const CONSTRUCT_TICKS = 10;
 /** PR 4: a power plant's full fuel bunker, in fuel units (goods.ts). */
-export const FUEL_MAX = 40;
+/** PR 5: 40 → 100 so one 4× fuel load (LOAD × FUEL_PER_UNIT = 80) fits. */
+export const FUEL_MAX = 100;
 
 // ---- Pollution, desirability and parks (PR 3, see environment.ts) ----
 /** A coal power plant's pollution strength next door, and how far it reaches. */
