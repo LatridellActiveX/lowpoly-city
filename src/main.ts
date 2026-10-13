@@ -217,7 +217,21 @@ attachInput(renderer.domElement, cam, ground, {
       setSpeed(sim.speed === 0 ? lastSpeed : 0);
       return true;
     }
+    // PR 5: while a toolbar flyout is open, number keys pick inside it
+    // (1 = first row...) instead of their normal zone shortcuts.
+    if (/^[1-9]$/.test(k) && hud.openGroup) {
+      const pick = hud.flyoutPick(Number(k));
+      if (pick) {
+        setTool(pick);
+        hud.closeFlyout();
+      }
+      return true;
+    }
     if (k === 'escape') {
+      if (hud.openGroup) {
+        hud.closeFlyout();
+        return true;
+      }
       setTool('inspect');
       hud.inspect(null);
       return true;
