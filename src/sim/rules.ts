@@ -49,8 +49,37 @@ export const DEMAND: Record<ZoneType, { power: number; water: number }> = {
   industrial: { power: 6, water: 3 },
 };
 
-/** People living in a house per level, and jobs per level for shops/factories. */
+/**
+ * People living in a house per level, and jobs per level for shops/factories.
+ * RESIDENTS_PER_LEVEL (5) is now the per-resident UNIT: power, water, tax
+ * and pollution-free "size" of a home scale with residents ÷ 5.
+ */
 export const RESIDENTS_PER_LEVEL = 5;
+/**
+ * PR 5 residential capacity per level (index = level):
+ *   1 cottage 5 · 2 house 10 · 3 large house / small block 20
+ *   4 townhouses / rowhouses 40 (medium density)
+ *   5 small apartment block 70 (medium density)
+ */
+export const RESIDENTS_AT = [0, 5, 10, 20, 40, 70];
+/** Highest residential level (medium density goes past MAX_LEVEL). */
+export const MAX_RES_LEVEL = 5;
+/** PR 5 medium density gates: population tier (progression.ts) + desirability. */
+export const MEDIUM_DENSITY = { 4: { tier: 2, desire: 1.2 }, 5: { tier: 3, desire: 1.5 } } as const;
+/** Residents living in a home tile right now (the newest level's people only count once their car arrives). */
+export function residentsOf(t: Tile): number {
+  if (t.zone !== 'residential' || t.level <= 0) return 0;
+  const lv = Math.min(t.level, MAX_RES_LEVEL);
+  return t.movingIn ? RESIDENTS_AT[lv - 1] : RESIDENTS_AT[lv];
+}
+/**
+ * "Size units" of a building for power/water/tax: residents ÷ 5 for homes
+ * (so a level-5 block uses 14× a cottage), the level for shops/factories.
+ */
+export function sizeUnits(t: Tile): number {
+  if (t.zone === 'residential') return RESIDENTS_AT[Math.min(t.level, MAX_RES_LEVEL)] / RESIDENTS_PER_LEVEL;
+  return t.level;
+}
 export const JOBS_PER_LEVEL: Record<ZoneType, number> = { residential: 0, commercial: 4, industrial: 8 };
 
 /** Highest level a zoned building can grow to. */

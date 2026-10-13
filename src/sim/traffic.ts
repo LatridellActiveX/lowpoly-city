@@ -147,8 +147,15 @@ const AVENUE_SPEED_BONUS = 1.6;
 const CAR_LEN = 0.26;
 /** PR 5: largest traffic sub-step in game-seconds (see Traffic.update). */
 const SUBSTEP = 1 / 30;
+/**
+ * PR 5: where a vehicle's CENTRE waits on red — its front bumper (CAR_LEN/2
+ * ahead) then rests on the painted stop line, which sits 0.455 tiles from
+ * the approach tile's centre (t = 0.455), just behind the crosswalk.
+ * (Was 0.62, i.e. inside the junction.)
+ */
+const STOP_LINE_T = 0.455;
 /** Where a vehicle waits on red: 0.62 along the tile before the junction. */
-const STOP_T = 0.62;
+const STOP_T = STOP_LINE_T - CAR_LEN / 2 - 0.01;
 const STUCK_SECONDS = 25;
 /** Traffic light cycle (game seconds): NS green, all-red, EW green, all-red. */
 export const LIGHT_CYCLE = 10;
@@ -413,6 +420,13 @@ export class Traffic {
       if (enteringJunction) {
         const holders = inJunction.get(jNext);
         if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) stopAt();
+        // PR 5 "don't block the box": only enter if there's room to get
+        // all the way through — no stationary/slow car near the start of the
+        // lane we'll leave the junction by. Prevents junction gridlock.
+        if (v.seg + 2 < v.path.length) {
+          const exit = lanes.get(laneOf(v, v.seg + 1));
+          if (exit && exit.some((o) => o.t < 0.9 && o.v < 0.3)) stopAt();
+        }
       }
       // ---- PR 5 IDM (Intelligent Driver Model) ----
       // The standard car-following model used in traffic research:

@@ -27,7 +27,7 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
+import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, MEDIUM_DENSITY, residentsOf, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
 import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
@@ -405,7 +405,7 @@ export class Simulation {
       if (!t.zone || t.level === 0) return;
       if (t.zone === 'residential') {
         homes.push(i);
-        pop += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0));
+        pop += residentsOf(t);
       } else work.push(i);
     });
     // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
@@ -434,7 +434,15 @@ export class Simulation {
     const d = this.env.desirability[i];
     if (d < DESIRE_MIN) return 0;
     if (d < DESIRE_FOR_DENSE) return 1;
-    return MAX_LEVEL;
+    // PR 5 medium density: level 4 (townhouses) at the Town tier, level 5
+    // (apartments) at the City tier — each also needs high desirability
+    // (parks, no pollution) and positive residential demand.
+    let cap = MAX_LEVEL;
+    for (const lv of [4, 5] as const) {
+      const g = MEDIUM_DENSITY[lv];
+      if (this.world.tier >= g.tier && d >= g.desire && this.demand.residential.value > 0) cap = lv;
+    }
+    return cap;
   }
 
   status(i: number): TileStatus {
@@ -465,7 +473,7 @@ export class Simulation {
         inactive++;
         return;
       }
-      if (t.zone === 'residential') population += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0)); // PR 5: not until their car arrives
+      if (t.zone === 'residential') population += residentsOf(t); // PR 5: per-level table; not until their car arrives
       jobs += JOBS_PER_LEVEL[t.zone] * t.level;
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>

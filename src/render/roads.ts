@@ -149,10 +149,19 @@ export const ROADS = {
    * others): six white bars across the road plus a stop line.
    */
   crosswalk: () => {
-    const parts = [part(box(0.72, 0.008, 0.025), PAINT, [0, 0.041, -0.26])];
+    const parts: THREE.BufferGeometry[] = [];
     for (let k = 0; k < 6; k++) parts.push(part(box(0.07, 0.008, 0.14), PAINT, [-0.3 + k * 0.12, 0.041, -0.41]));
     return merge(parts);
   },
+  /**
+   * PR 5 stop line, on the tile BEFORE a junction whose north (−z) edge
+   * touches the junction (rotated for the other sides). It spans only the
+   * approaching lane — for a car heading north the right-hand lane is the
+   * east (+x) half — and sits just behind the junction's crosswalk.
+   * Its top (y 0.050) is above the other paint (≤ 0.048 where they can
+   * overlap) and the asphalt (0.040), so nothing z-fights.
+   */
+  stopLine: () => merge([part(box(0.43, 0.01, 0.045), PAINT, [0.235, 0.04, -0.455])]),
   /** PR 5 manhole cover: an iron disc with a rim and a cross-hatch bar. */
   manhole: () =>
     merge([

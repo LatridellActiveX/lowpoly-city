@@ -85,6 +85,9 @@ function iconMaterial(kind: 'power' | 'water'): THREE.MeshBasicMaterial {
  * (FLOOR = 0.26 per storey); used for roof-corner drop wires, scaffolds and icons.
  */
 function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: number } {
+  // PR 5: levels 4/5 are the medium-density rowhouses / apartment blocks.
+  if (zone === 'residential' && level === 4) return { w: 0.9, d: 0.6, h: 0.26 * 3 + 0.25 };
+  if (zone === 'residential' && level === 5) return { w: 0.88, d: 0.68, h: 0.26 * 5 + 0.2 };
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
   if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
   return { w: 0.6 + level * 0.08, d: 0.48 + level * 0.07, h: 0.22 + level * 0.12 };
@@ -220,6 +223,7 @@ export class CityRenderer {
     add('roadDash', ROADS.streetMarks(), solid, 1024, false); // PR 5: dashes + edge lines
     // PR 5 road furniture: crosswalks at junctions, manholes, gutter drains.
     add('crosswalk', ROADS.crosswalk(), solid, 512, false);
+    add('stopLine', ROADS.stopLine(), solid, 1024, false);
     add('manhole', ROADS.manhole(), solid, 512, false);
     add('drain', ROADS.drain(), solid, 512, false);
     add('bridge', ROADS.bridgeDeck(), solid, 128);
@@ -238,7 +242,9 @@ export class CityRenderer {
       for (const zone of ['residential', 'commercial', 'industrial'] as const) {
         designs[zone].forEach((levels, k) =>
           levels.forEach((parts, lv) => {
-            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
+            // PR 5 perf: the small "fixed" trim (frames, vents, steps...) doesn't
+            // cast shadows — at this scale they're invisible and cost a lot in the shadow pass.
+            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
             add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
           }),
         );
@@ -606,6 +612,14 @@ export class CityRenderer {
             if (this.lod === 'high' && hash2(x * 4 + (yaw as number) * 7, z, 911) > 0.66) P.drain.add(this.place(center, yaw as number));
           }
         });
+        // PR 5: a stop line on this tile's approach lane for every
+        // neighbouring junction (unless this tile is a junction itself).
+        if (+n + +e + +s + +w < 3) {
+          const tiles = this.sim!.world.tiles;
+          ([[0, -1, 0], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [1, 0, (3 * Math.PI) / 2]] as const).forEach(([dx, dz, yaw]) => {
+            if (has(x + dx, z + dz, (q) => q.road && !q.water) && isIntersection(tiles, idx(x + dx, z + dz))) P.stopLine.add(this.place(center, yaw));
+          });
+        }
         // PR 5: zebra crossings on every arm of a junction (3+ road neighbours).
         if (+n + +e + +s + +w >= 3) {
           [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => has_ && P.crosswalk.add(this.place(center, yaw as number)));
@@ -644,7 +658,7 @@ export class CityRenderer {
   private addConstruction(t: Tile, i: number, x: number, z: number, center: THREE.Vector3, seed: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
     const P = this.pools;
     const zone = t.zone!;
-    const lv = Math.min(3, t.level + 1);
+    const lv = Math.min(zone === 'residential' ? 5 : 3, t.level + 1); // PR 5: homes go to level 5
     const progress = 1 - t.construct / CONSTRUCT_TICKS;
     const look = pickLook(zone, x, z, seed);
     const face = this.roadFacing(x, z, has) ?? 0;

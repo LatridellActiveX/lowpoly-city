@@ -31,7 +31,7 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, POWER_OUTPUT, PUMP_STATION_OUTPUT, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, POWER_OUTPUT, PUMP_STATION_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
@@ -64,7 +64,7 @@ export function output(t: Tile, kind: Kind, wind: number): number {
 /** How much of this utility a tile wants right now (0 for non-buildings). */
 export function demandOf(t: Tile, kind: Kind): number {
   if (t.zone === null || t.level === 0) return 0;
-  return DEMAND[t.zone][kind] * t.level;
+  return DEMAND[t.zone][kind] * sizeUnits(t); // PR 5: homes scale per resident
 }
 
 /** A consumer is anything zoned, plus water towers (they need power to pump). */

@@ -19,6 +19,7 @@
  *  - Going below $0 doesn't end the game. It just blocks new construction
  *    until income brings you back up. Bulldozing is always allowed.
  */
+import { sizeUnits } from './rules';
 import { Tile, ToolId, ZoneType } from './types';
 
 export const STARTING_CASH = 50_000;
@@ -143,5 +144,5 @@ export function monthlyTax(t: Tile, operating: boolean, rates: TaxRates): number
   if (!t.zone || t.level === 0 || !operating) return 0;
   // PR 4: a shop with empty shelves (goods.ts) only pays half.
   const shelves = t.zone === 'commercial' && t.stock <= 0 ? 0.5 : 1;
-  return TAX_BASE[t.zone] * t.level * rates[t.zone] * shelves;
+  return TAX_BASE[t.zone] * sizeUnits(t) * rates[t.zone] * shelves; // PR 5: homes pay per resident (÷5)
 }

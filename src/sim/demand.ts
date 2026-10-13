@@ -26,7 +26,7 @@
  */
 import { World } from './grid';
 import { DEFAULT_TAX } from './economy';
-import { JOBS_PER_LEVEL, RESIDENTS_PER_LEVEL } from './rules';
+import { JOBS_PER_LEVEL, residentsOf } from './rules';
 import { ZoneType } from './types';
 
 export const WORK_SHARE = 0.55;
@@ -47,7 +47,7 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   let pop = 0, shopJobs = 0, factoryJobs = 0, shops = 0, emptyShops = 0;
   world.tiles.forEach((t, i) => {
     if (!t.zone || t.level === 0 || !operating(i)) return;
-    if (t.zone === 'residential') pop += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0));
+    if (t.zone === 'residential') pop += residentsOf(t);
     else if (t.zone === 'commercial') {
       shopJobs += JOBS_PER_LEVEL.commercial * t.level;
       shops++;

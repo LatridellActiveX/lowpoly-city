@@ -146,6 +146,7 @@ const FLOOR = 0.26; // height of one storey
 // Residential: cottages to small apartment blocks
 // ----------------------------------------------------------------------------
 function residential(k: number, level: number, hi = true): DesignParts {
+  if (level >= 4) return medium(k % 3, level, hi); // PR 5 medium density
   const b = new Builder(hi);
   const floors = level;
   const h = FLOOR * floors + 0.06;
@@ -373,15 +374,110 @@ function industrial(k: number, level: number, hi = true): DesignParts {
   return b.done();
 }
 
+// ----------------------------------------------------------------------------
+// PR 5 medium-density residential: level 4 rowhouses, level 5 apartments.
+// Three variants each (design k uses variant k % 3). They fill most of the
+// lot (~0.9 wide), front faces +z like every other design.
+// ----------------------------------------------------------------------------
+function medium(v: number, level: number, hi: boolean): DesignParts {
+  const b = new Builder(hi);
+  const BRICK = 0xb5654a;
+  if (level === 4) {
+    // ROWHOUSES / TOWNHOUSES: three attached units, 3 storeys.
+    const units = 3, uw = 0.29, d = 0.56, hBase = FLOOR * 3 + 0.04;
+    for (let u = 0; u < units; u++) {
+      const x = -uw + u * uw;
+      // Variant 0: gabled units with alternating heights; 1: flat-roof brick
+      // with bay windows; 2: mansard roofs with dormers.
+      const h = v === 0 ? hBase + (u % 2) * 0.05 : hBase;
+      if (v === 1) b.fix(box(uw - 0.004, h, d), BRICK, [x, 0, 0]);
+      else b.wall(box(uw - 0.004, h, d), [x, 0, 0]);
+      if (v === 0) b.acc(gable(uw + 0.01, 0.16, d + 0.06), [x, h, 0], [0, Math.PI / 2, 0]);
+      else if (v === 1) {
+        b.acc(box(uw + 0.004, 0.04, d + 0.02), [x, h, 0]); // cornice
+        b.wall(box(uw * 0.6, FLOOR * 2 - 0.04, 0.07), [x, FLOOR, d / 2 + 0.035]); // bay
+        b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR + 0.07, d / 2 + 0.072]);
+        b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR * 2 + 0.07, d / 2 + 0.072]);
+      } else {
+        b.acc(gambrel(uw + 0.01, 0.2, d + 0.04), [x, h, 0], [0, Math.PI / 2, 0]);
+        b.wall(box(0.09, 0.08, 0.08), [x, h + 0.05, d / 2 - 0.02]);
+        b.fix(box(0.06, 0.05, 0.02), GLASS, [x, h + 0.065, d / 2 + 0.025]);
+      }
+      // Door with steps on the left of each unit, windows on every floor.
+      b.fix(box(0.07, 0.16, 0.02), [0x2e4a62, 0x6b3b2a, 0x3f5f3f][u], [x - uw * 0.22, 0.04, d / 2 + 0.005]);
+      steps(b, x - uw * 0.22, d / 2, 0.1);
+      b.windows(1, uw * 0.4, d, 0.1, GLASS, 0.08);
+      for (let f = 1; f < 3; f++) if (v !== 1) b.windows(2, uw - 0.04, d, 0.1 + f * FLOOR, GLASS, 0.075);
+      if (hi) {
+        b.fix(box(0.012, h, 0.014), TRIM, [x + uw / 2 - 0.002, 0, d / 2 + 0.006]); // party-wall trim
+        chimney(b, x + uw * 0.25, h, -d * 0.2, 0.16);
+        shrub(b, x + uw * 0.2, d / 2 + 0.07, 0.035);
+        b.fix(box(uw - 0.02, 0.05, 0.012), 0x2b2b2b, [x, 0, d / 2 + 0.17]); // railing along the front yard
+      }
+    }
+    if (hi) {
+      gutterX(b, 0.9, hBase, d / 2 + 0.03);
+      acUnit(b, 0.47, 0, -d * 0.25);
+      b.fix(box(0.9, 0.035, d + 0.02), STONE, [0, 0, 0]);
+    }
+  } else {
+    // SMALL APARTMENT BLOCKS: 5 storeys.
+    const floors = 5, w = 0.86, d = 0.66, h = FLOOR * floors + 0.06;
+    if (v === 0) {
+      // Slab block with a grid of balconies and a flat roof.
+      b.wall(box(w, h, d));
+      b.acc(box(w + 0.03, 0.04, d + 0.03), [0, h, 0]);
+      for (let f = 0; f < floors; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
+      b.sideWindows(3, w, d, 0.12);
+    } else if (v === 1) {
+      // Brick block with a central glass stair core rising above the roof.
+      b.fix(box(w, h, d), BRICK, [0, 0, 0]);
+      b.wall(box(0.18, h + 0.12, 0.12), [0, 0, d / 2 - 0.02]);
+      b.fix(box(0.12, h, 0.02), 0x9fd7ff, [0, 0.04, d / 2 + 0.042]);
+      b.acc(box(0.2, 0.03, 0.14), [0, h + 0.12, d / 2 - 0.02]);
+      b.acc(box(w + 0.02, 0.035, d + 0.02), [0, h, 0]);
+      for (let f = 0; f < floors; f++) for (const sx of [-1, 1]) b.windows(2, w * 0.36, d, 0.1 + f * FLOOR, GLASS, 0.08), void sx;
+    } else {
+      // Block with a ground-floor shopfront, upper floors set back, corner tower.
+      b.wall(box(w, FLOOR + 0.04, d));
+      b.fix(box(w * 0.85, 0.13, 0.02), 0x9fd7ff, [0, 0.05, d / 2 + 0.005]);
+      b.acc(box(w * 0.85, 0.025, 0.12), [0, 0.22, d / 2 + 0.05], [0.3, 0, 0]); // awning
+      b.wall(box(w * 0.92, h - FLOOR - 0.04, d * 0.86), [0, FLOOR + 0.04, -d * 0.05]);
+      b.wall(box(0.2, h + 0.15, 0.2), [w / 2 - 0.08, 0, d / 2 - 0.1]); // corner tower
+      b.acc(pyramid(0.24, 0.14), [w / 2 - 0.08, h + 0.15, d / 2 - 0.1]);
+      b.acc(box(w * 0.94, 0.035, d * 0.88), [0, h, -d * 0.05]);
+      for (let f = 1; f < floors; f++) b.windows(4, w * 0.8, d * 0.86 - 0.1, 0.1 + f * FLOOR, GLASS, 0.08);
+    }
+    if (hi) {
+      // Balconies on upper floors, roof plant, entrance canopy, bike racks, plinth.
+      for (let f = 1; f < floors; f++) {
+        balcony(b, -w * 0.28, f * FLOOR + 0.02, d / 2 - (v === 2 ? 0.1 : 0), 0.18);
+        if (v !== 1) balcony(b, w * 0.2, f * FLOOR + 0.02, d / 2 - (v === 2 ? 0.1 : 0), 0.18);
+      }
+      coping(b, w, d, h);
+      acUnit(b, -w * 0.25, h, -d * 0.2, 1.3);
+      acUnit(b, w * 0.1, h, -d * 0.25, 1.3);
+      vent(b, w * 0.3, h, d * 0.1, 0.025);
+      b.fix(box(0.9, 0.035, 0.7), STONE, [0, 0, 0]);
+      door(b, v === 1 ? 0 : -w * 0.1, d / 2, 0x9fd7ff, 0.12, 0.17);
+      steps(b, v === 1 ? 0 : -w * 0.1, d / 2, 0.18);
+      for (let n = 0; n < 4; n++) b.fix(box(0.006, 0.05, 0.04), METAL, [w * 0.3 + n * 0.03, 0, d / 2 + 0.12]);
+      for (const sx of [-1, 1]) b.fix(box(0.016, h, 0.016), METAL, [sx * (w / 2 - 0.01), 0, d / 2 + 0.01]);
+    }
+  }
+  return b.done();
+}
+
 /**
  * Build all designs: result[zone][design][level-1].
  * PR 5: `lod` picks the high-detail (default) or the low-detail (PR 4) set.
  */
 export function buildDesigns(lod: 'high' | 'low' = 'high'): Record<ZoneType, DesignParts[][]> {
   const hi = lod === 'high';
-  const make = (fn: (k: number, level: number, hi: boolean) => DesignParts) =>
-    Array.from({ length: DESIGNS_PER_ZONE }, (_, k) => [1, 2, 3].map((lv) => fn(k, lv, hi)));
-  return { residential: make(residential), commercial: make(commercial), industrial: make(industrial) };
+  const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3]) =>
+    Array.from({ length: DESIGNS_PER_ZONE }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
+  // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments).
+  return { residential: make(residential, [1, 2, 3, 4, 5]), commercial: make(commercial), industrial: make(industrial) };
 }
 
 // ----------------------------------------------------------------------------
