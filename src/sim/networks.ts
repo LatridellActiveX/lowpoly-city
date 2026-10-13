@@ -43,7 +43,9 @@ function isSource(t: Tile, kind: Kind): boolean {
 }
 
 function isConduit(t: Tile, kind: Kind): boolean {
-  return isSource(t, kind) || (kind === 'power' ? t.powerLine : t.waterPipe);
+  // PR 3 "auto power lines": every road carries a street-side pole line, so
+  // roads are power conduits too. Connected roads form one power grid.
+  return isSource(t, kind) || (kind === 'power' ? t.powerLine || t.road : t.waterPipe);
 }
 
 /**

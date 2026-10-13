@@ -79,7 +79,9 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'road':
       return noBuilding && !t.road;
     case 'powerLine':
-      return noBuilding && !t.powerLine;
+      // Roads already carry power (auto street lines), so the manual tool is
+      // only for running lines across land without a road.
+      return noBuilding && !t.powerLine && !t.road;
     case 'waterPipe':
       return noBuilding && !t.waterPipe;
     case 'residential':

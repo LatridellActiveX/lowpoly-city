@@ -24,6 +24,9 @@
  * Buildings also prefer to FACE a road that carries a power line (see
  * cityRenderer.roadFacing), so the drop wire comes in at the front door.
  *
+ * AUTO LINES: since PR 3 every road tile carries a pole line automatically
+ * (`carriesPower`), so roads get curb poles even without the manual tool.
+ *
  * Everything here is geometry + maths; cityRenderer.ts owns the instance
  * pools and calls these helpers during its rebuild.
  */
@@ -97,6 +100,9 @@ type Has = (x: number, z: number, f: (t: Tile) => boolean) => boolean;
 /** "Something a pole should stand in front of": a zone lot or a utility building. */
 const isFrontage = (n: Tile) => n.zone !== null || (n.structure !== 'none' && !n.road);
 
+/** A tile with overhead wires: a manual power line, or any road (auto street line). */
+export const carriesPower = (t: Tile) => t.powerLine || t.road;
+
 /** Where to put the pole for the power line on tile (x, z). */
 export function poleSpot(tiles: Tile[], x: number, z: number): PoleSpot {
   const has: Has = (a, b, f) => inBounds(a, b) && f(tiles[idx(a, b)]);
@@ -104,8 +110,8 @@ export function poleSpot(tiles: Tile[], x: number, z: number): PoleSpot {
   const pos = new THREE.Vector3(x + 0.5, 0, z + 0.5);
 
   // Crossarm orientation: perpendicular to the direction the line runs.
-  const lineEW = has(x - 1, z, (n) => n.powerLine) || has(x + 1, z, (n) => n.powerLine);
-  const lineNS = has(x, z - 1, (n) => n.powerLine) || has(x, z + 1, (n) => n.powerLine);
+  const lineEW = has(x - 1, z, carriesPower) || has(x + 1, z, carriesPower);
+  const lineNS = has(x, z - 1, carriesPower) || has(x, z + 1, carriesPower);
   const rotY = lineNS && !lineEW ? Math.PI / 2 : 0;
 
   if (t.road) {

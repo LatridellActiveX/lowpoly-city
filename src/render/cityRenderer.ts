@@ -26,7 +26,7 @@ import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
-import { cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
+import { carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -199,7 +199,7 @@ export class CityRenderer {
         if (ew !== ns) P.roadDash.add(this.place(center, ns ? Math.PI / 2 : 0));
       }
 
-      if (t.powerLine) {
+      if (carriesPower(t)) {
         // Pole on the street edge (see powerLines.ts for the placement rules).
         const spot = poleSpot(tiles, x, z);
         P.pole.add(this.place(spot.pos, spot.rotY));
@@ -213,7 +213,7 @@ export class CityRenderer {
         }
         // Draw each span once: only to the east and south neighbours.
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
-          if (!has(x + dx, z + dz, (n) => n.powerLine)) continue;
+          if (!has(x + dx, z + dz, carriesPower)) continue;
           const other = poleSpot(tiles, x + dx, z + dz);
           const a = spot.pos.clone().setY(WIRE_Y);
           const b = other.pos.clone().setY(WIRE_Y);
@@ -305,7 +305,7 @@ export class CityRenderer {
     // First choice: a road that also carries a power line, so the pole and
     // its drop wire end up in FRONT of the building (PR 3).
     for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
-      if (has(x + dx, z + dz, (n) => n.road && n.powerLine)) return Math.atan2(dx, dz);
+      if (has(x + dx, z + dz, (n) => n.road)) return Math.atan2(dx, dz);
     }
     for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
       if (has(x + dx, z + dz, (n) => n.road)) return Math.atan2(dx, dz);
@@ -323,7 +323,7 @@ export class CityRenderer {
     const fx = Math.round(Math.sin(face));
     const fz = Math.round(Math.cos(face));
     const options: Array<[number, number]> = [[fx, fz], [0, 1], [1, 0], [0, -1], [-1, 0]];
-    const pick = options.find(([dx, dz]) => has(x + dx, z + dz, (n) => n.powerLine));
+    const pick = options.find(([dx, dz]) => has(x + dx, z + dz, carriesPower));
     if (!pick) return; // powered via a plant/turbine next door, no wire to draw
     const spot = poleSpot(tiles, x + pick[0], z + pick[1]);
     // Start at whichever insulator is nearer the house.

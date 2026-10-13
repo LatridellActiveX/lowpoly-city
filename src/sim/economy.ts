@@ -25,7 +25,9 @@ export const STARTING_CASH = 50_000;
 
 /** Up-front cost. Per tile for line/area tools, per building for point tools. */
 export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number> = {
-  road: 10,
+  // $10 of asphalt + a $2 surcharge for the street-side power poles that are
+  // built automatically along every road (PR 3 auto power lines).
+  road: 12,
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
