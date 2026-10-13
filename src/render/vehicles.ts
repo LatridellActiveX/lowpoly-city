@@ -37,10 +37,48 @@ export const VEHICLES = {
     ]),
   /** Truck cargo box: white, tinted per cargo type by the instance colour. */
   truckBox: () => merge([part(box(0.24, 0.13, 0.13), 0xffffff, [-0.05, 0.045, 0])]),
-  /** Traffic light pole with an arm (the heads are separate so they can change colour). */
-  lightPole: () => merge([part(box(0.025, 0.42, 0.025), 0x3b3f45), part(box(0.16, 0.02, 0.02), 0x3b3f45, [-0.07, 0.4, 0])]),
-  /** One signal lamp (coloured per frame). */
-  lightHead: () => merge([part(box(0.045, 0.045, 0.045), 0xffffff)]),
+  /**
+   * PR 5 traffic signal pole (replaces PR 4's stick + cube). Local frame:
+   * the pole stands at the origin, the MAST ARM reaches along +x over the
+   * road and carries one signal head facing −z; a second head is bolted to
+   * the pole itself facing −x. Each head is a dark housing with a back plate
+   * and three hooded lamp openings (red top, amber middle, green bottom).
+   * The lamps themselves are a separate instanced pool (signalLamp) so each
+   * can be lit or dark every frame — see SIGNAL_LAMPS for their positions.
+   */
+  lightPole: () => {
+    const DARKP = 0x2e3238, HOUSING = 0x22262b, PLATE = 0x111316, YEL = 0xc9a227;
+    const p: THREE.BufferGeometry[] = [
+      part(new THREE.CylinderGeometry(0.035, 0.04, 0.03, 10).translate(0, 0.015, 0), 0x8b8f94), // concrete footing
+      part(new THREE.CylinderGeometry(0.016, 0.021, 0.54, 10).translate(0, 0.27, 0), DARKP), // tapered pole
+      part(new THREE.SphereGeometry(0.018, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), DARKP, [0, 0.54, 0]), // pole cap
+      // Mast arm: a slim tube along +x plus a diagonal brace for strength.
+      part(new THREE.CylinderGeometry(0.008, 0.012, 0.42, 8).rotateZ(Math.PI / 2).translate(0.21, 0, 0), DARKP, [0, 0.5, 0]),
+      part(new THREE.CylinderGeometry(0.005, 0.005, 0.16, 6).rotateZ(Math.PI / 2 - 0.45).translate(0.072, 0, 0), DARKP, [0, 0.465, 0]),
+      // Pedestrian push-button box and a little street-name sign on the arm.
+      part(box(0.02, 0.03, 0.014), YEL, [0, 0.14, 0.02]),
+      part(box(0.12, 0.028, 0.004), 0x1f7a3d, [0.15, 0.525, 0]),
+    ];
+    // Signal head: housing + back plate + three visors over the lamp openings.
+    const head = (cx: number, cy: number, cz: number, facing: 'z' | 'x') => {
+      const rot: [number, number, number] = facing === 'z' ? [0, 0, 0] : [0, Math.PI / 2, 0];
+      const at = (lx: number, ly: number, lz: number): [number, number, number] =>
+        facing === 'z' ? [cx + lx, cy + ly, cz + lz] : [cx + lz, cy + ly, cz - lx];
+      p.push(part(box(0.05, 0.15, 0.04), HOUSING, at(0, -0.075, 0), rot));
+      p.push(part(box(0.075, 0.175, 0.006), PLATE, at(0, -0.0875, 0.023), rot)); // back plate (behind the lamps)
+      p.push(part(box(0.075, 0.006, 0.006), YEL, at(0, -0.0875 - 0.0005, 0.0265), rot)); // reflective border hint
+      for (let k = 0; k < 3; k++) {
+        // Visor: a short hood over each lamp, sticking out toward the driver.
+        p.push(part(new THREE.CylinderGeometry(0.017, 0.017, 0.025, 8, 1, true, -Math.PI / 2, Math.PI).rotateX(Math.PI / 2), HOUSING, at(0, -0.03 - k * 0.042, -0.032), rot));
+      }
+      p.push(part(box(0.012, 0.03, 0.012), DARKP, at(0, 0, 0), rot)); // bracket
+    };
+    head(0.36, 0.49, 0, 'z'); // on the arm, facing −z
+    head(-0.04, 0.4, 0, 'x'); // on the pole, facing −x
+    return merge(p);
+  },
+  /** One signal lamp lens (coloured + lit per frame by the renderer). */
+  lightHead: () => merge([part(new THREE.SphereGeometry(0.014, 10, 6), 0xffffff)]),
   /** Concrete driveway strip, 1 unit long along z (scaled per building). */
   driveway: () => merge([part(box(0.13, 0.012, 1), 0xbdb8ae)]),
   /** Small single garage with a roll-up door facing +z. */
@@ -48,6 +86,19 @@ export const VEHICLES = {
   /** Industrial loading apron with a dock door, along +z. */
   loadingDock: () => merge([part(box(0.3, 0.012, 0.22), 0x9c9890), part(box(0.18, 0.012, 0.03), 0xf2c14e, [0, 0.012, 0.09])]),
 };
+
+/**
+ * PR 5: lamp lens positions in the lightPole's local frame. `head` says which
+ * head the lamp is in ('arm' faces −z = traffic on the arm's road axis,
+ * 'pole' faces −x), `slot` 0 = red, 1 = amber, 2 = green.
+ */
+export const SIGNAL_LAMPS: Array<{ head: 'arm' | 'pole'; slot: 0 | 1 | 2; pos: THREE.Vector3 }> = [];
+for (const slot of [0, 1, 2] as const) {
+  SIGNAL_LAMPS.push({ head: 'arm', slot, pos: new THREE.Vector3(0.36, 0.49 - 0.03 - slot * 0.042, -0.024) });
+  SIGNAL_LAMPS.push({ head: 'pole', slot, pos: new THREE.Vector3(-0.04 - 0.024, 0.4 - 0.03 - slot * 0.042, 0) });
+}
+/** Lit lamp colours (red, amber, green) — dark lamps are drawn at ~12%. */
+export const SIGNAL_COLORS = [0xff3b30, 0xffb020, 0x35e06a];
 
 /** Cargo colours for truck boxes (goods.ts types). */
 export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6cc551, lumber: 0xb07a45, stone: 0xa9a9a9, oil: 0x2b2b2b, coal: 0x4a4038, residents: 0xffffff };

@@ -27,7 +27,7 @@ import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
-import { VEHICLES, vehiclePose } from './vehicles';
+import { SIGNAL_COLORS, SIGNAL_LAMPS, VEHICLES, vehiclePose } from './vehicles';
 import { isIntersection, lightState } from '../sim/traffic';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
@@ -96,16 +96,25 @@ function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: numb
  * blending, it reads as a soft halo around each bulb instead of the flat
  * discs PR 3 painted on the road.
  */
-function haloMaterial(): THREE.MeshBasicMaterial {
+function haloMaterial(neutral = false): THREE.MeshBasicMaterial {
+  // PR 5: the PR 4 halo had a fully opaque centre and a hard 25% stop, so
+  // with additive blending each lamp read as a white blob. Now the gradient
+  // is a smooth, mostly-transparent falloff (many stops approximating a
+  // Gaussian), peaking at only ~40% so overlapping halos don't blow out.
+  // `neutral` = white gradient, so the instance colour can tint it (used
+  // for traffic-signal glows, which take the lamp's red/amber/green).
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
+  cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,236,190,1)');
-  grad.addColorStop(0.25, 'rgba(255,205,130,0.55)');
-  grad.addColorStop(1, 'rgba(255,180,90,0)');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  const rgb = neutral ? '255,255,255' : '255,214,150';
+  for (let k = 0; k <= 10; k++) {
+    const r = k / 10;
+    const a = (neutral ? 0.55 : 0.4) * Math.exp(-r * r * 5) * (1 - r); // soft bell, exactly 0 at the rim
+    grad.addColorStop(r, `rgba(${rgb},${a.toFixed(3)})`);
+  }
   g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
+  g.fillRect(0, 0, 128, 128);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -122,7 +131,7 @@ export class CityRenderer {
   /** PR 4: smokestack tops of fuelled power plants. */
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
-  private junctions: Array<{ i: number; pos: THREE.Vector3 }> = [];
+  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
@@ -159,13 +168,17 @@ export class CityRenderer {
   private readonly bulbGlow = new THREE.MeshBasicMaterial({ color: 0xfff0b8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 
   private readonly haloMat = haloMaterial();
+  /** PR 5: small coloured halo for lit traffic-signal lamps (night only). */
+  private readonly signalGlowMat = haloMaterial(true);
   /** Hour bucket used for window lights (they switch on/off through the night). */
   private hour = -1;
 
   /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). `time` is time of day 0..1. */
   setNight(n: number, time = 0.5): void {
-    this.haloMat.opacity = n * 0.9;
+    this.haloMat.opacity = n * 0.75; // PR 5: subtler (was 0.9 on an opaque-centred texture)
     this.pools.lampHalo.mesh.visible = n > 0.01;
+    this.signalGlowMat.opacity = n * 0.8;
+    this.pools.signalGlow.mesh.visible = n > 0.05;
     // Rebuild window lights when the in-game hour changes at night.
     const h = n > 0.01 ? Math.floor(time * 24) : -1;
     if (h !== this.hour) {
@@ -210,7 +223,9 @@ export class CityRenderer {
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 128);
-    add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 512, false);
+    add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
+    // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
+    add('signalGlow', new THREE.PlaneGeometry(0.11, 0.11), this.signalGlowMat, 512, false);
     add('driveway', VEHICLES.driveway(), solid, 512, false);
     add('garage', VEHICLES.garage(), solid, 256);
     add('loadingDock', VEHICLES.loadingDock(), solid, 128, false);
@@ -240,7 +255,7 @@ export class CityRenderer {
     // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
     add('lampArm', lampArmGeometry(), solid, 512);
     add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
-    add('lampHalo', new THREE.PlaneGeometry(0.42, 0.42), this.haloMat, 512, false);
+    add('lampHalo', new THREE.PlaneGeometry(0.55, 0.55), this.haloMat, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
@@ -337,10 +352,17 @@ export class CityRenderer {
       if (t.road) {
         this.addRoad(t, x, z, center, has);
         if (isIntersection(tiles, i)) {
-          // Light pole on the north-west corner, arm reaching over the junction.
-          const pos = center.clone().add(new THREE.Vector3(-0.44, t.water ? BRIDGE_Y : 0.04, -0.44));
-          P.lightPole.add(this.place(pos, Math.PI * 1.25));
-          this.junctions.push({ i, pos });
+          // PR 5: two signal poles on opposite corners (north-west and
+          // south-east). Each has a mast-arm head over the road for the
+          // north-south traffic and a pole-mounted head for east-west.
+          // NW pole: yaw 0 (arm → east, arm head faces north).
+          // SE pole: yaw π (arm → west, arm head faces south).
+          const y = t.water ? BRIDGE_Y : 0.04;
+          for (const [ox, oz, yaw] of [[-0.44, -0.44, 0], [0.44, 0.44, Math.PI]] as const) {
+            const pos = center.clone().add(new THREE.Vector3(ox, y, oz));
+            P.lightPole.add(this.place(pos, yaw));
+            this.junctions.push({ i, pos, yaw });
+          }
         }
       }
 
@@ -601,7 +623,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -615,17 +637,27 @@ export class CityRenderer {
           P.truckBox.add(m, this.c.setHex(v.color));
         }
       }
-      // Two heads per junction: one facing the north-south traffic, one the east-west.
-      for (const { i, pos: p } of this.junctions) {
+      // PR 5: every pole has two heads × three lamps. Only the active lamp
+      // of each head is lit (full colour; the material is unlit so it reads
+      // as glowing, and at night a soft coloured halo is added on top);
+      // the other two lamps are drawn very dark, like real unlit lenses.
+      // The arm head serves north-south traffic, the pole head east-west.
+      const glowOn = this.pools.signalGlow.mesh.visible;
+      for (const { i, pos: p, yaw } of this.junctions) {
         const st = lightState(i, sim.world.clock);
-        for (const axis of ['ns', 'ew'] as const) {
-          const col = st.green === axis ? (st.amber ? 0xffb020 : 0x35e06a) : 0xff3b30;
-          const off = axis === 'ns' ? new THREE.Vector3(0.05, 0.37, 0.11) : new THREE.Vector3(0.11, 0.37, 0.05);
-          P.lightHead.add(this.place(p.clone().add(off)), this.c.setHex(col));
+        for (const lamp of SIGNAL_LAMPS) {
+          const axis = lamp.head === 'arm' ? 'ns' : 'ew';
+          const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
+          const lit = lamp.slot === active;
+          const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(p);
+          this.c.setHex(SIGNAL_COLORS[lamp.slot]);
+          if (!lit) this.c.multiplyScalar(0.12);
+          P.lightHead.add(this.place(wp), this.c);
+          if (lit && glowOn) P.signalGlow.add(this.m.compose(wp, this.cameraQuat, this.s.set(1, 1, 1)), this.c);
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
