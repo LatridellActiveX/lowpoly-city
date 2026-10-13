@@ -12,6 +12,9 @@ export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
   windTurbine: 15, // low output, cheap and clean
 };
 
+/** PR 4: a power plant out of fuel still makes this much (backup generators). */
+export const UNFUELLED_OUTPUT = 30;
+
 /** How many water units each water tower supplies per tick. */
 export const WATER_OUTPUT = 80;
 

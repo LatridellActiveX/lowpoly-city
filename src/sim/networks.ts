@@ -31,7 +31,7 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, POWER_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, POWER_OUTPUT, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
@@ -55,6 +55,8 @@ function isConduit(t: Tile, kind: Kind): boolean {
 export function output(t: Tile, kind: Kind, wind: number): number {
   if (kind === 'water') return WATER_OUTPUT;
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
+  // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
+  if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;
   return POWER_OUTPUT[t.structure] ?? 0;
 }
 

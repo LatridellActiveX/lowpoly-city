@@ -95,6 +95,10 @@ export class World {
    * changing the sim update rate in Settings doesn't change how long a day is.
    */
   clock = 0;
+  /** PR 4: export price multiplier (the 10,000 tier raises it, progression.ts). */
+  get exportBonus(): number {
+    return this.tier >= 3 ? 1.25 : 1;
+  }
   /** PR 4: highest population tier reached (progression.ts). Never goes down. */
   tier = 0;
   private resourceCache: Uint8Array | null = null;

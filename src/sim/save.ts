@@ -92,6 +92,7 @@ function mergeLedger(l: Partial<Ledger> | null | undefined): Ledger | null {
     upkeep: { ...e.upkeep, ...l.upkeep },
     construction: l.construction ?? 0,
     refunds: l.refunds ?? 0,
+    trade: { ...e.trade, ...l.trade },
   };
 }
 

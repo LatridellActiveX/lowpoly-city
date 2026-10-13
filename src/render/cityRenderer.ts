@@ -78,6 +78,8 @@ export class CityRenderer {
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
   private lastOverlay: OverlayMode = 'none';
+  /** PR 4: smokestack tops of fuelled power plants. */
+  private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
   private junctions: Array<{ i: number; pos: THREE.Vector3 }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
@@ -159,6 +161,8 @@ export class CityRenderer {
     add('driveway', VEHICLES.driveway(), solid, 512, false);
     add('garage', VEHICLES.garage(), solid, 256);
     add('loadingDock', VEHICLES.loadingDock(), solid, 128, false);
+    // PR 4 smokestack smoke (only while a plant has fuel).
+    add('smoke', new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false, flatShading: true }), 256, false);
     // PR 4 construction sites.
     add('scaffold', SITE.scaffold(), solid, 64);
     add('craneMast', SITE.craneMast(), solid, 64);
@@ -229,6 +233,7 @@ export class CityRenderer {
     this.lamps = [];
     this.cranes = [];
     this.junctions = [];
+    this.stacks = [];
     const tiles = sim.world.tiles;
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
@@ -373,6 +378,8 @@ export class CityRenderer {
 
       if (t.structure === 'powerPlant') {
         P.powerPlant.add(this.place(center, turn));
+        // Smoke from the tall stack at model (−0.32, 1.02, −0.3), only while fuelled.
+        if (t.stock > 0) this.stacks.push(new THREE.Vector3(-0.32, 1.02, -0.3).applyAxisAngle(THREE.Object3D.DEFAULT_UP, turn).add(center));
         // Plants connect to the street grid with a wire from their corner.
         this.addGridTie(tiles, x, z, has, false);
       }
@@ -620,6 +627,23 @@ export class CityRenderer {
     blades.end();
 
     this.animateTraffic();
+    // PR 4 smoke: each stack emits SMOKE_PUFFS puffs on a loop. A puff's age
+    // a (0..1) comes from time + its slot, so they're evenly staggered; it
+    // rises, drifts downwind (+x, scaled by the wind) and grows/lightens as it ages.
+    const smoke = this.pools.smoke;
+    smoke.begin();
+    const wind = this.sim?.world.wind ?? 0.5;
+    this.stacks.forEach((top, k) => {
+      for (let p = 0; p < 6; p++) {
+        const a = (time * 0.22 + p / 6 + k * 0.37) % 1;
+        const pos = top.clone().add(new THREE.Vector3(a * (0.15 + wind * 0.6), a * 0.9, a * 0.1));
+        const r = 0.05 + a * 0.16;
+        const g = 0.55 + a * 0.4;
+        this.q.identity();
+        smoke.add(this.m.compose(pos, this.q, this.s.set(r, r, r)), this.c.setRGB(g, g, g));
+      }
+    });
+    smoke.end();
     // PR 4: crane jibs swing slowly back and forth over their sites.
     const jib = this.pools.craneJib;
     jib.begin();

@@ -89,19 +89,22 @@ export interface Ledger {
   upkeep: Record<keyof typeof UPKEEP, number>;
   construction: number;
   refunds: number;
+  /** PR 4 trade: export income (+) and imported power-plant coal (−). */
+  trade: { exports: number; fuel: number };
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
   upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0 },
   construction: 0,
   refunds: 0,
+  trade: { exports: 0, fuel: 0 },
 });
 
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
   const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park;
-  return tax + l.refunds - up - l.construction;
+  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
 }
 
 /** What placing `tool` on tile `t` costs (including clearing a decoration). */
@@ -127,5 +130,7 @@ export function bulldozeRefund(t: Tile): number {
 /** Monthly tax this tile pays right now (0 if not operating). */
 export function monthlyTax(t: Tile, operating: boolean, rates: TaxRates): number {
   if (!t.zone || t.level === 0 || !operating) return 0;
-  return TAX_BASE[t.zone] * t.level * rates[t.zone];
+  // PR 4: a shop with empty shelves (goods.ts) only pays half.
+  const shelves = t.zone === 'commercial' && t.stock <= 0 ? 0.5 : 1;
+  return TAX_BASE[t.zone] * t.level * rates[t.zone] * shelves;
 }

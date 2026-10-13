@@ -32,6 +32,7 @@ import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo } from './traffic';
+import { Shipping } from './goods';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
 import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
@@ -94,6 +95,8 @@ export class Simulation {
   env: Environment;
   /** PR 4: cars and trucks currently on the map (not saved). */
   traffic = new Traffic();
+  /** PR 4: goods production, deliveries, exports and plant fuel (goods.ts). */
+  shipping = new Shipping();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
   settings: Settings = loadSettings();
   /** 0 = paused, 1/2/3 = speed multiplier. */
@@ -160,6 +163,7 @@ export class Simulation {
             t.structure = 'building';
             t.happyTicks = 0;
             this.completed.push(i); // traffic.ts sends new residents' cars here
+            if (t.zone === 'commercial') t.stock = Math.max(t.stock, 4); // opening stock
           }
         }
         return;
@@ -190,6 +194,7 @@ export class Simulation {
       t.happyTicks = 0;
     });
     this.spawnTraffic();
+    this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
     if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
     this.version++;
