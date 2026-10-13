@@ -8,6 +8,8 @@
  */
 import * as THREE from 'three';
 import { GroundType } from '../sim/terrain';
+import { fbm } from '../sim/random';
+import { GRID_SIZE } from '../sim/types';
 import { box, merge, part } from './models';
 
 const TRUNK = 0x7a5536;
@@ -51,3 +53,50 @@ export const GROUND_COLORS: Record<GroundType, number> = {
   dirt: 0xb19466,
   rocky: 0x9fa38f,
 };
+
+/** Hermite smoothstep: 0 below a, 1 above b, an S-curve in between. */
+const smooth = (a: number, b: number, v: number) => {
+  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * SMOOTH GROUND (PR 3)
+ * --------------------
+ * PR 2 coloured each tile as one flat square, so dirt and rocky patches had
+ * hard, blocky staircase edges. Now the ground is ONE plane with two vertices
+ * per tile edge, and each vertex gets a colour from the same noise fields
+ * terrain.ts uses — but blended with smoothstep instead of hard thresholds.
+ * The GPU interpolates colours between vertices, so patches fade softly into
+ * the grass. (Decorations still use the per-tile `groundType`, whose
+ * thresholds sit in the middle of these blend bands, so rocks still land on
+ * rocky-looking ground.)
+ */
+export function buildGroundMesh(seed: number): THREE.Mesh {
+  const RES = 2; // vertices per tile edge
+  const seg = GRID_SIZE * RES;
+  const geo = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE, seg, seg).rotateX(-Math.PI / 2);
+  geo.translate(GRID_SIZE / 2, 0.002, GRID_SIZE / 2);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  const tmp = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    // Sample noise at the tile-space point; −0.5 lines vertex samples up with
+    // the tile-centre samples used by groundType().
+    const x = pos.getX(i) - 0.5;
+    const z = pos.getZ(i) - 0.5;
+    const patch = fbm(x, z, 9, seed + 7);
+    const meadow = fbm(x, z, 14, seed + 3);
+    c.setHex(GROUND_COLORS.grass).lerp(tmp.setHex(GROUND_COLORS.meadow), smooth(0.48, 0.62, meadow));
+    c.lerp(tmp.setHex(GROUND_COLORS.dirt), smooth(0.64, 0.73, patch));
+    c.lerp(tmp.setHex(GROUND_COLORS.rocky), smooth(0.74, 0.82, patch));
+    // Gentle large-scale brightness wobble so grass isn't one flat colour.
+    c.multiplyScalar(0.92 + fbm(x, z, 6, seed + 11) * 0.07);
+    colors.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  mesh.receiveShadow = true;
+  return mesh;
+}

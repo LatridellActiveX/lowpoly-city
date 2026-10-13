@@ -23,8 +23,8 @@ import { InstancePool } from './instancing';
 import { MODELS } from './models';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
-import { GROUND_COLORS, NATURE } from './nature';
-import { Deco, grassShade, groundType } from '../sim/terrain';
+import { buildGroundMesh, NATURE } from './nature';
+import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { cableMatrix, dropGeometry, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
@@ -48,6 +48,9 @@ export class CityRenderer {
   /** Positions + colours of warning markers (for bobbing animation). */
   private markers: Array<{ pos: THREE.Vector3; color: THREE.Color }> = [];
   overlay: OverlayMode = 'none';
+  /** Smooth vertex-coloured ground (nature.ts), rebuilt when the city seed changes. */
+  private groundMesh: THREE.Mesh | null = null;
+  private groundSeed = NaN;
 
   // Reused scratch objects so we don't allocate thousands per rebuild.
   private readonly m = new THREE.Matrix4();
@@ -64,8 +67,6 @@ export class CityRenderer {
     add('road', MODELS.road(), solid, 1024, false);
     add('roadDash', MODELS.roadDash(), solid, 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
-    // Ground squares (no shadows cast, but they receive them).
-    add('ground', MODELS.tilePlane(), new THREE.MeshLambertMaterial(), GRID_SIZE * GRID_SIZE, false);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
     const designs = buildDesigns();
     for (const zone of ['residential', 'commercial', 'industrial'] as const) {
@@ -122,17 +123,21 @@ export class CityRenderer {
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
     const seed = sim.world.seed;
+    // The smooth ground mesh only depends on the seed, so build it once per city.
+    if (seed !== this.groundSeed) {
+      if (this.groundMesh) {
+        this.group.remove(this.groundMesh);
+        this.groundMesh.geometry.dispose();
+      }
+      this.groundMesh = buildGroundMesh(seed);
+      this.group.add(this.groundMesh);
+      this.groundSeed = seed;
+    }
     tiles.forEach((t, i) => {
       const [x, z] = coords(i);
       const center = tileCenter(x, z);
       // A stable pseudo-random quarter-turn for things that don't face a road.
       const turn = Math.floor(hash2(x, z, seed + 7) * 4) * (Math.PI / 2);
-
-      // ---- Ground colour: terrain type + a gentle per-tile shade ----
-      const g = groundType(x, z, seed);
-      const shade = 0.92 + grassShade(x, z, seed);
-      this.c.setHex(GROUND_COLORS[g]).multiplyScalar(shade);
-      P.ground.add(this.place(center.clone().setY(0.002)), this.c);
 
       // ---- Decorations: jittered, scaled and rotated by hash ----
       if (t.deco) {

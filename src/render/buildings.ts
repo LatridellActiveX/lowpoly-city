@@ -29,6 +29,35 @@ import { hash2 } from '../sim/random';
 import { ZoneType } from '../sim/types';
 import { box, gable, merge, part, pyramid } from './models';
 
+/**
+ * Gambrel roof: like gable() but the outline bends — steep near the eaves,
+ * shallow near the ridge. Drawn as a 5-point shape in the (depth, height)
+ * plane and extruded along x.
+ */
+function gambrel(w: number, h: number, d: number): THREE.BufferGeometry {
+  const s = new THREE.Shape();
+  s.moveTo(-d / 2, 0);
+  s.lineTo(d / 2, 0);
+  s.lineTo(d * 0.3, h * 0.65); // the "knee" where the slope changes
+  s.lineTo(0, h);
+  s.lineTo(-d * 0.3, h * 0.65);
+  s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, { depth: w, bevelEnabled: false });
+  g.translate(0, 0, -w / 2);
+  g.rotateY(Math.PI / 2);
+  return g;
+}
+
+/**
+ * Half-cylinder lying along x with its flat side on the ground.
+ * CylinderGeometry with theta −90°..+90° gives the half where z ≥ 0; rotating
+ * about z turns its axis to x, then rotating about x by −90° swings that half
+ * up so it sits above y = 0.
+ */
+function quonset(r: number, length: number): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(r, r, length, 12, 1, false, -Math.PI / 2, Math.PI).rotateZ(Math.PI / 2).rotateX(-Math.PI / 2);
+}
+
 export const DESIGNS_PER_ZONE = 5;
 const W = 0xffffff; // white = "tint me with the instance colour"
 const GLASS = 0x3e5f7a;
@@ -116,15 +145,26 @@ function residential(k: number, level: number): DesignParts {
       if (level === 3) for (let f = 1; f < floors; f++) b.fix(box(w * 0.6, 0.02, 0.08), 0xd8dde2, [w * 0.12, f * FLOOR + 0.04, d * 0.42]); // balconies
       b.fix(box(0.6, 0.05, 0.02), 0x6f8a5a, [0, 0, d / 2 + 0.15]); // hedge
       break;
-    case 3: // Saltbox (lopsided roof) with side garage and fence
-      b.wall(box(w * 0.75, h, d), [-w * 0.12, 0, 0]);
-      b.acc(gable(w * 0.75 + 0.05, 0.26, d + 0.08, 0.3), [-w * 0.12, h, 0]);
-      b.wall(box(w * 0.32, 0.2, d * 0.8), [w * 0.4, 0, d * 0.1]); // garage
-      b.acc(box(w * 0.34, 0.03, d * 0.84), [w * 0.4, 0.2, d * 0.1]);
-      b.fix(box(w * 0.24, 0.14, 0.02), 0xd9d4c7, [w * 0.4, 0, d / 2 + 0.005]); // garage door
-      for (let f = 0; f < floors; f++) b.windows(2, w * 0.6, d, 0.11 + f * FLOOR);
-      b.fix(box(0.02, 0.07, 0.8), 0xf4f1ea, [-0.43, 0, 0]); // fence
+    case 3: {
+      // Gambrel "barn" house (PR 3 redesign: the old saltbox looked too much
+      // like the gable cottage). A gambrel roof has steep lower slopes and a
+      // shallow top, giving the roof a distinctive "bent" outline.
+      const roofH = 0.2 + level * 0.04;
+      b.wall(box(w, h, d));
+      b.acc(gambrel(w + 0.05, roofH, d + 0.08), [0, h, 0]);
+      // Round attic window in the gable end and white corner trim.
+      b.fix(new THREE.CylinderGeometry(0.045, 0.045, 0.02, 10).rotateZ(Math.PI / 2), 0xf4f1ea, [w / 2 + 0.03, h + roofH * 0.45, 0]);
+      b.fix(new THREE.CylinderGeometry(0.03, 0.03, 0.022, 10).rotateZ(Math.PI / 2), GLASS, [w / 2 + 0.032, h + roofH * 0.45, 0]);
+      b.fix(box(0.02, h, 0.02), 0xf4f1ea, [-w / 2, 0, d / 2]);
+      b.fix(box(0.02, h, 0.02), 0xf4f1ea, [w / 2, 0, d / 2]);
+      // Barn-style double door with an X brace, plus windows.
+      b.fix(box(0.16, 0.18, 0.02), 0x8c3b2e, [0, 0, d / 2 + 0.005]);
+      b.fix(box(0.2, 0.012, 0.022), 0xf4f1ea, [0, 0.09, d / 2 + 0.008], [0, 0, 0.8]);
+      b.fix(box(0.2, 0.012, 0.022), 0xf4f1ea, [0, 0.09, d / 2 + 0.008], [0, 0, -0.8]);
+      for (let f = 1; f < floors; f++) b.windows(2, w, d, 0.1 + f * FLOOR);
+      b.fix(box(0.1, 0.03, 0.08), 0xcfc4b0, [0, 0, d / 2 + 0.05]); // stoop
       break;
+    }
     default: // Steep A-frame with a dormer
       b.wall(box(w * 0.9, FLOOR * Math.max(1, floors - 1) + 0.04, d));
       b.acc(gable(w * 0.9 + 0.06, 0.32 + level * 0.06, d + 0.1), [0, FLOOR * Math.max(1, floors - 1) + 0.04, 0]);
@@ -181,15 +221,30 @@ function commercial(k: number, level: number): DesignParts {
       rooftopUnit(w / 5, -d / 6);
       rooftopUnit(-w / 5, d / 8);
       break;
-    case 3: // Market hall with glass gable and awning
-      b.wall(box(w, h * 0.85, d));
-      b.acc(gable(w + 0.04, 0.16, d + 0.04), [0, h * 0.85, 0]);
-      b.fix(box(w * 0.4, 0.06, 0.02), 0xbfe6ff, [0, h * 0.85 + 0.03, d / 2 - 0.03], [-0.6, 0, 0]);
-      b.acc(box(w * 0.95, 0.03, 0.13), [0, 0.22, d / 2 + 0.05], [0.35, 0, 0]);
-      b.fix(box(w * 0.3, 0.17, 0.02), WOOD, [0, 0, d / 2 + 0.005]);
-      b.windows(4, w, d, 0.09 + (floors > 1 ? FLOOR : 0));
-      b.fix(box(0.08, 0.06, 0.06), 0xd98e3c, [w / 2 + 0.03, 0, d / 2 + 0.04]); // produce crates
+    case 3: {
+      // Convenience store with a fuel canopy (PR 3 redesign: the old market
+      // hall's gable + awning read too close to the corner shop). The shop
+      // sits at the back of the lot and a flat canopy on posts covers pumps.
+      const shopD = d * 0.5;
+      b.wall(box(w, Math.min(h, 0.34), shopD), [0, 0, -d * 0.25]);
+      b.acc(box(w + 0.02, 0.04, shopD + 0.02), [0, Math.min(h, 0.34), -d * 0.25]);
+      b.fix(box(w * 0.7, 0.13, 0.02), 0x9fd7ff, [0, 0.05, -d * 0.25 + shopD / 2 + 0.005]);
+      const canopyY = 0.3 + level * 0.03;
+      for (const [px, pz] of [[-w * 0.35, d * 0.1], [w * 0.35, d * 0.1], [-w * 0.35, d * 0.42], [w * 0.35, d * 0.42]]) {
+        b.fix(box(0.025, canopyY, 0.025), 0xd8dde2, [px, 0, pz]);
+      }
+      b.acc(box(w * 0.85, 0.05, d * 0.45), [0, canopyY, d * 0.26]); // canopy fascia (accent colour)
+      b.fix(box(w * 0.83, 0.01, d * 0.43), 0xf4f6f8, [0, canopyY - 0.005, d * 0.26]); // light underside
+      for (let p = 0; p < level; p++) {
+        const px = -w * 0.2 + (p * w * 0.4) / Math.max(1, level - 1);
+        b.fix(box(0.05, 0.1, 0.04), 0xe5e8eb, [level === 1 ? 0 : px, 0, d * 0.26]); // fuel pump
+        b.fix(box(0.035, 0.03, 0.042), 0xff6b6b, [level === 1 ? 0 : px, 0.07, d * 0.26]);
+      }
+      b.fix(box(0.03, 0.55, 0.03), DARK, [w / 2, 0, d / 2]); // price sign pole
+      b.acc(box(0.14, 0.16, 0.03), [w / 2, 0.55, d / 2]);
+      if (floors > 1) b.windows(3, w, shopD, 0.36);
       break;
+    }
     default: // Stepped tower with antenna
       b.wall(box(w, h * 0.6, d));
       b.wall(box(w * 0.65, h * 0.6, d * 0.65), [0, h * 0.6, 0]);
@@ -237,14 +292,28 @@ function industrial(k: number, level: number): DesignParts {
       b.fix(new THREE.CylinderGeometry(0.02, 0.02, w * 0.4, 6).rotateZ(Math.PI / 2), 0x9a9a9a, [w * 0.05, h * 0.6, 0]);
       b.fix(box(0.14, 0.15, 0.02), 0x6c6f73, [-w * 0.22, 0, d / 2 + 0.005]);
       break;
-    case 2: // Gable warehouse with loading dock and fence
-      b.wall(box(w, h, d * 0.8), [0, 0, -d * 0.1]);
-      b.acc(gable(w + 0.04, 0.12, d * 0.8 + 0.04), [0, h, -d * 0.1]);
-      b.fix(box(w * 0.7, 0.06, 0.12), 0x9a9a9a, [0, 0, d * 0.3 + 0.06]); // dock
-      for (let k2 = 0; k2 < 2; k2++) b.fix(box(0.14, 0.14, 0.02), 0x6c6f73, [-w / 4 + k2 * (w / 2), 0.04, d * 0.3 + 0.005]);
+    case 2: {
+      // Quonset hut: a corrugated half-cylinder shed (PR 3 redesign: the old
+      // gable warehouse looked like the saw-tooth one). See quonset() below.
+      // The hut's axis runs front-to-back (z) so its round END faces the road.
+      const r = Math.min(w * 0.36, 0.18 + level * 0.05);
+      const len = d * 0.8;
+      const cz = -d * 0.06;
+      const alongZ: [number, number, number] = [0, Math.PI / 2, 0];
+      b.acc(quonset(r, len), [0, 0, cz], alongZ);
+      // Ribs every so often, slightly darker so the curve reads.
+      for (let k2 = 0; k2 < 4 + level; k2++) {
+        const z = cz - len / 2 + (len * (k2 + 0.5)) / (4 + level);
+        b.fix(quonset(r + 0.006, 0.012), 0x8d9196, [0, 0, z], alongZ);
+      }
+      // Front end wall: big roller door + a small lit window above it.
+      b.fix(box(r * 1.1, r * 0.85, 0.02), 0x6c6f73, [0, 0, cz + len / 2 + 0.006]);
+      b.fix(box(0.08, 0.04, 0.022), 0xffd98a, [0, r * 0.88, cz + len / 2 + 0.007]);
+      // Shipping containers stacked beside the hut.
+      for (let c = 0; c < level; c++) b.fix(box(0.09, 0.08, 0.16), [0x4f7da8, 0xb5543c, 0x3d8f8a][c], [w * 0.42, 0.08 * c, d * 0.15]);
       b.fix(box(0.02, 0.08, 0.85), 0xb0b4b8, [-0.44, 0, 0]);
-      b.fix(box(0.85, 0.08, 0.02), 0xb0b4b8, [0, 0, -0.44]);
       break;
+    }
     case 3: // Heavy plant: tall striped stacks + silo
       b.wall(box(w * 0.7, h * 1.15, d), [-w * 0.12, 0, 0]);
       b.acc(box(w * 0.72, 0.04, d + 0.02), [-w * 0.12, h * 1.15, 0]);

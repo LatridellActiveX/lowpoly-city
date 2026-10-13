@@ -29,6 +29,7 @@ import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
 import { applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
 import { Tile, ToolId } from './types';
+import { hash2 } from './random';
 import { bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
 
 /** Result of trying to apply a tool, so the UI can explain what happened. */
@@ -108,7 +109,10 @@ export class Simulation {
       if (t.happyTicks < GROW_TICKS || t.level >= MAX_LEVEL) return;
       // Small random delay so a freshly zoned block doesn't pop up all at once.
       // Higher taxes make the chance smaller (economy.ts growthFactor).
-      if (Math.random() > 0.35 * growthFactor(w.taxRates[t.zone])) return;
+      // SEEDED (PR 3): the "dice roll" is a hash of (tile, tick, city seed), so
+      // the same city with the same actions grows exactly the same way every
+      // time — handy for testing and for sharing seeds later.
+      if (hash2(i, w.tick, w.seed + 777) > 0.35 * growthFactor(w.taxRates[t.zone])) return;
       const extra = DEMAND[t.zone];
       if (sparePower[s.powerNet] < extra.power || spareWater[s.waterNet] < extra.water) return;
       sparePower[s.powerNet] -= extra.power;
