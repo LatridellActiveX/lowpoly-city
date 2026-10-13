@@ -85,13 +85,30 @@ export const MODELS = {
       part(new THREE.CylinderGeometry(0.12, 0.17, 0.5, 8).translate(0, 0.25, 0), 0xe1e4e8, [0.25, 0.12, 0.25]),
       part(new THREE.CylinderGeometry(0.04, 0.05, 0.9, 6).translate(0, 0.45, 0), 0x55595e, [-0.32, 0.12, -0.3]),
       part(box(0.06, 0.05, 0.06), 0xffcc33, [-0.2, 0.54, 0.15]),
+      // PR 5 detail: cooling-tower rims, boiler-house windows, a coal pile,
+      // a conveyor up to the boiler house, pipe racks and a perimeter fence.
+      part(new THREE.CylinderGeometry(0.155, 0.155, 0.03, 12, 1, true).translate(0, 0.72, 0), 0xc23b2f, [0.22, 0, -0.2]),
+      part(new THREE.CylinderGeometry(0.125, 0.125, 0.03, 12, 1, true).translate(0, 0.6, 0), 0xc23b2f, [0.25, 0, 0.25]),
+      ...[-0.32, -0.2, -0.08].flatMap((x) => [part(box(0.06, 0.07, 0.01), 0x3e5f7a, [x, 0.3, 0.405]), part(box(0.07, 0.01, 0.02), 0xf4f1ea, [x, 0.29, 0.41])]),
+      part(new THREE.ConeGeometry(0.13, 0.1, 9).translate(0, 0.05, 0), 0x2b2724, [-0.3, 0.12, -0.05]),
+      part(box(0.05, 0.02, 0.36), 0x55595e, [-0.3, 0.3, 0.02], [0.55, 0, 0]),
+      part(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8).rotateZ(Math.PI / 2), 0x8d8f91, [0.02, 0.35, 0.0]),
+      part(new THREE.CylinderGeometry(0.02, 0.02, 0.32, 8).rotateX(Math.PI / 2), 0x8d8f91, [0.08, 0.28, 0.02]),
+      ...[-0.45, -0.15, 0.15, 0.45].map((x) => part(box(0.014, 0.08, 0.014), 0x7d848b, [x, 0.12, 0.46])),
+      part(box(0.92, 0.006, 0.006), 0x7d848b, [0, 0.19, 0.46]),
     ]),
   /** Wind turbine without blades (blades are separate so they can spin). */
   windTower: () =>
     merge([
       part(box(0.4, 0.06, 0.4), 0x9aa0a6),
-      part(new THREE.CylinderGeometry(0.025, 0.05, 1.2, 6).translate(0, 0.6, 0), 0xf5f7fa, [0, 0.06, 0]),
+      part(new THREE.CylinderGeometry(0.025, 0.05, 1.2, 12).translate(0, 0.6, 0), 0xf5f7fa, [0, 0.06, 0]),
       part(box(0.1, 0.08, 0.2), 0xf5f7fa, [0, 1.22, 0]),
+      // PR 5 detail: tower door, flange rings, rounded nacelle tail, vents.
+      part(box(0.04, 0.08, 0.02), 0x8a8f96, [0, 0.06, 0.045]),
+      part(new THREE.CylinderGeometry(0.043, 0.043, 0.015, 12).translate(0, 0.0075, 0), 0xdde2e8, [0, 0.4, 0]),
+      part(new THREE.CylinderGeometry(0.034, 0.034, 0.015, 12).translate(0, 0.0075, 0), 0xdde2e8, [0, 0.8, 0]),
+      part(new THREE.SphereGeometry(0.05, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-Math.PI / 2), 0xf5f7fa, [0, 1.26, -0.1]),
+      part(box(0.06, 0.012, 0.08), 0xc9ced4, [0, 1.3, -0.02]),
     ]),
   /** Three blades around the origin in the x/y plane; spun around z by the renderer. */
   windBlades: () => {
@@ -111,6 +128,20 @@ export const MODELS = {
       part(new THREE.CylinderGeometry(0.3, 0.26, 0.34, 10).translate(0, 0.17, 0), 0x5fa8d3, [0, 0.58, 0]),
       part(new THREE.ConeGeometry(0.32, 0.16, 10).translate(0, 0.08, 0), 0x3f7fa8, [0, 0.92, 0]),
       part(box(0.2, 0.06, 0.2), 0x8a8f96),
+      // PR 5 detail: X cross-braces between legs, a catwalk ring with rail,
+      // a ladder, the riser pipe and a finial on the roof.
+      // Each side: an X of two diagonal braces in the plane between two legs.
+      // (Built facing +z at z = 0.18, then rotated to each side — rotation
+      // happens BEFORE translation in part(), so we pre-rotate the geometry.)
+      ...[0, Math.PI / 2, Math.PI, -Math.PI / 2].flatMap((a) =>
+        [0.9, -0.9].map((tilt) => part(box(0.008, 0.42, 0.008).translate(0, -0.21, 0).rotateZ(tilt).translate(0, 0.51, 0.18).rotateY(a), 0x8a8f96)),
+      ),
+      part(new THREE.TorusGeometry(0.31, 0.012, 4, 20).rotateX(Math.PI / 2), 0x6b7078, [0, 0.6, 0]),
+      part(new THREE.TorusGeometry(0.31, 0.006, 3, 20).rotateX(Math.PI / 2), 0x6b7078, [0, 0.68, 0]),
+      part(box(0.008, 0.6, 0.008), 0x6b7078, [0.27, 0, 0.12]),
+      part(box(0.008, 0.6, 0.008), 0x6b7078, [0.27, 0, 0.17]),
+      part(new THREE.CylinderGeometry(0.035, 0.035, 0.6, 8).translate(0, 0.3, 0), 0x7d8288),
+      part(new THREE.SphereGeometry(0.03, 8, 4), 0x3f7fa8, [0, 1.0, 0]),
     ]);
   },
   /** Water pipe junction + a 1-unit segment along +x (lies on the ground). */
@@ -135,6 +166,13 @@ export const MODELS = {
       part(box(0.2, 0.06, 0.015), 0x8a5a36, [-0.25, 0.1, 0.23]), // bench back
       part(box(0.015, 0.05, 0.05), 0x444444, [-0.33, 0.035, 0.2]),
       part(box(0.015, 0.05, 0.05), 0x444444, [-0.17, 0.035, 0.2]),
+      // PR 5 detail: lamp post with a globe, bin, stone path edging, extra flowers, low hedge.
+      part(new THREE.CylinderGeometry(0.008, 0.01, 0.28, 8).translate(0, 0.14, 0), 0x2e3238, [0.08, 0.035, 0.08]),
+      part(new THREE.SphereGeometry(0.025, 8, 6), 0xfff3c4, [0.08, 0.33, 0.08]),
+      part(new THREE.CylinderGeometry(0.02, 0.018, 0.05, 10).translate(0, 0.025, 0), 0x3f6b3f, [-0.1, 0.035, 0.1]),
+      ...[-1, 1].flatMap((sd) => [part(box(0.94, 0.016, 0.012), 0xb9ae94, [0, 0.035, sd * 0.066]), part(box(0.012, 0.016, 0.94), 0xb9ae94, [sd * 0.066, 0.035, 0])]),
+      ...[[0.17, -0.33], [0.33, -0.17], [0.34, -0.33]].map(([x, z]) => part(new THREE.IcosahedronGeometry(0.03, 0), 0xc77dff, [x, 0.06, z])),
+      part(box(0.3, 0.06, 0.06), 0x4f8f45, [0.27, 0.035, 0.42]),
     ]),
   /** Floating warning gem above buildings that aren't operating. */
   marker: () => merge([part(new THREE.OctahedronGeometry(0.12), 0xffffff)]),
@@ -198,6 +236,16 @@ export function nuclearPlantModel(): THREE.BufferGeometry {
     part(new THREE.SphereGeometry(0.17, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.34, 0), 0xd4d8dc, [0.24, 0, 0.18]), // dome
     part(box(0.3, 0.22, 0.2), 0x5e7f9e, [0.22, 0.08, -0.25]), // turbine hall
     part(box(0.32, 0.03, 0.22), 0x3d556b, [0.22, 0.3, -0.25]),
+    // PR 5 detail: second, smaller cooling tower ring, reactor hatch + vent,
+    // turbine-hall windows, transformer yard, fence and switchyard pylons.
+    part(new THREE.TorusGeometry(0.235, 0.012, 4, 24).rotateX(Math.PI / 2), 0xbcb9b2, [-0.18, 0.33, -0.16]),
+    part(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 10).translate(0, 0.04, 0), 0xb0b4b8, [0.24, 0.48, 0.18]),
+    part(box(0.07, 0.09, 0.02), 0x55595e, [0.24, 0.08, 0.355]),
+    ...[0.12, 0.2, 0.28, 0.36].map((x) => part(box(0.05, 0.06, 0.01), 0x9fd7ff, [x, 0.17, -0.145])),
+    ...[[-0.36, 0.3], [-0.24, 0.3], [-0.36, 0.4]].flatMap(([x, z]) => [part(box(0.07, 0.07, 0.06), 0x6c7a86, [x, 0.08, z]), part(new THREE.CylinderGeometry(0.008, 0.008, 0.05, 6).translate(0, 0.025, 0), 0xd9c7a0, [x, 0.15, z])]),
+    ...[-0.47, -0.235, 0, 0.235, 0.47].flatMap((x) => [part(box(0.012, 0.09, 0.012), 0x7d848b, [x, 0.08, 0.47]), part(box(0.012, 0.09, 0.012), 0x7d848b, [0.47, 0.08, x])]),
+    part(box(0.95, 0.006, 0.006), 0x7d848b, [0, 0.16, 0.47]),
+    part(box(0.006, 0.006, 0.95), 0x7d848b, [0.47, 0.16, 0]),
   ]);
 }
 
@@ -213,5 +261,14 @@ export function pumpStationModel(): THREE.BufferGeometry {
     part(box(0.26, 0.24, 0.22), 0xd9d3c7, [0.26, 0.06, 0.26]),
     part(box(0.28, 0.03, 0.24), 0x6d6158, [0.26, 0.3, 0.26]),
     part(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8).rotateZ(Math.PI / 2), 0x2f7fbf, [0.05, 0.12, 0.32]),
+    // PR 5 detail: tank bands, ladder, valve wheels, pump-house door/windows, roof vents.
+    part(new THREE.CylinderGeometry(0.315, 0.315, 0.015, 16, 1, true).translate(0, 0.2, 0), 0x3f7fa8, [-0.12, 0.06, -0.1]),
+    part(new THREE.CylinderGeometry(0.315, 0.315, 0.015, 16, 1, true).translate(0, 0.38, 0), 0x3f7fa8, [-0.12, 0.06, -0.1]),
+    part(box(0.008, 0.5, 0.008), 0x6b7078, [0.17, 0.06, -0.06]),
+    part(box(0.008, 0.5, 0.008), 0x6b7078, [0.17, 0.06, -0.12]),
+    ...[-0.12, 0.2].map((x) => part(new THREE.TorusGeometry(0.03, 0.006, 4, 12), 0xc23b2f, [x, 0.19, 0.36])),
+    part(box(0.07, 0.13, 0.01), 0x6d6158, [0.22, 0.06, 0.375]),
+    part(box(0.05, 0.05, 0.01), 0x3e5f7a, [0.33, 0.17, 0.375]),
+    part(new THREE.CylinderGeometry(0.02, 0.02, 0.05, 8).translate(0, 0.025, 0), 0x9aa1a8, [0.3, 0.33, 0.22]),
   ]);
 }

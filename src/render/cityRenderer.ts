@@ -173,6 +173,19 @@ export class CityRenderer {
   /** Hour bucket used for window lights (they switch on/off through the night). */
   private hour = -1;
 
+  /**
+   * PR 5 level of detail: 'high' shows the detailed models (and road
+   * furniture like manholes); 'low' the simpler PR 4 models. main.ts calls
+   * setLod() every frame from the zoom level + the Detail setting; a change
+   * forces one rebuild of the instance pools.
+   */
+  lod: 'high' | 'low' = 'high';
+  setLod(lod: 'high' | 'low'): void {
+    if (lod === this.lod) return;
+    this.lod = lod;
+    this.lastVersion = -1;
+  }
+
   /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). `time` is time of day 0..1. */
   setNight(n: number, time = 0.5): void {
     this.haloMat.opacity = n * 0.75; // PR 5: subtler (was 0.9 on an opaque-centred texture)
@@ -202,21 +215,32 @@ export class CityRenderer {
     add('roadCurve', ROADS.curve(), solid, 256, false);
     add('sidewalk', ROADS.sidewalk(), solid, 2048, false);
     add('avenueMarks', ROADS.avenueMarks(), solid, 512, false);
-    add('roadDash', MODELS.roadDash(), solid, 1024, false);
+    add('roadDash', ROADS.streetMarks(), solid, 1024, false); // PR 5: dashes + edge lines
+    // PR 5 road furniture: crosswalks at junctions, manholes, gutter drains.
+    add('crosswalk', ROADS.crosswalk(), solid, 512, false);
+    add('manhole', ROADS.manhole(), solid, 512, false);
+    add('drain', ROADS.drain(), solid, 512, false);
     add('bridge', ROADS.bridgeDeck(), solid, 128);
     add('railing', ROADS.railing(), solid, 256);
     add('highway', ROADS.highway(), solid, 4);
     add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
-    const designs = buildDesigns();
-    for (const zone of ['residential', 'commercial', 'industrial'] as const) {
-      designs[zone].forEach((levels, k) =>
-        levels.forEach((parts, lv) => {
-          for (const which of ['walls', 'accent', 'fixed'] as const) add(`${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
-          add(`${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
-        }),
-      );
+    // PR 5: two levels of detail. "high" pools are named like
+    // "residential.2.1.walls", "low" ones "lo:residential.2.1.walls". Both
+    // exist all the time; rebuild() only fills the set for the current LOD
+    // (the other set is left with 0 instances, so it costs nothing to draw).
+    for (const lod of ['high', 'low'] as const) {
+      const designs = buildDesigns(lod);
+      const pre = lod === 'low' ? 'lo:' : '';
+      for (const zone of ['residential', 'commercial', 'industrial'] as const) {
+        designs[zone].forEach((levels, k) =>
+          levels.forEach((parts, lv) => {
+            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
+            add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
+          }),
+        );
+      }
     }
     // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
     add('car', VEHICLES.car(), solid, 256);
@@ -432,7 +456,7 @@ export class CityRenderer {
           // Turn the building so its front (+z in model space) faces a road.
           const face = this.roadFacing(x, z, has) ?? turn;
           if (st.powered) this.addDropWire(tiles, x, z, face, lv, has, t.zone);
-          const key = `${t.zone}.${look.design}.${lv}`;
+          const key = `${this.lod === 'low' ? 'lo:' : ''}${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
           P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
@@ -562,8 +586,19 @@ export class CityRenderer {
         // Kerb strips on the edges with no road beyond them (yaw: N=0, W=π/2, S=π, E=3π/2).
         [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => {
           // The map-edge side of the highway tile stays open: the road continues off the map.
-          if (!has_ && !(t.edge && this.edgeOutward(x, z) === yaw)) P.sidewalk.add(this.place(center, yaw as number));
+          if (!has_ && !(t.edge && this.edgeOutward(x, z) === yaw)) {
+            P.sidewalk.add(this.place(center, yaw as number));
+            // PR 5: a storm drain in the gutter on roughly every third kerb.
+            if (this.lod === 'high' && hash2(x * 4 + (yaw as number) * 7, z, 911) > 0.66) P.drain.add(this.place(center, yaw as number));
+          }
         });
+        // PR 5: zebra crossings on every arm of a junction (3+ road neighbours).
+        if (+n + +e + +s + +w >= 3) {
+          [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => has_ && P.crosswalk.add(this.place(center, yaw as number)));
+        } else if (this.lod === 'high' && hash2(x, z, 913) > 0.72) {
+          // A manhole on some plain road tiles, nudged off the centreline.
+          P.manhole.add(this.place(center.clone().add(new THREE.Vector3(0.12, 0, -0.1))));
+        }
       }
     }
     // Lane markings on straight pieces only.
@@ -599,7 +634,7 @@ export class CityRenderer {
     const progress = 1 - t.construct / CONSTRUCT_TICKS;
     const look = pickLook(zone, x, z, seed);
     const face = this.roadFacing(x, z, has) ?? 0;
-    const key = `${zone}.${look.design}.${lv}`;
+    const key = `${this.lod === 'low' ? 'lo:' : ''}${zone}.${look.design}.${lv}`;
     const m = this.place(center, face, 1, Math.max(0.06, progress), 1);
     const raw = 0.75; // washed-out "unfinished" tint
     P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw));

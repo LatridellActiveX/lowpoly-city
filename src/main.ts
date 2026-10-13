@@ -262,6 +262,8 @@ setSpeed(1);
 setOverlay('none');
 
 // ---- Game loop ----
+/** PR 5: below this camera zoom the low-detail building models are used. */
+const LOD_ZOOM = 0.8;
 const clock = new THREE.Clock();
 let hudTimer = 0;
 let lastNoRoute = 0;
@@ -271,6 +273,9 @@ renderer.setAnimationLoop(() => {
   cam.update(dt);
   dayNight.update(sim);
   city.setNight(dayNight.night, dayNight.time);
+  // PR 5 LOD: detailed models only when Detail = High AND zoomed in past
+  // LOD_ZOOM (far out, the extra trim is sub-pixel anyway).
+  city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.cameraQuat.copy(cam.camera.quaternion);
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
