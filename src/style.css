@@ -89,3 +89,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .notice.fade { opacity: 0; transform: translateX(20px); }
 @keyframes notice-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
 .meter.wind i { background: #9ad8ff; }
+
+/* ---- PR 4: RCI demand bars (ui/demandBars.ts) ---- */
+.rci { position: absolute; left: 10px; bottom: 10px; background: var(--panel); border-radius: 12px; padding: 6px 10px 6px; font-size: 11px; }
+.rci-title { opacity: 0.7; text-align: center; margin-bottom: 3px; }
+.rci-row { display: flex; gap: 8px; }
+.rci-col { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: help; }
+.rci-track { position: relative; width: 14px; height: 60px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
+.rci-track i { position: absolute; left: 0; right: 0; transition: height 0.4s, bottom 0.4s; }
+.rci-mid { position: absolute; left: 0; right: 0; bottom: 30px; height: 1px; background: rgba(255,255,255,0.5); }

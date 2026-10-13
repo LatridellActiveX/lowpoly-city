@@ -17,6 +17,7 @@ import { OverlayMode } from '../render/cityRenderer';
 import { TOOLS, toolDef } from './tools';
 import { GraphsPanel } from './graphs';
 import { Notifier } from './notifications';
+import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
 import { windLabel } from '../sim/wind';
 
@@ -60,6 +61,8 @@ export class Hud {
   /** Graphs panel and stacked notifications (PR 3). */
   readonly graphs = new GraphsPanel();
   readonly notices = new Notifier();
+  /** PR 4 RCI demand bars (bottom-left). */
+  readonly demandBars = new DemandBars();
   private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
   private currentTool: ToolId = 'inspect';
@@ -144,7 +147,7 @@ export class Hud {
     }
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el);
+    root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -313,6 +316,7 @@ export class Hud {
     }
     if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
     this.graphs.update(sim);
+    this.demandBars.update(sim);
     this.notices.check(sim);
     void this.currentTool;
 

@@ -33,6 +33,7 @@ import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo } from './traffic';
 import { Shipping } from './goods';
+import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
 import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
@@ -95,6 +96,8 @@ export class Simulation {
   env: Environment;
   /** PR 4: cars and trucks currently on the map (not saved). */
   traffic = new Traffic();
+  /** PR 4: current RCI demand (demand.ts), recomputed every tick. */
+  demand: Demand;
   /** PR 4: goods production, deliveries, exports and plant fuel (goods.ts). */
   shipping = new Shipping();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
@@ -115,6 +118,16 @@ export class Simulation {
     this.world = world;
     this.net = computeNetworks(world);
     this.env = computeEnvironment(world);
+    this.demand = this.computeDemand();
+  }
+
+  /** RCI demand from the current city (average desirability over homes). */
+  private computeDemand(): Demand {
+    let sum = 0, n = 0;
+    this.world.tiles.forEach((t, i) => {
+      if (t.zone === 'residential') { sum += this.env.desirability[i]; n++; }
+    });
+    return computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating);
   }
 
   /** Called every frame with real elapsed seconds. Runs 0..n whole ticks. */
@@ -140,6 +153,7 @@ export class Simulation {
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
     this.env = computeEnvironment(w);
+    this.demand = this.computeDemand();
 
     // Spare capacity per network, decremented as lots grow this tick so that
     // two lots can't both claim the last bit of supply.
@@ -347,9 +361,9 @@ export class Simulation {
     }
   }
 
-  /** Growth multiplier from zone demand (replaced by demand.ts in the RCI stage). */
-  demandFactor(_zone: ZoneType): number {
-    return 1;
+  /** Growth multiplier from RCI zone demand (demand.ts): 0 at demand ≤ −0.6, up to 1.6 at +1. */
+  demandFactor(zone: ZoneType): number {
+    return demandGrowth(this.demand[zone].value);
   }
 
   maxLevel(i: number): number {
