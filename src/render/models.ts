@@ -77,29 +77,6 @@ export const MODELS = {
   /** Zoned lot: a flat white slab; the instance colour tints it per zone. */
   lot: () => merge([part(box(0.94, 0.03, 0.94), 0xffffff)]),
 
-  house: () =>
-    merge([
-      part(box(0.6, 0.34, 0.5), 0xf3ead8),
-      part(pyramid(0.72, 0.28), 0xc8553d, [0, 0.34, 0]),
-      part(box(0.12, 0.2, 0.02), 0x7a4a2a, [0.1, 0, 0.26]), // door
-      part(box(0.08, 0.16, 0.08), 0x8c8c8c, [-0.18, 0.4, -0.1]), // chimney
-    ]),
-  shop: () =>
-    merge([
-      part(box(0.72, 0.42, 0.62), 0xe7eef5),
-      part(box(0.76, 0.05, 0.66), 0x6d7e8f, [0, 0.42, 0]),
-      part(box(0.74, 0.04, 0.16), 0x3c8dde, [0, 0.27, 0.36], [0.4, 0, 0]), // awning
-      part(box(0.5, 0.16, 0.02), 0x9fd7ff, [0, 0.06, 0.315]), // shop window
-      part(box(0.3, 0.12, 0.04), 0xffd166, [0, 0.47, 0]), // sign
-    ]),
-  factory: () =>
-    merge([
-      part(box(0.8, 0.38, 0.66), 0xc9b79c),
-      part(new THREE.CylinderGeometry(0.2, 0.2, 0.8, 3).rotateZ(Math.PI / 2).translate(0, 0.38, -0.12), 0x8b6d4c), // saw-tooth roof
-      part(new THREE.CylinderGeometry(0.06, 0.08, 0.6, 6).translate(0, 0.3, 0), 0x6e6e6e, [0.28, 0.38, 0.2]),
-      part(new THREE.CylinderGeometry(0.06, 0.08, 0.45, 6).translate(0, 0.225, 0), 0x6e6e6e, [0.12, 0.38, 0.22]),
-      part(box(0.2, 0.22, 0.02), 0x5a5a5a, [-0.2, 0, 0.335]), // loading door
-    ]),
   powerPlant: () =>
     merge([
       part(box(0.94, 0.12, 0.94), 0x9aa0a6),
@@ -136,14 +113,6 @@ export const MODELS = {
       part(box(0.2, 0.06, 0.2), 0x8a8f96),
     ]);
   },
-  /** Wooden power pole with a cross-arm. */
-  pole: () =>
-    merge([
-      part(new THREE.CylinderGeometry(0.02, 0.025, 0.66, 5).translate(0, 0.33, 0), 0x7b5a3a),
-      part(box(0.22, 0.025, 0.03), 0x7b5a3a, [0, 0.6, 0]),
-    ]),
-  /** A 1-unit wire along +x starting at the origin (scaled/rotated per connection). */
-  wire: () => merge([part(box(1, 0.012, 0.012).translate(0.5, 0, 0), 0x2b2b2b)]),
   /** Water pipe junction + a 1-unit segment along +x (lies on the ground). */
   pipeJoint: () => merge([part(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8), 0x2f7fbf, [0, 0.05, 0])]),
   pipe: () => merge([part(new THREE.CylinderGeometry(0.04, 0.04, 1, 8).rotateZ(Math.PI / 2).translate(0.5, 0, 0), 0x3d95d9, [0, 0.05, 0])]),

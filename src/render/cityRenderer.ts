@@ -26,6 +26,7 @@ import { buildDesigns, pickLook } from './buildings';
 import { GROUND_COLORS, NATURE } from './nature';
 import { Deco, grassShade, groundType } from '../sim/terrain';
 import { hash2 } from '../sim/random';
+import { cableMatrix, dropGeometry, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -35,9 +36,7 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 
 export type OverlayMode = 'none' | 'power' | 'water';
 
-const POLE_OFFSET = new THREE.Vector3(0.3, 0, 0.3); // poles stand in a tile corner
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
-const POLE_TOP = 0.6;
 
 export class CityRenderer {
   private readonly group = new THREE.Group();
@@ -85,8 +84,10 @@ export class CityRenderer {
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
     add('waterTower', MODELS.waterTower(), solid, 32);
-    add('pole', MODELS.pole(), solid, 512);
-    add('wire', MODELS.wire(), solid, 1024, false);
+    // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
+    add('pole', poleGeometry(), solid, 512);
+    add('span', spanGeometry(), solid, 1024);
+    add('drop', dropGeometry(), solid, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     add('marker', MODELS.marker(), new THREE.MeshBasicMaterial({ vertexColors: true }), 128, false);
@@ -158,12 +159,17 @@ export class CityRenderer {
       }
 
       if (t.powerLine) {
-        const pole = center.clone().add(POLE_OFFSET);
-        P.pole.add(this.place(pole));
-        const top = pole.clone().setY(POLE_TOP);
-        // Draw each wire once: only to the east and south neighbours.
-        if (has(x + 1, z, (n) => n.powerLine)) P.wire.add(this.place(top, 0));
-        if (has(x, z + 1, (n) => n.powerLine)) P.wire.add(this.place(top, -Math.PI / 2));
+        // Pole on the street edge (see powerLines.ts for the placement rules).
+        const spot = poleSpot(tiles, x, z);
+        P.pole.add(this.place(spot.pos, spot.rotY));
+        // Draw each span once: only to the east and south neighbours.
+        for (const [dx, dz] of [[1, 0], [0, 1]]) {
+          if (!has(x + dx, z + dz, (n) => n.powerLine)) continue;
+          const other = poleSpot(tiles, x + dx, z + dz);
+          const a = spot.pos.clone().setY(WIRE_Y);
+          const b = other.pos.clone().setY(WIRE_Y);
+          P.span.add(cableMatrix(a, b, this.m));
+        }
       }
 
       if (t.waterPipe) {
@@ -182,6 +188,7 @@ export class CityRenderer {
           const look = pickLook(t.zone, x, z, seed);
           // Turn the building so its front (+z in model space) faces a road.
           const face = this.roadFacing(x, z, has) ?? turn;
+          if (st.powered) this.addDropWire(tiles, x, z, face, lv, has);
           const key = `${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
@@ -229,10 +236,38 @@ export class CityRenderer {
    * we need a = atan2(dx, dz). Prefers south, east, north, west in that order.
    */
   private roadFacing(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
+    // First choice: a road that also carries a power line, so the pole and
+    // its drop wire end up in FRONT of the building (PR 3).
+    for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
+      if (has(x + dx, z + dz, (n) => n.road && n.powerLine)) return Math.atan2(dx, dz);
+    }
     for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]]) {
       if (has(x + dx, z + dz, (n) => n.road)) return Math.atan2(dx, dz);
     }
     return null;
+  }
+
+  /**
+   * A drop wire from the nearest pole to the front of a powered building.
+   * We prefer the line tile the building faces (the street in front); if the
+   * only line is elsewhere, we still connect to it so it's clear where power
+   * comes from.
+   */
+  private addDropWire(tiles: Tile[], x: number, z: number, face: number, level: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
+    const fx = Math.round(Math.sin(face));
+    const fz = Math.round(Math.cos(face));
+    const options: Array<[number, number]> = [[fx, fz], [0, 1], [1, 0], [0, -1], [-1, 0]];
+    const pick = options.find(([dx, dz]) => has(x + dx, z + dz, (n) => n.powerLine));
+    if (!pick) return; // powered via a plant/turbine next door, no wire to draw
+    const spot = poleSpot(tiles, x + pick[0], z + pick[1]);
+    // Start at whichever insulator is nearer the house.
+    const a = spot.pos.clone().setY(WIRE_Y - 0.03);
+    const armDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, spot.rotY);
+    const toHouse = new THREE.Vector3(x + 0.5, 0, z + 0.5).sub(spot.pos);
+    a.addScaledVector(armDir, toHouse.dot(armDir) >= 0 ? WIRE_HALF : -WIRE_HALF);
+    // End on the building's front wall, about eave height.
+    const b = new THREE.Vector3(x + 0.5 + fx * 0.22, 0.22 + Math.min(level, 2) * 0.12, z + 0.5 + fz * 0.22);
+    this.pools.drop.add(cableMatrix(a, b, this.m));
   }
 
   /** Per-frame motion: spin blades, bob markers. */
