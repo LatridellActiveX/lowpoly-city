@@ -26,7 +26,7 @@ import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
-import { carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
+import { substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -37,6 +37,23 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 export type OverlayMode = 'none' | 'power' | 'water' | 'pollution';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
+
+/** A round badge with an emoji on it, drawn once into a canvas texture. */
+function iconMaterial(emoji: string, ring: string): THREE.MeshBasicMaterial {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = 'rgba(20,28,40,0.88)';
+  g.beginPath(); g.arc(32, 32, 29, 0, Math.PI * 2); g.fill();
+  g.lineWidth = 5; g.strokeStyle = ring; g.stroke();
+  g.font = '34px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(emoji, 32, 35);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  // depthTest off + high renderOrder would hide nothing behind; we keep depth
+  // testing so icons tuck behind tall buildings, like real objects.
+  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+}
 
 /** Scratch colour for lerps. */
 const TMP = new THREE.Color();
@@ -49,7 +66,12 @@ export class CityRenderer {
   /** Hub positions of every turbine (for blade animation). */
   private turbines: THREE.Vector3[] = [];
   /** Positions + colours of warning markers (for bobbing animation). */
-  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color }> = [];
+  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water'; slot: number }> = [];
+  /** Camera rotation, set by main.ts each frame, so icon sprites can face the camera ("billboarding"). */
+  cameraQuat = new THREE.Quaternion();
+  /** Water pipes are only drawn while the pipe tool or the water overlay is active (PR 3). */
+  showPipes = false;
+  private lastShowPipes = false;
   overlay: OverlayMode = 'none';
   /** Smooth vertex-coloured ground (nature.ts), rebuilt when the city seed changes. */
   private groundMesh: THREE.Mesh | null = null;
@@ -113,12 +135,18 @@ export class CityRenderer {
     add('pole', poleGeometry(), solid, 512);
     add('span', spanGeometry(), solid, 1024);
     add('drop', dropGeometry(), solid, 512, false);
+    add('substation', substationGeometry(), solid, 64);
     // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
     add('lampArm', lampArmGeometry(), solid, 512);
     add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
     add('lampPool', lampPoolGeometry(), this.poolGlow, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
+    // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
+    // instanced textured square, turned to face the camera every frame, so a
+    // city with hundreds of problems still costs two draw calls.
+    add('iconPower', new THREE.PlaneGeometry(0.34, 0.34), iconMaterial('⚡', '#ffd21f'), 128, false);
+    add('iconWater', new THREE.PlaneGeometry(0.34, 0.34), iconMaterial('💧', '#29a3ff'), 128, false);
     add('marker', MODELS.marker(), new THREE.MeshBasicMaterial({ vertexColors: true }), 128, false);
     // Overlay squares are transparent and drawn on top of the ground.
     const overlayMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, vertexColors: false });
@@ -134,7 +162,8 @@ export class CityRenderer {
 
   /** Called every frame. Rebuilds instances if the sim changed, then animates. */
   frame(sim: Simulation, time: number): void {
-    if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay) {
+    if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay || this.showPipes !== this.lastShowPipes) {
+      this.lastShowPipes = this.showPipes;
       this.rebuild(sim);
       this.lastVersion = sim.version;
       this.lastOverlay = this.overlay;
@@ -221,7 +250,8 @@ export class CityRenderer {
         }
       }
 
-      if (t.waterPipe) {
+      // Pipes are underground: hidden unless you're working with water.
+      if (t.waterPipe && (this.showPipes || this.overlay === 'water')) {
         const joint = center.clone().add(PIPE_OFFSET);
         P.pipeJoint.add(this.place(joint));
         if (has(x + 1, z, (n) => n.waterPipe)) P.pipe.add(this.place(joint, 0));
@@ -251,22 +281,32 @@ export class CityRenderer {
           P[`${key}.lights`].add(m, this.c.setScalar(on ? 1.1 + lit * 0.9 : 0));
           const h = 0.35 + lv * 0.3;
           if (!st.operating) {
-            // Marker colour says what's missing first: grey road, yellow power, blue water.
-            const col = !st.roadAccess ? 0xbbbbbb : !st.powered ? 0xffd21f : 0x29a3ff;
-            this.markers.push({ pos: center.clone().setY(h * 0.6 + 0.35), color: new THREE.Color(col) });
+            // Floating warnings: grey gem = no road, ⚡ = no power, 💧 = no water.
+            // With both power and water missing, the two icons sit side by side.
+            const pos = center.clone().setY(h * 0.6 + 0.4);
+            const both = !st.powered && !st.watered;
+            if (!st.roadAccess) this.markers.push({ pos, color: new THREE.Color(0xbbbbbb), kind: 'gem', slot: 0 });
+            if (!st.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1 : 0 });
+            if (!st.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1 : 0 });
           }
         }
       }
 
-      if (t.structure === 'powerPlant') P.powerPlant.add(this.place(center, turn));
+      if (t.structure === 'powerPlant') {
+        P.powerPlant.add(this.place(center, turn));
+        // Plants connect to the street grid with a wire from their corner.
+        this.addGridTie(tiles, x, z, has, false);
+      }
       if (t.structure === 'park') P.park.add(this.place(center, turn));
       if (t.structure === 'waterTower') {
         const st = sim.status(i);
         P.waterTower.add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
-        if (!st.powered) this.markers.push({ pos: center.clone().setY(1.3), color: new THREE.Color(0xffd21f) });
+        if (!st.powered) this.markers.push({ pos: center.clone().setY(1.3), color: new THREE.Color(1, 1, 1), kind: 'power', slot: 0 });
       }
       if (t.structure === 'windTurbine') {
         P.windTower.add(this.place(center));
+        // Turbines get a substation beside them, wired to the road's pole line.
+        this.addGridTie(tiles, x, z, has, true);
         this.turbines.push(center.clone().setY(1.26).add(new THREE.Vector3(0, 0, 0.12)));
       }
 
@@ -336,6 +376,25 @@ export class CityRenderer {
     this.pools.drop.add(cableMatrix(a, b, this.m));
   }
 
+  /**
+   * Visual grid connection for a power source (PR 3). In the SIMULATION a
+   * plant/turbine next to a road or line is already part of that network
+   * (networks.ts: sources join neighbouring conduits). Here we just draw it:
+   * an optional substation in the tile corner facing that road, plus a wire
+   * from it to the road's curb pole.
+   */
+  private addGridTie(tiles: Tile[], x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean, substation: boolean): void {
+    const dir = ([[0, 1], [1, 0], [0, -1], [-1, 0]] as const).find(([dx, dz]) => has(x + dx, z + dz, carriesPower));
+    if (!dir) return;
+    const [dx, dz] = dir;
+    // Substation sits toward the road, shifted sideways so it clears the tower.
+    const sp = new THREE.Vector3(x + 0.5 + dx * 0.3 + dz * 0.22, 0, z + 0.5 + dz * 0.3 + dx * 0.22);
+    if (substation) this.pools.substation.add(this.place(sp, Math.atan2(dx, dz)));
+    const a = substation ? sp.clone().setY(SUBSTATION_WIRE_Y) : new THREE.Vector3(x + 0.5 + dx * 0.4, 0.45, z + 0.5 + dz * 0.4);
+    const b = poleSpot(tiles, x + dx, z + dz).pos.clone().setY(WIRE_Y - 0.03);
+    this.pools.drop.add(cableMatrix(a, b, this.m));
+  }
+
   /** Per-frame motion: spin blades, bob markers. */
   private animate(time: number): void {
     const blades = this.pools.windBlades;
@@ -349,14 +408,21 @@ export class CityRenderer {
     blades.end();
 
     const mk = this.pools.marker;
-    mk.begin();
-    for (const { pos, color } of this.markers) {
-      const p = pos.clone();
-      p.y += Math.sin(time * 3 + pos.x) * 0.06;
-      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, time * 1.5);
-      mk.add(this.m.compose(p, this.q, this.s.set(1, 1.4, 1)), color);
+    const ip = this.pools.iconPower, iw = this.pools.iconWater;
+    mk.begin(); ip.begin(); iw.begin();
+    // Camera's "right" direction, to put paired icons side by side on screen.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraQuat);
+    for (const { pos, color, kind, slot } of this.markers) {
+      const p = pos.clone().addScaledVector(right, slot * 0.2);
+      p.y += Math.sin(time * 3 + pos.x) * 0.05;
+      if (kind === 'gem') {
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, time * 1.5);
+        mk.add(this.m.compose(p, this.q, this.s.set(1, 1.4, 1)), color);
+      } else {
+        (kind === 'power' ? ip : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
+      }
     }
-    mk.end();
+    mk.end(); ip.end(); iw.end();
   }
 }
 

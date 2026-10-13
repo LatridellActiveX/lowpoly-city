@@ -193,3 +193,26 @@ export function lampYaw(pos: THREE.Vector3, x: number, z: number): number | null
   if (Math.hypot(dx, dz) < 0.05) return null;
   return Math.atan2(-dz, dx);
 }
+
+/**
+ * Small substation (PR 3) that sits beside a wind turbine: a gravel pad, a
+ * low chain-link fence, a transformer box with cooling fins and two insulator
+ * posts. The renderer places it in the tile corner nearest the road and runs
+ * a wire from the insulator tops (SUBSTATION_WIRE_Y) to the street pole line,
+ * the same way buildings get drop wires. Footprint ~0.3 × 0.3.
+ */
+export const SUBSTATION_WIRE_Y = 0.2;
+export function substationGeometry(): THREE.BufferGeometry {
+  const parts = [
+    part(box(0.32, 0.01, 0.32), 0xb9b4a8), // gravel pad
+    part(box(0.12, 0.1, 0.08), 0x7f8a92, [0, 0.01, -0.04]), // transformer
+    part(box(0.13, 0.08, 0.01), 0x6a747c, [0, 0.02, 0.005]), // cooling fins
+    part(new THREE.CylinderGeometry(0.008, 0.012, 0.18, 5).translate(0, 0.09, 0), GLASS, [-0.07, 0.01, 0.08]),
+    part(new THREE.CylinderGeometry(0.008, 0.012, 0.18, 5).translate(0, 0.09, 0), GLASS, [0.07, 0.01, 0.08]),
+  ];
+  // Low fence: four thin rails around the pad.
+  for (const [w, d, x, z] of [[0.32, 0.006, 0, 0.16], [0.32, 0.006, 0, -0.16], [0.006, 0.32, 0.16, 0], [0.006, 0.32, -0.16, 0]]) {
+    parts.push(part(box(w, 0.06, d), 0xc9ced3, [x, 0.01, z]));
+  }
+  return merge(parts);
+}

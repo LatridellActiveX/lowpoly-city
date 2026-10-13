@@ -83,6 +83,8 @@ const hud = new Hud(app, {
 function setTool(id: ToolId): void {
   tool = id;
   hud.setTool(id);
+  // Pipes are underground: only show them while placing pipes (or via the water overlay).
+  city.showPipes = id === 'waterPipe';
   updatePreview();
 }
 function setSpeed(s: number): void {
@@ -106,7 +108,11 @@ function updatePreview(): void {
     return preview.show([]);
   }
   if (tool === 'inspect') {
-    hud.showTip(null);
+    // Hovering a building with a warning icon explains it: "No power", "No water".
+    const ti = sim.world.at(hoverTile[0], hoverTile[1]);
+    const st = sim.status(idx(hoverTile[0], hoverTile[1]));
+    const probs = ti.zone || ti.structure === 'waterTower' ? st.missing.map((m) => (m.startsWith('power') ? '⚡ No power' : m.startsWith('water') ? '💧 No water' : '🛣 No road access')) : [];
+    hud.showTip(ti.level > 0 || ti.structure === 'waterTower' ? (probs.length ? `<span class="bad">${[...new Set(probs)].join(' · ')}</span>` : null) : null, mouse[0], mouse[1]);
     return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
   }
   const from = dragFrom ?? hoverTile;
@@ -218,6 +224,7 @@ renderer.setAnimationLoop(() => {
   cam.update(dt);
   dayNight.update(sim);
   city.setNight(dayNight.night);
+  city.cameraQuat.copy(cam.camera.quaternion);
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
   if (hudTimer <= 0) {
