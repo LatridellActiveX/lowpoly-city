@@ -30,6 +30,11 @@ import { attachInput } from './ui/input';
 import { shapeTiles, toolDef, TOOLS } from './ui/tools';
 import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
+import { gameLog } from './ui/gameLog';
+import { GameMenu } from './ui/menu';
+
+// PR 4: start the Game Log first so even errors during start-up are captured.
+gameLog.install();
 
 const app = document.getElementById('app')!;
 const { renderer, scene, ground, sun, hemi } = createScene(app);
@@ -40,6 +45,12 @@ const preview = new PreviewRenderer(scene);
 const dayNight = new DayNight(scene, sun, hemi);
 
 let sim = new Simulation(loadWorld() ?? undefined);
+gameLog.gameDate = () => {
+  const w = sim.world;
+  const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${MONTHS[(w.month - 1) % 12]} ${w.day}, Y${Math.floor((w.month - 1) / 12) + 1}`;
+};
+gameLog.event(hasSave() ? 'Game started — saved city loaded' : 'Game started — new city');
 let tool: ToolId = 'inspect';
 let dragFrom: [number, number] | null = null;
 let hoverTile: [number, number] | null = null;
@@ -59,21 +70,27 @@ const hud = new Hud(app, {
   },
   save: () => {
     saveWorld(sim.world);
+    gameLog.event('City saved');
     hud.flash('City saved');
   },
   load: () => {
     const w = loadWorld();
-    if (!w) return hud.flash('No saved city found');
+    if (!w) {
+      gameLog.warn('Load failed: no saved city found (or it was unreadable)');
+      return hud.flash('No saved city found');
+    }
     sim = new Simulation(w);
     sim.speed = lastSpeed;
     hud.inspect(null);
     hud.notices.reset(sim);
+    gameLog.event('City loaded');
     hud.flash('City loaded');
   },
   newCity: () => {
     if (!confirm('Start a new empty city? Your saved city will be erased.')) return;
     clearSave();
     sim = new Simulation();
+    gameLog.event('New city founded');
     sim.speed = lastSpeed;
     hud.inspect(null);
     hud.notices.reset(sim);
@@ -218,6 +235,11 @@ function resize(): void {
 window.addEventListener('resize', resize);
 resize();
 
+// PR 4: ☰ menu (Settings + Game log) at the far left of the top bar.
+const menu = new GameMenu(() => sim);
+document.querySelector('.topbar')!.prepend(menu.button);
+app.append(menu.el);
+
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);
 
@@ -228,6 +250,7 @@ setOverlay('none');
 // ---- Game loop ----
 const clock = new THREE.Clock();
 let hudTimer = 0;
+let lastNoRoute = 0;
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   sim.update(dt);
@@ -239,6 +262,11 @@ renderer.setAnimationLoop(() => {
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
+    // Game Log: trips that couldn't find a road route (usually a disconnected road island).
+    if (sim.traffic.stats.noRoute > lastNoRoute + 4) {
+      gameLog.warn(`${sim.traffic.stats.noRoute - lastNoRoute} vehicle trips had no road route — is every district connected to the highway?`);
+      lastNoRoute = sim.traffic.stats.noRoute;
+    } else if (sim.traffic.stats.noRoute < lastNoRoute) lastNoRoute = sim.traffic.stats.noRoute;
     // Previews depend on the world (a tile may have just been built on).
     updatePreview();
     hudTimer = 0.25;
@@ -268,6 +296,8 @@ if (hasSave()) hud.flash('Welcome back — city loaded');
   setSpeed,
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
   openGraphs: () => hud.graphs.toggle(true),
+  menu,
+  gameLog,
   get timeOfDay() {
     return dayNight.time;
   },

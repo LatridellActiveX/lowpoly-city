@@ -11,6 +11,12 @@
  *   tiles that are still completely empty, so nothing the player built moves.
  *   v2 (PR 2) had no wind. v1 and v2 saves start with a moderate wind (0.5)
  *   and no drift. v3 (PR 3) stores `wind` and `windDrift`.
+ *   v4 (PR 4) adds per-tile `water`, `edge`, `roadType`, `construct`, `stock`,
+ *   `part` (2×2 buildings) and world `clock` + `tier`. Migrating a v1–v3 save:
+ *   a river/lake is generated ONLY on empty tiles (your town never floods),
+ *   the highway connection is laid at the first free edge spot, existing
+ *   power plants get a full fuel bunker, the clock starts at 0 and the tier
+ *   is worked out from the current population on the first tick.
  *
  * Merging over defaults: each tile is spread over emptyTile(), and the ledger
  * is merged section by section, so a field added later (like the park upkeep
@@ -19,10 +25,12 @@
 import { World, emptyTile } from './grid';
 import { defaultTaxRates, emptyLedger, Ledger, STARTING_CASH } from './economy';
 import { scatterDecorations } from './terrain';
+import { generateWater, placeEdgeConnection } from './mapgen';
+import { FUEL_MAX } from './rules';
 import { GRID_SIZE, Tile } from './types';
 
 const KEY = 'lowpoly-city-save';
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -36,9 +44,16 @@ export function saveWorld(world: World): void {
     lastLedger: world.lastLedger,
     wind: world.wind,
     windDrift: world.windDrift,
+    clock: world.clock,
+    tier: world.tier,
     tiles: world.tiles,
   };
-  localStorage.setItem(KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(KEY, JSON.stringify(data));
+  } catch (e) {
+    // Storage full or blocked (private mode). console.warn is captured by the Game Log.
+    console.warn('Save failed:', e instanceof Error ? e.message : e);
+  }
 }
 
 export function hasSave(): boolean {
@@ -77,8 +92,18 @@ export function loadWorld(): World | null {
       w.wind = typeof data.wind === 'number' ? data.wind : 0.5;
       w.windDrift = typeof data.windDrift === 'number' ? data.windDrift : 0;
     }
+    if (version < 4) {
+      // ---- v1-v3 -> v4 migration (PR 4) ----
+      generateWater(w.tiles, seed, true);
+      if (w.edgeIndex < 0) placeEdgeConnection(w.tiles, seed);
+      w.tiles.forEach((t) => t.structure === 'powerPlant' && (t.stock = FUEL_MAX));
+    } else {
+      w.clock = typeof data.clock === 'number' ? data.clock : 0;
+      w.tier = typeof data.tier === 'number' ? data.tier : 0;
+    }
     return w;
-  } catch {
+  } catch (e) {
+    console.warn('Load failed: save data unreadable —', e instanceof Error ? e.message : e);
     return null;
   }
 }

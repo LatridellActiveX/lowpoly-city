@@ -11,6 +11,7 @@
  * It only READS the simulation; it never changes it.
  */
 import { Simulation } from '../sim/simulation';
+import { gameLog } from './gameLog';
 
 export const LOW_CASH = 1000;
 export const MILESTONES = [100, 250, 1000, 5000]; // 500, 2,000, 10,000, 20,000 are tier announcements now (progression.ts)
@@ -42,6 +43,8 @@ export class Notifier {
 
   push(msg: string, kind: Kind = 'info'): void {
     this.log.push(msg);
+    // Every notification also goes into the Game Log (PR 4).
+    gameLog.add(kind === 'bad' ? 'warn' : kind === 'good' ? 'event' : 'info', msg);
     const n = document.createElement('div');
     n.className = `notice ${kind}`;
     n.textContent = msg;

@@ -104,3 +104,25 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tool.locked .icon::after { content: '🔒'; font-size: 11px; position: relative; left: -4px; top: -10px; }
 .stats .tier { font-weight: 600; }
 .meter.tiermeter i { background: #c59cff; }
+
+/* ---- PR 4: menu (settings + game log) ---- */
+.menu-btn { font-size: 18px; padding: 3px 11px; }
+.menu-panel { position: absolute; top: 60px; left: 10px; width: 420px; max-height: calc(100% - 170px); overflow-y: auto; background: var(--panel); padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); font-size: 13px; z-index: 15; }
+.menu-panel.hidden { display: none; }
+.menu-panel h3 { margin: 0 0 10px; font-size: 16px; display: inline-block; }
+.menu-panel .back { margin-right: 8px; }
+.menu-panel .close { position: absolute; top: 6px; right: 8px; background: none; border: 0; font-size: 20px; opacity: 0.7; }
+.menu-item { display: block; width: 100%; text-align: left; background: rgba(255,255,255,0.06); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 6px 0; font-size: 14px; }
+.menu-item:hover { background: rgba(79,195,247,0.15); }
+.menu-item span { display: block; font-size: 11px; opacity: 0.7; margin-top: 2px; }
+.set { display: grid; grid-template-columns: 130px 1fr 40px; gap: 8px; align-items: center; margin: 8px 0; }
+.set.check { grid-template-columns: auto 1fr; }
+.set input[type=range] { accent-color: var(--accent); }
+.set select { background: #22303f; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px; grid-column: span 2; }
+.menu-panel .small { font-size: 11px; } .menu-panel .muted { opacity: 0.7; }
+.log-filters { display: flex; gap: 10px; margin-bottom: 6px; }
+.log-list { height: 300px; overflow-y: auto; background: rgba(0,0,0,0.25); border-radius: 8px; padding: 6px; font-family: ui-monospace, monospace; font-size: 11px; user-select: text; }
+.log-row { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.log-row .t { opacity: 0.55; }
+.sev-warn b, label.sev-warn { color: #ffc94a; } .sev-error b, label.sev-error { color: #ff7a6e; } .sev-event b, label.sev-event { color: #7be08a; }
+.log-actions { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
