@@ -248,6 +248,11 @@ if (hasSave()) hud.flash('Welcome back — city loaded');
     return sim;
   },
   cam,
+  /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
+  useSim: (s: Simulation) => {
+    sim = s;
+    hud.notices.reset(sim);
+  },
   setTool,
   setOverlay,
   setSpeed,

@@ -28,6 +28,8 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // $10 of asphalt + a $2 surcharge for the street-side power poles that are
   // built automatically along every road (PR 3 auto power lines).
   road: 12,
+  // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
+  avenue: 24,
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
@@ -38,6 +40,9 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   waterTower: 1500,
   park: 150,
 };
+
+/** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
+export const BRIDGE_EXTRA = 48;
 
 /** Fee for automatically clearing a tree, bush or rock when you build on it. */
 export const CLEAR_COST = 3;
@@ -103,13 +108,15 @@ export function ledgerNet(l: Ledger): number {
 export function placementCost(tool: ToolId, t: Tile): number {
   if (tool === 'inspect') return 0;
   if (tool === 'bulldoze') return t.deco ? CLEAR_COST : 0; // removing a lone tree
-  return BUILD_COST[tool] + (t.deco ? CLEAR_COST : 0);
+  const bridge = (tool === 'road' || tool === 'avenue') && t.water && !t.road ? BRIDGE_EXTRA : 0;
+  return BUILD_COST[tool] + bridge + (t.deco ? CLEAR_COST : 0);
 }
 
 /** What bulldozing tile `t` refunds: 25% of the value of everything on it. */
 export function bulldozeRefund(t: Tile): number {
   let value = 0;
-  if (t.road) value += BUILD_COST.road;
+  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road;
+  if (t.road && t.water) value += BRIDGE_EXTRA;
   if (t.powerLine) value += BUILD_COST.powerLine;
   if (t.waterPipe) value += BUILD_COST.waterPipe;
   if (t.zone) value += BUILD_COST[t.zone];

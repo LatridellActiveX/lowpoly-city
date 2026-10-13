@@ -21,7 +21,8 @@ export interface ToolDef {
 
 export const TOOLS: ToolDef[] = [
   { id: 'inspect', label: 'Inspect', icon: '🔍', key: 'i', shape: 'point', hint: 'Click a tile to see its status.' },
-  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($12/tile incl. street power poles). Roads carry power and buildings need one next to them.' },
+  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($12/tile incl. street power poles). Roads carry power and buildings need one next to them. Crossing water builds a bridge (+$48/tile).' },
+  { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($24/tile): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.' },
   { id: 'residential', label: 'Homes', icon: '🏠', key: '1', shape: 'area', hint: 'Drag to zone low-density residential.' },
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial.' },

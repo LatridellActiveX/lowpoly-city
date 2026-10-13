@@ -24,6 +24,7 @@ import { MODELS } from './models';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
+import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
@@ -108,8 +109,16 @@ export class CityRenderer {
     const add = (name: string, geo: THREE.BufferGeometry, mat: THREE.Material = solid, cap = 256, shadows = true) =>
       (this.pools[name] = new InstancePool(this.group, geo, mat, cap, shadows));
 
-    add('road', MODELS.road(), solid, 1024, false);
+    // PR 4 roads (roads.ts): squares, curves, sidewalks, avenue markings, bridges.
+    add('road', ROADS.square(), solid, 1024, false);
+    add('roadCurve', ROADS.curve(), solid, 256, false);
+    add('sidewalk', ROADS.sidewalk(), solid, 2048, false);
+    add('avenueMarks', ROADS.avenueMarks(), solid, 512, false);
     add('roadDash', MODELS.roadDash(), solid, 1024, false);
+    add('bridge', ROADS.bridgeDeck(), solid, 128);
+    add('railing', ROADS.railing(), solid, 256);
+    add('highway', ROADS.highway(), solid, 4);
+    add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
     const designs = buildDesigns();
@@ -194,7 +203,7 @@ export class CityRenderer {
         this.group.remove(this.groundMesh);
         this.groundMesh.geometry.dispose();
       }
-      this.groundMesh = buildGroundMesh(seed);
+      this.groundMesh = buildGroundMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
       this.group.add(this.groundMesh);
       this.groundSeed = seed;
     }
@@ -220,13 +229,13 @@ export class CityRenderer {
         }
       }
 
-      if (t.road) {
-        P.road.add(this.place(center));
-        // Dashes follow the road: east-west roads get dashes along x, north-south along z.
-        const ew = has(x - 1, z, (n) => n.road) || has(x + 1, z, (n) => n.road);
-        const ns = has(x, z - 1, (n) => n.road) || has(x, z + 1, (n) => n.road);
-        if (ew !== ns) P.roadDash.add(this.place(center, ns ? Math.PI / 2 : 0));
+      if (t.water) {
+        // River/lake surface. A gentle per-tile tint wobble keeps it from looking flat.
+        const k = 0.92 + hash2(x, z, seed + 5) * 0.1;
+        P.water.add(this.place(center), this.c.setRGB(k, k, k));
       }
+
+      if (t.road) this.addRoad(t, x, z, center, has);
 
       if (carriesPower(t)) {
         // Pole on the street edge (see powerLines.ts for the placement rules).
@@ -245,8 +254,8 @@ export class CityRenderer {
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
           if (!has(x + dx, z + dz, carriesPower)) continue;
           const other = poleSpot(tiles, x + dx, z + dz);
-          const a = spot.pos.clone().setY(WIRE_Y);
-          const b = other.pos.clone().setY(WIRE_Y);
+          const a = spot.pos.clone().setY(spot.pos.y + WIRE_Y);
+          const b = other.pos.clone().setY(other.pos.y + WIRE_Y);
           P.span.add(cableMatrix(a, b, this.m));
         }
       }
@@ -335,6 +344,58 @@ export class CityRenderer {
     });
 
     for (const p of Object.values(P)) p.end();
+  }
+
+  /**
+   * PR 4: draw one road tile (see roads.ts for the pieces).
+   * Avenues are tinted darker via the instance colour (the geometry is shared).
+   */
+  private addRoad(t: Tile, x: number, z: number, center: THREE.Vector3, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
+    const P = this.pools;
+    const isRoad = (n: Tile) => n.road;
+    const n = has(x, z - 1, isRoad), e = has(x + 1, z, isRoad), s = has(x, z + 1, isRoad), w = has(x - 1, z, isRoad);
+    const tint = t.roadType === 1 ? this.c.setRGB(0.78, 0.78, 0.8) : this.c.setRGB(1, 1, 1);
+    if (t.water) {
+      // Bridge: lifted deck + pier, railings on every side without a road.
+      P.bridge.add(this.place(center), tint);
+      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.railing.add(this.place(center, yaw as number)));
+    } else {
+      const curve = curveYaw(n, e, s, w);
+      if (curve !== null) {
+        P.roadCurve.add(this.place(center, curve), tint);
+      } else {
+        P.road.add(this.place(center), tint);
+        // Kerb strips on the edges with no road beyond them (yaw: N=0, W=π/2, S=π, E=3π/2).
+        [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => {
+          // The map-edge side of the highway tile stays open: the road continues off the map.
+          if (!has_ && !(t.edge && this.edgeOutward(x, z) === yaw)) P.sidewalk.add(this.place(center, yaw as number));
+        });
+      }
+    }
+    // Lane markings on straight pieces only.
+    const ew = e || w, ns = n || s;
+    if (ew !== ns) {
+      const yaw = ns ? Math.PI / 2 : 0;
+      const pos = t.water ? center.clone().setY(BRIDGE_Y - 0.035) : center;
+      if (t.roadType === 1) P.avenueMarks.add(this.place(pos, yaw));
+      else P.roadDash.add(this.place(pos, yaw));
+    }
+    if (t.edge) {
+      // Highway continuing off the map. The model runs along +x, and
+      // rotateY(a) sends +x to (cos a, 0, −sin a), so: west edge → a = π
+      // (points −x), east → 0, north → π/2 (points −z), south → −π/2.
+      const yaw = x === 0 ? Math.PI : x === GRID_SIZE - 1 ? 0 : z === 0 ? Math.PI / 2 : -Math.PI / 2;
+      const off = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw)).multiplyScalar(0.5);
+      P.highway.add(this.place(center.clone().add(off), yaw));
+    }
+  }
+
+  /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
+  private edgeOutward(x: number, z: number): number {
+    if (x === 0) return Math.PI / 2;
+    if (x === GRID_SIZE - 1) return (3 * Math.PI) / 2;
+    if (z === 0) return 0;
+    return Math.PI;
   }
 
   /**

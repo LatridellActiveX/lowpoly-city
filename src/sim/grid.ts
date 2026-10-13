@@ -11,6 +11,8 @@
 import { GRID_SIZE, Tile } from './types';
 import { defaultTaxRates, emptyLedger, Ledger, MONTH_TICKS, STARTING_CASH, TaxRates } from './economy';
 import { scatterDecorations } from './terrain';
+import { generateWater, placeEdgeConnection } from './mapgen';
+import { computeResources, Resource } from './resources';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -24,6 +26,11 @@ export function emptyTile(): Tile {
     happyTicks: 0,
     variant: 0,
     deco: 0,
+    water: false,
+    edge: false,
+    roadType: 0,
+    construct: 0,
+    stock: 0,
   };
 }
 
@@ -82,6 +89,15 @@ export class World {
   wind = 0.5;
   /** The random-walk part of the wind, kept so the weather continues smoothly after a reload. */
   windDrift = 0;
+  /**
+   * PR 4: game-clock seconds since founding, at 1× speed. Drives the
+   * day/night cycle (dayNight.ts) and traffic. Kept separate from `tick` so
+   * changing the sim update rate in Settings doesn't change how long a day is.
+   */
+  clock = 0;
+  /** PR 4: highest population tier reached (progression.ts). Never goes down. */
+  tier = 0;
+  private resourceCache: Uint8Array | null = null;
 
   /**
    * Pass `tiles` + `seed` when loading a save. With no arguments a fresh city
@@ -90,7 +106,28 @@ export class World {
   constructor(tiles?: Tile[], seed?: number) {
     this.seed = seed ?? Math.floor(Math.random() * 1e9);
     this.tiles = tiles ?? Array.from({ length: GRID_SIZE * GRID_SIZE }, emptyTile);
-    if (!tiles) scatterDecorations(this.tiles, this.seed);
+    if (!tiles) {
+      // A brand-new map: water first (so trees don't grow in the river),
+      // then the highway connection, then trees/rocks on what's left.
+      generateWater(this.tiles, this.seed, false);
+      placeEdgeConnection(this.tiles, this.seed);
+      scatterDecorations(this.tiles, this.seed);
+    }
+  }
+
+  /** PR 4: seeded resource patches per tile (resources.ts). Computed once, never saved. */
+  get resources(): Uint8Array {
+    if (!this.resourceCache) this.resourceCache = computeResources(this.tiles, this.seed);
+    return this.resourceCache;
+  }
+  /** Resource under tile i. */
+  resourceAt(i: number): Resource {
+    return this.resources[i] as Resource;
+  }
+
+  /** PR 4: index of the out-of-city road tile, or -1 if this map has none. */
+  get edgeIndex(): number {
+    return this.tiles.findIndex((t) => t.edge);
   }
 
   /** Current month number (1-based), for the clock. */

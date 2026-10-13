@@ -56,12 +56,37 @@ export interface Tile {
   variant: number;
   /** Natural decoration on this tile (see terrain.ts `Deco`): 0 = none. */
   deco: number;
+  /**
+   * PR 4: river/lake water (generated once per map, see mapgen.ts). Water is
+   * unbuildable except for ROADS, which become bridges. Bulldozing a bridge
+   * leaves the water in place.
+   */
+  water: boolean;
+  /**
+   * PR 4: this road tile is the OUT-OF-CITY CONNECTION at the map edge. Cars
+   * and trucks enter and leave the map here. It can't be bulldozed.
+   */
+  edge: boolean;
+  /** PR 4: road type when `road` is true. 0 = street, 1 = medium-density avenue (faster, more lanes). */
+  roadType: number;
+  /**
+   * PR 4 construction: ticks of building work left before this lot reaches
+   * its next level (0 = not under construction). Work only progresses while
+   * the lot has road, power and water. See simulation.ts.
+   */
+  construct: number;
+  /**
+   * PR 4 goods: what's in stock. Factories: units of their good waiting for
+   * a truck. Shops: units on the shelves. Power plants: fuel. See goods.ts.
+   */
+  stock: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
 export type ToolId =
   | 'inspect'
   | 'road'
+  | 'avenue'
   | 'residential'
   | 'commercial'
   | 'industrial'

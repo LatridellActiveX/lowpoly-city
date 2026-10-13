@@ -35,8 +35,17 @@ export const MAX_LEVEL = 3;
 /** Ticks of continuous service needed before a lot grows one level. */
 export const GROW_TICKS = 6;
 
-/** Simulation ticks per real second at 1x speed. */
-export const TICKS_PER_SECOND = 2;
+/**
+ * Simulation ticks per real second at 1x speed (the DEFAULT; Settings can
+ * change it to 0.5 or 2). PR 4 halved it from 2 to 1 so 1× plays at a calmer
+ * pace: a month (30 ticks) now takes 30 s.
+ */
+export const TICKS_PER_SECOND = 1;
+
+/** PR 4: ticks of (serviced) building work to finish one construction stage. */
+export const CONSTRUCT_TICKS = 10;
+/** PR 4: a power plant's full fuel bunker, in fuel units (goods.ts). */
+export const FUEL_MAX = 40;
 
 // ---- Pollution, desirability and parks (PR 3, see environment.ts) ----
 /** A coal power plant's pollution strength next door, and how far it reaches. */
@@ -75,9 +84,14 @@ export function isBare(t: Tile): boolean {
  */
 export function canPlace(tool: ToolId, t: Tile): boolean {
   const noBuilding = t.zone === null && t.structure === 'none';
+  // PR 4: water only takes roads (bridges). Nothing else may be built on it.
+  if (t.water && tool !== 'road' && tool !== 'avenue' && tool !== 'bulldoze' && tool !== 'inspect') return false;
   switch (tool) {
     case 'road':
       return noBuilding && !t.road;
+    case 'avenue':
+      // A new avenue on empty land, or an upgrade of an existing street.
+      return noBuilding && (!t.road || t.roadType === 0);
     case 'powerLine':
       // Roads already carry power (auto street lines), so the manual tool is
       // only for running lines across land without a road.
@@ -87,7 +101,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'residential':
     case 'commercial':
     case 'industrial':
-      if (t.zone !== null) return t.zone !== tool && t.level === 0; // re-zone an empty lot
+      if (t.zone !== null) return t.zone !== tool && t.level === 0 && t.construct === 0; // re-zone an empty lot
       return isBare(t);
     case 'powerPlant':
     case 'windTurbine':
@@ -95,6 +109,8 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'park':
       return isBare(t);
     case 'bulldoze':
+      // The highway connection at the map edge is permanent.
+      if (t.edge) return false;
       return !isBare(t) || t.deco !== 0;
     case 'inspect':
       return true;
@@ -108,6 +124,11 @@ export function applyTool(tool: ToolId, t: Tile): void {
   switch (tool) {
     case 'road':
       t.road = true;
+      t.roadType = 0;
+      break;
+    case 'avenue':
+      t.road = true;
+      t.roadType = 1;
       break;
     case 'powerLine':
       t.powerLine = true;
@@ -122,19 +143,27 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.structure = 'none';
       t.level = 0;
       t.happyTicks = 0;
+      t.construct = 0;
+      t.stock = 0;
       break;
     case 'powerPlant':
     case 'windTurbine':
     case 'waterTower':
     case 'park':
       t.structure = tool;
+      // New power plants arrive with a full fuel bunker (goods.ts).
+      t.stock = tool === 'powerPlant' ? FUEL_MAX : 0;
       break;
     case 'bulldoze':
+      // Note: `water` is terrain and stays; bulldozing a bridge leaves the river.
       t.road = t.powerLine = t.waterPipe = false;
+      t.roadType = 0;
       t.zone = null;
       t.structure = 'none';
       t.level = 0;
       t.happyTicks = 0;
+      t.construct = 0;
+      t.stock = 0;
       break;
     case 'inspect':
       break;

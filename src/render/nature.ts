@@ -72,7 +72,7 @@ const smooth = (a: number, b: number, v: number) => {
  * thresholds sit in the middle of these blend bands, so rocks still land on
  * rocky-looking ground.)
  */
-export function buildGroundMesh(seed: number): THREE.Mesh {
+export function buildGroundMesh(seed: number, water?: (x: number, z: number) => boolean): THREE.Mesh {
   const RES = 2; // vertices per tile edge
   const seg = GRID_SIZE * RES;
   const geo = new THREE.PlaneGeometry(GRID_SIZE, GRID_SIZE, seg, seg).rotateX(-Math.PI / 2);
@@ -93,6 +93,22 @@ export function buildGroundMesh(seed: number): THREE.Mesh {
     c.lerp(tmp.setHex(GROUND_COLORS.rocky), smooth(0.74, 0.82, patch));
     // Gentle large-scale brightness wobble so grass isn't one flat colour.
     c.multiplyScalar(0.92 + fbm(x, z, 6, seed + 11) * 0.07);
+    // PR 4: sandy banks + a dark riverbed. A vertex sits on the corner of up
+    // to four tiles; if ANY of them is water, the vertex is shore sand, and if
+    // ALL are water it's riverbed (seen faintly through the water surface).
+    if (water) {
+      const vx = Math.round(pos.getX(i)), vz = Math.round(pos.getZ(i));
+      let wet = 0, seen = 0;
+      for (const [ox, oz] of [[-1, -1], [0, -1], [-1, 0], [0, 0]]) {
+        const tx = Math.floor(pos.getX(i) + ox * 0.5 + (ox === 0 ? 0.01 : -0.01)), tz = Math.floor(pos.getZ(i) + oz * 0.5 + (oz === 0 ? 0.01 : -0.01));
+        if (tx < 0 || tz < 0 || tx >= GRID_SIZE || tz >= GRID_SIZE) continue;
+        seen++;
+        if (water(tx, tz)) wet++;
+      }
+      void vx; void vz;
+      if (wet === seen && seen > 0) c.setHex(0x2c5f7c);
+      else if (wet > 0) c.setHex(0xd9c79a);
+    }
     colors.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));

@@ -34,6 +34,7 @@ import * as THREE from 'three';
 import { idx, inBounds } from '../sim/grid';
 import { Tile } from '../sim/types';
 import { box, merge, part } from './models';
+import { BRIDGE_Y } from './roads';
 
 /** Height (y) at which the wires leave the insulators. */
 export const WIRE_Y = 0.775;
@@ -107,7 +108,8 @@ export const carriesPower = (t: Tile) => t.powerLine || t.road;
 export function poleSpot(tiles: Tile[], x: number, z: number): PoleSpot {
   const has: Has = (a, b, f) => inBounds(a, b) && f(tiles[idx(a, b)]);
   const t = tiles[idx(x, z)];
-  const pos = new THREE.Vector3(x + 0.5, 0, z + 0.5);
+  // PR 4: poles on a bridge stand on the lifted deck.
+  const pos = new THREE.Vector3(x + 0.5, t.road && t.water ? BRIDGE_Y : 0, z + 0.5);
 
   // Crossarm orientation: perpendicular to the direction the line runs.
   const lineEW = has(x - 1, z, carriesPower) || has(x + 1, z, carriesPower);
