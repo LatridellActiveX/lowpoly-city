@@ -26,6 +26,8 @@ import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
+import { VEHICLES, vehiclePose } from './vehicles';
+import { isIntersection, lightState } from '../sim/traffic';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
@@ -76,6 +78,10 @@ export class CityRenderer {
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
   private lastOverlay: OverlayMode = 'none';
+  /** PR 4: intersections with traffic lights (tile index + pole position). */
+  private junctions: Array<{ i: number; pos: THREE.Vector3 }> = [];
+  /** The sim being drawn (animate() needs vehicles and the clock). */
+  private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
   private cranes: Array<{ pos: THREE.Vector3; phase: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
@@ -144,6 +150,15 @@ export class CityRenderer {
         }),
       );
     }
+    // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
+    add('car', VEHICLES.car(), solid, 256);
+    add('truckCab', VEHICLES.truckCab(), solid, 64);
+    add('truckBox', VEHICLES.truckBox(), solid, 64);
+    add('lightPole', VEHICLES.lightPole(), solid, 128);
+    add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 512, false);
+    add('driveway', VEHICLES.driveway(), solid, 512, false);
+    add('garage', VEHICLES.garage(), solid, 256);
+    add('loadingDock', VEHICLES.loadingDock(), solid, 128, false);
     // PR 4 construction sites.
     add('scaffold', SITE.scaffold(), solid, 64);
     add('craneMast', SITE.craneMast(), solid, 64);
@@ -206,12 +221,14 @@ export class CityRenderer {
   private bladeAngle = 0;
 
   private rebuild(sim: Simulation): void {
+    this.sim = sim;
     const P = this.pools;
     for (const p of Object.values(P)) p.begin();
     this.turbines = [];
     this.markers = [];
     this.lamps = [];
     this.cranes = [];
+    this.junctions = [];
     const tiles = sim.world.tiles;
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
@@ -254,7 +271,15 @@ export class CityRenderer {
         P.water.add(this.place(center), this.c.setRGB(k, k, k));
       }
 
-      if (t.road) this.addRoad(t, x, z, center, has);
+      if (t.road) {
+        this.addRoad(t, x, z, center, has);
+        if (isIntersection(tiles, i)) {
+          // Light pole on the north-west corner, arm reaching over the junction.
+          const pos = center.clone().add(new THREE.Vector3(-0.44, t.water ? BRIDGE_Y : 0.04, -0.44));
+          P.lightPole.add(this.place(pos, Math.PI * 1.25));
+          this.junctions.push({ i, pos });
+        }
+      }
 
       // PR 4: poles only on "pole tiles" (every other tile on straight runs,
       // always at junctions/corners/ends), see powerLines.isPoleTile. The
@@ -321,6 +346,18 @@ export class CityRenderer {
           const lit = hash2(x, z, seed + 404);
           const on = st.operating && lit < (t.zone === 'residential' ? 0.8 : 0.9);
           P[`${key}.lights`].add(m, this.c.setScalar(on ? 1.1 + lit * 0.9 : 0));
+          // PR 4 driveways: every home gets a strip from the street to the
+          // side of the house (plus a garage on small level-1 houses);
+          // about half of the factories get a loading apron.
+          const local = (lx: number, lz: number) => new THREE.Vector3(lx, 0, lz).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
+          if (t.zone === 'residential') {
+            const { d } = roofBox('residential', lv);
+            const z0 = lv === 1 ? 0.2 : Math.max(0.2, d / 2); // don't drive through the house
+            P.driveway.add(this.place(local(0.36, (z0 + 0.5) / 2).setY(0.002), face, 1, 1, 0.5 - z0));
+            if (lv === 1) P.garage.add(this.place(local(0.36, 0.11), face));
+          } else if (t.zone === 'industrial' && hash2(x, z, seed + 808) < 0.5) {
+            P.loadingDock.add(this.place(local(0.2, 0.38).setY(0.002), face));
+          }
           const h = 0.35 + lv * 0.3;
           if (!st.operating) {
             // Floating warnings: grey gem = no road, ⚡ = no power, 💧 = no water.
@@ -453,6 +490,41 @@ export class CityRenderer {
     void i;
   }
 
+  /**
+   * PR 4: place every vehicle and colour every traffic light for this frame.
+   * Vehicles change every frame, so these pools are rebuilt here rather than
+   * in rebuild() (a few hundred matrix writes — cheap).
+   */
+  private animateTraffic(): void {
+    const sim = this.sim;
+    const P = this.pools;
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].begin();
+    if (sim) {
+      const tiles = sim.world.tiles;
+      const pos = new THREE.Vector3();
+      for (const v of sim.traffic.vehicles) {
+        if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
+        const yaw = vehiclePose(v, tiles, pos);
+        const m = this.place(pos, yaw);
+        if (v.kind === 'car') P.car.add(m, this.c.setHex(v.color));
+        else {
+          P.truckCab.add(m);
+          P.truckBox.add(m, this.c.setHex(v.color));
+        }
+      }
+      // Two heads per junction: one facing the north-south traffic, one the east-west.
+      for (const { i, pos: p } of this.junctions) {
+        const st = lightState(i, sim.world.clock);
+        for (const axis of ['ns', 'ew'] as const) {
+          const col = st.green === axis ? (st.amber ? 0xffb020 : 0x35e06a) : 0xff3b30;
+          const off = axis === 'ns' ? new THREE.Vector3(0.05, 0.37, 0.11) : new THREE.Vector3(0.11, 0.37, 0.05);
+          P.lightHead.add(this.place(p.clone().add(off)), this.c.setHex(col));
+        }
+      }
+    }
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].end();
+  }
+
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
   private edgeOutward(x: number, z: number): number {
     if (x === 0) return Math.PI / 2;
@@ -547,6 +619,7 @@ export class CityRenderer {
     }
     blades.end();
 
+    this.animateTraffic();
     // PR 4: crane jibs swing slowly back and forth over their sites.
     const jib = this.pools.craneJib;
     jib.begin();

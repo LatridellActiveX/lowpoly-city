@@ -31,6 +31,8 @@ import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND,
 import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
+import { Traffic, roadNextTo } from './traffic';
+import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
 import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
 
@@ -80,6 +82,8 @@ export interface HistoryPoint {
  */
 export const HISTORY_EVERY_TICKS = 20;
 export const HISTORY_MAX = 500;
+/** PR 4: about one car on the road per this many residents (before the Settings cap). */
+export const COMMUTE_PEOPLE = 6;
 
 export class Simulation {
   /** Session-only ring buffer of stats for the graphs (not saved). */
@@ -88,6 +92,10 @@ export class Simulation {
   net: NetworkResult;
   /** Pollution / parks / desirability per tile, recomputed every tick (environment.ts). */
   env: Environment;
+  /** PR 4: cars and trucks currently on the map (not saved). */
+  traffic = new Traffic();
+  /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
+  settings: Settings = loadSettings();
   /** 0 = paused, 1/2/3 = speed multiplier. */
   speed = 1;
   /** Tiles that finished a construction stage this tick (read by traffic for move-in cars). */
@@ -110,7 +118,12 @@ export class Simulation {
   update(dt: number): void {
     if (this.speed === 0) return;
     // Clamp dt so a backgrounded tab doesn't run thousands of ticks at once.
-    this.acc += Math.min(dt, 0.25) * this.speed * TICKS_PER_SECOND;
+    const gameDt = Math.min(dt, 0.25) * this.speed;
+    // PR 4: the game clock (day/night, traffic lights) and vehicles move
+    // continuously every frame, independent of the tick rate.
+    this.world.clock += gameDt;
+    this.traffic.update(this.world, gameDt);
+    this.acc += gameDt * (this.settings.tickRate || TICKS_PER_SECOND);
     while (this.acc >= 1) {
       this.acc -= 1;
       this.step();
@@ -176,6 +189,7 @@ export class Simulation {
       t.construct = CONSTRUCT_TICKS;
       t.happyTicks = 0;
     });
+    this.spawnTraffic();
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
     if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
     this.version++;
@@ -284,6 +298,50 @@ export class Simulation {
    * desirability: too polluted = can't even build (0), a bit polluted = small
    * houses only (1). Everything else can reach MAX_LEVEL.
    */
+  /**
+   * PR 4 traffic generation, once per tick:
+   *  - MOVE-INS: every home that just finished a construction stage gets a car
+   *    driving in from the out-of-city connection with its new residents.
+   *  - COMMUTERS: the city wants about one car per COMMUTE_PEOPLE residents on
+   *    the road (capped by Settings.maxCars). Up to 3 new trips start per tick
+   *    between a random home and a random workplace (either direction), and
+   *    some visitors drive in from the edge to a shop.
+   * "Random" picks are hashes of (tick, slot, seed), so they're repeatable.
+   */
+  private spawnTraffic(): void {
+    const w = this.world;
+    const tiles = w.tiles;
+    const edgeTile = w.edgeIndex;
+    const cars = () => this.traffic.count('car');
+    for (const i of this.completed) {
+      if (tiles[i].zone !== 'residential' || edgeTile < 0 || cars() >= this.settings.maxCars) continue;
+      const home = roadNextTo(tiles, i);
+      if (home >= 0) this.traffic.spawn(w, 'car', edgeTile, home, 'moving in');
+    }
+    const homes: number[] = [];
+    const work: number[] = [];
+    let pop = 0;
+    tiles.forEach((t, i) => {
+      if (!t.zone || t.level === 0) return;
+      if (t.zone === 'residential') {
+        homes.push(i);
+        pop += RESIDENTS_PER_LEVEL * t.level;
+      } else work.push(i);
+    });
+    const target = Math.min(this.settings.maxCars, Math.floor(pop / COMMUTE_PEOPLE));
+    for (let k = 0; k < 3 && cars() < target && homes.length; k++) {
+      const r = (n: number) => hash2(w.tick, k * 13 + n, w.seed + 4100);
+      const home = roadNextTo(tiles, homes[Math.floor(r(1) * homes.length)]);
+      let other: number;
+      if ((r(2) < 0.15 || !work.length) && edgeTile >= 0) other = edgeTile; // out-of-town trip / visitor
+      else if (work.length) other = roadNextTo(tiles, work[Math.floor(r(3) * work.length)]);
+      else break;
+      if (home < 0 || other < 0 || home === other) continue;
+      const toWork = r(4) < 0.5;
+      this.traffic.spawn(w, 'car', toWork ? home : other, toWork ? other : home, 'commute');
+    }
+  }
+
   /** Growth multiplier from zone demand (replaced by demand.ts in the RCI stage). */
   demandFactor(_zone: ZoneType): number {
     return 1;
