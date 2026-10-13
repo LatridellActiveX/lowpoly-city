@@ -21,10 +21,13 @@ export interface Settings {
   tickRate: number;
   dayNight: boolean;
   detail: 'high' | 'low';
+  /** PR 5: camera sensitivity multipliers (0.25–2). Rotation = middle-drag orbit; pan = drag + WASD. */
+  camRotate: number;
+  camPan: number;
 }
 
 const KEY = 'lowpoly-city-settings';
-export const defaultSettings = (): Settings => ({ maxCars: 150, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high' });
+export const defaultSettings = (): Settings => ({ maxCars: 150, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1 });
 
 export function loadSettings(): Settings {
   try {

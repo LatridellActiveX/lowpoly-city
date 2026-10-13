@@ -275,6 +275,9 @@ renderer.setAnimationLoop(() => {
   city.setNight(dayNight.night, dayNight.time);
   // PR 5 LOD: detailed models only when Detail = High AND zoomed in past
   // LOD_ZOOM (far out, the extra trim is sub-pixel anyway).
+  // PR 5: camera sensitivity sliders apply live.
+  cam.rotateSpeed = sim.settings.camRotate;
+  cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.cameraQuat.copy(cam.camera.quaternion);
   city.frame(sim, clock.elapsedTime);
