@@ -358,7 +358,8 @@ export class Traffic {
     for (const v of this.vehicles) {
       const a = v.path[v.seg], b = v.path[v.seg + 1];
       if (b === undefined) continue;
-      if (v.t > STOP_T && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
+      // (Physically inside = past the tile edge, t > 0.5 — cars waiting between the stop line and the edge don't hold it.)
+      if (v.t > 0.5 && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
       if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a));
     }
     /** Opposite directions: E↔W (0,1) and S↔N (2,3) — straight-through lanes that never cross. */
@@ -383,6 +384,10 @@ export class Traffic {
       let limit = Infinity;
       let obsPos = Infinity, obsV = 0;
       const lead = (pos: number, speedAhead: number) => {
+        // PR 5: a "leader" whose rear is already behind our centre is an
+        // overlap (two trips spawned on the same driveway tile). Ignore it —
+        // otherwise both wait for each other forever. They separate naturally.
+        if (pos < v.t - 0.02) return;
         limit = Math.min(limit, pos - GAP * 0.55);
         if (pos < obsPos) { obsPos = pos; obsV = speedAhead; }
       };
@@ -419,13 +424,16 @@ export class Traffic {
       const enteringJunction = v.t <= STOP_T && isIntersection(tiles, jNext);
       if (enteringJunction) {
         const holders = inJunction.get(jNext);
-        if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) stopAt();
+        // After 8 s of waiting a driver edges in anyway (prevents rare
+        // starvation/gridlock loops; the 25 s give-up stays as a last resort).
+        const patient = v.stuck < 8;
+        if (patient && holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) stopAt();
         // PR 5 "don't block the box": only enter if there's room to get
         // all the way through — no stationary/slow car near the start of the
         // lane we'll leave the junction by. Prevents junction gridlock.
         if (v.seg + 2 < v.path.length) {
           const exit = lanes.get(laneOf(v, v.seg + 1));
-          if (exit && exit.some((o) => o.t < 0.9 && o.v < 0.3)) stopAt();
+          if (patient && exit && exit.some((o) => o.t < 0.6 && o.v < 0.3)) stopAt();
         }
       }
       // ---- PR 5 IDM (Intelligent Driver Model) ----
@@ -454,7 +462,7 @@ export class Traffic {
       v.stuck = nt - v.t < 1e-4 ? v.stuck + dt : 0;
       // Crossed the stop line this frame? Then we hold the junction from now
       // on, so a crossing car later in this same loop has to wait for us.
-      if (enteringJunction && nt > STOP_T) hold(jNext, v.id, myDir);
+      if (enteringJunction && nt > STOP_T && nt > 0.5) hold(jNext, v.id, myDir);
       v.t = nt;
       if (v.stuck > STUCK_SECONDS) {
         this.stats.gaveUp++;
