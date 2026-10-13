@@ -44,6 +44,69 @@
  */
 import { GRID_SIZE, Tile } from './types';
 import { World } from './grid';
+import { hash2 } from './random';
+
+// ---------------------------------------------------------------------------
+// PR 5 VARIABLE TRAFFIC
+// ---------------------------------------------------------------------------
+// Real traffic isn't a conveyor belt. Each vehicle gets its own TRAITS,
+// picked from a hash of (vehicle id, city seed) so the same city replays the
+// same way (deterministic — no Math.random):
+//   cruise   speed multiplier 0.8..1.2 (±20%); trucks are ×0.75 of a car
+//   gap      following distance in tiles (timid drivers leave more room)
+//   accel    how fast it speeds up (tiles/s²); trucks are heavier = slower
+//   brake    how hard it can slow down (tiles/s²)
+//   react    seconds before it pulls away after the light turns green
+//   wobble   small sideways offset within the lane (renderer only)
+// Vehicles now have a real SPEED `v` that ramps up/down with accel/brake
+// instead of jumping straight to full speed. On top of that, roughly 1 in
+// 20 vehicles is in a short "random slowdown" (distracted driver, looking
+// for parking) at any moment: cruise ×0.5 for an 8-second window.
+//
+// TRAFFIC VOLUME follows the time of day: rushFactor() is a curve with
+// morning (~08:00) and evening (~17:30) peaks and quiet nights, and the
+// simulation multiplies its target number of commuter cars by it.
+
+/** Game-seconds per in-game day at 1× and the time of day the clock starts at (0.3 ≈ 07:12). */
+export const DAY_SECONDS = 3600;
+export const DAY_START = 0.3;
+/** Time of day 0..1 (0 = midnight) for a world clock. */
+export const timeOfDay = (clock: number) => ((clock / DAY_SECONDS + DAY_START) % 1 + 1) % 1;
+
+/**
+ * Traffic volume multiplier for time of day t (0..1): ~0.15 at 03:00,
+ * ~1.0 at the 08:00 and 17:30 rush hours, ~0.55 at midday. A base level
+ * plus two Gaussian bumps.
+ */
+export function rushFactor(t: number): number {
+  const h = t * 24;
+  const bump = (centre: number, width: number) => Math.exp(-(((h - centre) / width) ** 2));
+  const day = 0.5 * Math.max(0, Math.sin(((h - 6) / 16) * Math.PI)); // daytime base 06:00–22:00
+  return Math.min(1, 0.12 + day + 0.55 * bump(8, 1.3) + 0.6 * bump(17.5, 1.5));
+}
+
+export interface DriverTraits {
+  cruise: number;
+  gap: number;
+  accel: number;
+  brake: number;
+  react: number;
+  wobble: number;
+}
+
+/** Deterministic traits for vehicle `id` in a city with `seed`. */
+export function traitsFor(id: number, kind: VehicleKind, seed: number): DriverTraits {
+  const r = (k: number) => hash2(id, k, seed + 7700);
+  const truck = kind === 'truck';
+  return {
+    cruise: (0.8 + r(1) * 0.4) * (truck ? 0.75 : 1),
+    gap: (truck ? 0.5 : 0.36) + r(2) * 0.16,
+    accel: (truck ? 0.9 : 1.6) * (0.75 + r(3) * 0.5),
+    brake: (truck ? 2.2 : 3.2) * (0.8 + r(4) * 0.4),
+    react: 0.2 + r(5) * 0.9,
+    wobble: (r(6) - 0.5) * 0.05,
+  };
+}
 
 export type VehicleKind = 'car' | 'truck';
 
@@ -64,6 +127,12 @@ export interface Vehicle {
   purpose: string;
   /** Called once on arrival (deliveries, move-ins). */
   onArrive?: () => void;
+  /** PR 5: this driver's personality (see traitsFor). */
+  traits: DriverTraits;
+  /** PR 5: current speed in tiles per game-second (ramps with accel/brake). */
+  v: number;
+  /** PR 5: seconds left before pulling away from a light that just went green. */
+  waitGreen: number;
 }
 
 export const STREET_COST = 1;
@@ -71,8 +140,7 @@ export const AVENUE_COST = 0.6;
 /** Tiles per game-second. Avenues are faster. Trucks are a bit slower. */
 const SPEED = { car: 1.5, truck: 1.1 } as const;
 const AVENUE_SPEED_BONUS = 1.6;
-/** Minimum distance (in tiles) to the vehicle ahead in the same lane. */
-const GAP = 0.42;
+/** (PR 5: the following gap is now per-driver, DriverTraits.gap.) */
 /** Where a vehicle waits on red: 0.62 along the tile before the junction. */
 const STOP_T = 0.62;
 const STUCK_SECONDS = 25;
@@ -232,7 +300,8 @@ export class Traffic {
       return true;
     }
     const id = this.nextId++;
-    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length] });
+    const traits = traitsFor(id, kind, world.seed);
+    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length], traits, v: 0, waitGreen: 0 });
     return true;
   }
 
@@ -276,7 +345,10 @@ export class Traffic {
         done.push(v);
         continue;
       }
-      const speed = SPEED[v.kind] * (cur.roadType === 1 && next.roadType === 1 ? AVENUE_SPEED_BONUS : 1);
+      // PR 5: personal cruise speed, halved during a random slowdown window.
+      const slow = hash2(v.id, Math.floor(world.clock / 8), world.seed + 7800) < 0.05 ? 0.5 : 1;
+      const speed = SPEED[v.kind] * v.traits.cruise * slow * (cur.roadType === 1 && next.roadType === 1 ? AVENUE_SPEED_BONUS : 1);
+      const GAP = v.traits.gap;
       let limit = Infinity;
       // 1. Vehicle ahead in the same lane on this tile.
       for (const other of lanes.get(laneOf(v, v.seg))!) if (other > v.t + 1e-6) limit = Math.min(limit, other - GAP);
@@ -288,7 +360,15 @@ export class Traffic {
       // 2. Red light at the junction we're about to enter (the next tile).
       if (v.t <= STOP_T && isIntersection(tiles, v.path[v.seg + 1])) {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
-        if (lightState(v.path[v.seg + 1], world.clock).green !== axis) limit = Math.min(limit, STOP_T);
+        if (lightState(v.path[v.seg + 1], world.clock).green !== axis) {
+          limit = Math.min(limit, STOP_T);
+          // Waiting at red: arm the reaction delay for when it turns green.
+          if (v.t > STOP_T - 0.05) v.waitGreen = v.traits.react;
+        } else if (v.waitGreen > 0) {
+          // PR 5: green now, but this driver takes a moment to react.
+          v.waitGreen -= dt;
+          limit = Math.min(limit, v.t);
+        }
       }
       // 3. PR 5: yield to crossing traffic already inside the junction ahead.
       const jNext = v.path[v.seg + 1];
@@ -298,8 +378,15 @@ export class Traffic {
         const holders = inJunction.get(jNext);
         if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) limit = Math.min(limit, STOP_T);
       }
-      const want = v.t + speed * dt;
+      // PR 5 speed model: accelerate toward cruise speed, but brake so we
+      // could stop before `limit` (v² = 2·brake·distance), then never pass it.
+      const room = Math.max(0, limit - v.t);
+      const safe = Math.sqrt(2 * v.traits.brake * room);
+      const targetV = Math.min(speed, safe);
+      v.v = targetV > v.v ? Math.min(targetV, v.v + v.traits.accel * dt) : Math.max(targetV, v.v - v.traits.brake * dt * 2);
+      const want = v.t + v.v * dt;
       const nt = Math.max(v.t, Math.min(want, limit));
+      if (nt >= limit) v.v = Math.min(v.v, room / Math.max(dt, 1e-3));
       v.stuck = nt - v.t < 1e-4 ? v.stuck + dt : 0;
       // Crossed the stop line this frame? Then we hold the junction from now
       // on, so a crossing car later in this same loop has to wait for us.

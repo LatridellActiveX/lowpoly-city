@@ -31,7 +31,7 @@ import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND,
 import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
-import { Traffic, roadNextTo } from './traffic';
+import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Shipping } from './goods';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
@@ -408,7 +408,8 @@ export class Simulation {
         pop += RESIDENTS_PER_LEVEL * (t.level - (t.movingIn ? 1 : 0));
       } else work.push(i);
     });
-    const target = Math.min(this.settings.maxCars, Math.floor(pop / COMMUTE_PEOPLE));
+    // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
+    const target = Math.min(this.settings.maxCars, Math.floor((pop / COMMUTE_PEOPLE) * rushFactor(timeOfDay(w.clock))));
     for (let k = 0; k < 3 && cars() < target && homes.length; k++) {
       const r = (n: number) => hash2(w.tick, k * 13 + n, w.seed + 4100);
       const home = roadNextTo(tiles, homes[Math.floor(r(1) * homes.length)]);

@@ -128,7 +128,9 @@ export function vehiclePose(v: Vehicle, tiles: Tile[], pos: THREE.Vector3): numb
   pos.lerpVectors(A, B, v.t);
   // Right-hand lane offset (−dz, dx) of the blended heading.
   const len = Math.hypot(hx, hz) || 1;
-  pos.x += (-hz / len) * LANE;
-  pos.z += (hx / len) * LANE;
+  // PR 5: each driver sits slightly off the lane centre (traits.wobble).
+  const lane = LANE + (v.traits?.wobble ?? 0);
+  pos.x += (-hz / len) * lane;
+  pos.z += (hx / len) * lane;
   return Math.atan2(-hz, hx);
 }
