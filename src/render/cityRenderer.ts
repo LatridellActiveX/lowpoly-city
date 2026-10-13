@@ -97,7 +97,7 @@ export class CityRenderer {
   setNight(n: number): void {
     this.windowGlow.opacity = n;
     this.bulbGlow.opacity = n;
-    this.poolGlow.opacity = n * 0.4;
+    this.poolGlow.opacity = n * 0.25;
     // Hide the lamp meshes completely by day so they cost nothing.
     for (const k of ['lampBulb', 'lampPool']) this.pools[k].mesh.visible = n > 0.01;
   }
@@ -233,7 +233,8 @@ export class CityRenderer {
         const spot = poleSpot(tiles, x, z);
         P.pole.add(this.place(spot.pos, spot.rotY));
         // On a road, the curb pole also carries a street lamp reaching over the street.
-        const yaw = t.road ? lampYaw(spot.pos, x, z) : null;
+        // Lamps on every other road pole, so streets get pools of light with dark gaps between.
+        const yaw = t.road && (x + z) % 2 === 0 ? lampYaw(spot.pos, x, z) : null;
         if (yaw !== null) {
           const lm = this.place(spot.pos, yaw);
           P.lampArm.add(lm);
