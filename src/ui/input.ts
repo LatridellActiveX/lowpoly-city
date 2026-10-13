@@ -6,7 +6,10 @@
  * notice instead (see desktopOnly.ts).
  *
  * Controls
- *   Mouse: left-drag = use tool, right/middle-drag = pan, wheel = zoom.
+ *   Mouse: left-drag = use tool, right-drag = pan, wheel = zoom,
+ *          MIDDLE-drag = orbit (PR 4): left/right turns the view around the
+ *          point you're looking at, up/down tilts it (within limits).
+ *   Picking is a ray against the ground plane, so it works at any angle.
  *   Keys:  WASD / arrows = pan, Q / E = rotate 90 degrees, + / - = zoom,
  *          tool hotkeys are listed in tools.ts, Space = pause.
  *
@@ -47,16 +50,24 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
   }
 
   // 'tool' = left button held with a tool, 'pan' = right/middle button held.
-  let mode: 'none' | 'tool' | 'pan' = 'none';
+  let mode: 'none' | 'tool' | 'pan' | 'orbit' = 'none';
   let last = { x: 0, y: 0 };
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  // Middle button: stop the browser's autoscroll / middle-click paste.
+  canvas.addEventListener('mousedown', (e) => e.button === 1 && e.preventDefault());
+  canvas.addEventListener('auxclick', (e) => e.button === 1 && e.preventDefault());
 
   canvas.addEventListener('pointerdown', (e) => {
     if (mode !== 'none') return; // ignore a second button while one is held
     canvas.setPointerCapture(e.pointerId);
     last = { x: e.clientX, y: e.clientY };
-    if (e.button === 1 || e.button === 2) {
+    if (e.button === 1) {
+      e.preventDefault();
+      mode = 'orbit';
+      return;
+    }
+    if (e.button === 2) {
       mode = 'pan';
       return;
     }
@@ -68,6 +79,11 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
   });
 
   canvas.addEventListener('pointermove', (e) => {
+    if (mode === 'orbit') {
+      cam.orbit(e.clientX - last.x, e.clientY - last.y);
+      last = { x: e.clientX, y: e.clientY };
+      return;
+    }
     if (mode === 'pan') {
       cam.panPixels(e.clientX - last.x, e.clientY - last.y, canvas.clientHeight);
       last = { x: e.clientX, y: e.clientY };
