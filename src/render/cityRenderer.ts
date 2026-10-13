@@ -70,6 +70,27 @@ function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: numb
   return { w: 0.6 + level * 0.08, d: 0.48 + level * 0.07, h: 0.22 + level * 0.12 };
 }
 
+/**
+ * PR 4 lamp glow: a radial gradient (bright centre fading to transparent)
+ * drawn once into a canvas. Used on camera-facing squares with additive
+ * blending, it reads as a soft halo around each bulb instead of the flat
+ * discs PR 3 painted on the road.
+ */
+function haloMaterial(): THREE.MeshBasicMaterial {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 64;
+  const g = cv.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(255,236,190,1)');
+  grad.addColorStop(0.25, 'rgba(255,205,130,0.55)');
+  grad.addColorStop(1, 'rgba(255,180,90,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+}
+
 /** Scratch colour for lerps. */
 const TMP = new THREE.Color();
 
@@ -114,11 +135,23 @@ export class CityRenderer {
    * polygon offset pulls the window glow just in front of the glass it copies
    * so the two don't flicker ("z-fighting").
    */
-  private readonly windowGlow = new THREE.MeshBasicMaterial({ color: 0xffd890, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  private readonly windowGlow = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private readonly bulbGlow = new THREE.MeshBasicMaterial({ color: 0xfff0b8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 
-  /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). */
-  setNight(n: number): void {
+  private readonly haloMat = haloMaterial();
+  /** Hour bucket used for window lights (they switch on/off through the night). */
+  private hour = -1;
+
+  /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). `time` is time of day 0..1. */
+  setNight(n: number, time = 0.5): void {
+    this.haloMat.opacity = n * 0.9;
+    this.pools.lampHalo.mesh.visible = n > 0.01;
+    // Rebuild window lights when the in-game hour changes at night.
+    const h = n > 0.01 ? Math.floor(time * 24) : -1;
+    if (h !== this.hour) {
+      this.hour = h;
+      this.lastVersion = -1;
+    }
     this.windowGlow.opacity = n;
     this.bulbGlow.opacity = n;
     // Hide the lamp meshes completely by day so they cost nothing.
@@ -185,6 +218,7 @@ export class CityRenderer {
     // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
     add('lampArm', lampArmGeometry(), solid, 512);
     add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
+    add('lampHalo', new THREE.PlaneGeometry(0.42, 0.42), this.haloMat, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
@@ -348,9 +382,19 @@ export class CityRenderer {
           P[`${key}.fixed`].add(m, this.c.setScalar(dim));
           // Night windows: most homes have a light on, some don't; offices and
           // factories are mostly lit. Dark (non-operating) buildings stay dark.
+          // PR 4: each building has its own "bedtime" and light colour.
+          // Homes switch lights on in the evening and off one by one after
+          // ~22:00 (a few night owls stay lit), shops close around 21–23 h,
+          // factories run night shifts. Colours: warm bulbs, cool white, or
+          // the blue flicker of a TV. Hours are 0..23 (this.hour; −1 = day).
           const lit = hash2(x, z, seed + 404);
-          const on = st.operating && lit < (t.zone === 'residential' ? 0.8 : 0.9);
-          P[`${key}.lights`].add(m, this.c.setScalar(on ? 1.1 + lit * 0.9 : 0));
+          const hr = this.hour < 0 ? 12 : this.hour;
+          const lateNight = hr >= 0 && hr < 6 ? hr + 24 : hr; // 18..29
+          const bedtime = t.zone === 'residential' ? 22 + lit * 7 : t.zone === 'commercial' ? 21 + lit * 2.5 : 30;
+          const on = st.operating && lit < 0.92 && lateNight < bedtime;
+          const hue = hash2(x, z, seed + 405);
+          const tintHex = hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff;
+          P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
           // PR 4 driveways: every home gets a strip from the street to the
           // side of the house (plus a garage on small level-1 houses);
           // about half of the factories get a loading apron.
@@ -627,6 +671,11 @@ export class CityRenderer {
     blades.end();
 
     this.animateTraffic();
+    // Lamp halos face the camera (billboards), like the warning icons.
+    const halo = this.pools.lampHalo;
+    halo.begin();
+    if (halo.mesh.visible) for (const p of this.lamps) halo.add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
+    halo.end();
     // PR 4 smoke: each stack emits SMOKE_PUFFS puffs on a loop. A puff's age
     // a (0..1) comes from time + its slot, so they're evenly staggered; it
     // rises, drifts downwind (+x, scaled by the wind) and grows/lightens as it ages.

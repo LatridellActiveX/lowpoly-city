@@ -223,7 +223,7 @@ renderer.setAnimationLoop(() => {
   sim.update(dt);
   cam.update(dt);
   dayNight.update(sim);
-  city.setNight(dayNight.night);
+  city.setNight(dayNight.night, dayNight.time);
   city.cameraQuat.copy(cam.camera.quaternion);
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
