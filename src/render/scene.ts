@@ -21,6 +21,8 @@ export interface SceneBundle {
   /** The invisible-ish ground plane that mouse rays are tested against. */
   ground: THREE.Mesh;
   sun: THREE.DirectionalLight;
+  /** Sky/ground fill light (dimmed at night by dayNight.ts). */
+  hemi: THREE.HemisphereLight;
 }
 
 export function createScene(container: HTMLElement): SceneBundle {
@@ -38,7 +40,8 @@ export function createScene(container: HTMLElement): SceneBundle {
   scene.background = new THREE.Color(0x9fd3e8);
 
   // Soft sky/ground fill light so shadowed sides are never pitch black...
-  scene.add(new THREE.HemisphereLight(0xeaf6ff, 0x6b7f5a, 1.6));
+  const hemi = new THREE.HemisphereLight(0xeaf6ff, 0x6b7f5a, 1.6);
+  scene.add(hemi);
   // ...plus a "sun" that casts shadows. Its shadow camera is an orthographic
   // box big enough to cover the entire map.
   const sun = new THREE.DirectionalLight(0xfff1d6, 2.2);
@@ -76,5 +79,5 @@ export function createScene(container: HTMLElement): SceneBundle {
   ground.position.set(half, 0, half);
   scene.add(ground);
 
-  return { renderer, scene, ground, sun };
+  return { renderer, scene, ground, sun, hemi };
 }

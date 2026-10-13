@@ -159,3 +159,31 @@ export function cableMatrix(a: THREE.Vector3, b: THREE.Vector3, out: THREE.Matri
   _q.copy(_yaw).multiply(_pitch);
   return out.compose(a, _q, _s.set(Math.hypot(horiz, dy), 1, 1));
 }
+
+/**
+ * Street lamp parts (PR 3), mounted on curb-side poles of power lines that run
+ * along a road. Model space: the arm points along +x (toward the middle of
+ * the road); the renderer turns it with lampYaw().
+ */
+export const LAMP_REACH = 0.2;
+export function lampArmGeometry(): THREE.BufferGeometry {
+  return merge([
+    part(box(LAMP_REACH, 0.014, 0.014).translate(LAMP_REACH / 2, 0, 0), STEEL, [0, 0.62, 0]),
+    part(box(0.012, 0.05, 0.012), STEEL, [0.03, 0.575, 0], [0, 0, -0.7]), // small brace
+    part(box(0.07, 0.022, 0.045), 0x3a3d42, [LAMP_REACH, 0.605, 0]), // lamp head
+  ]);
+}
+/** The bulb under the lamp head: glows at night. */
+export function lampBulbGeometry(): THREE.BufferGeometry {
+  return merge([part(box(0.05, 0.012, 0.032), 0xffffff, [LAMP_REACH, 0.595, 0])]);
+}
+/** A soft pool of light on the road under the lamp (additive disc). */
+export function lampPoolGeometry(): THREE.BufferGeometry {
+  return merge([part(new THREE.CircleGeometry(0.26, 16).rotateX(-Math.PI / 2), 0xffffff, [LAMP_REACH, 0.05, 0])]);
+}
+/** Yaw that points a lamp at (x,z)'s tile centre from a pole at `pos`, or null if the pole is centred. */
+export function lampYaw(pos: THREE.Vector3, x: number, z: number): number | null {
+  const dx = x + 0.5 - pos.x, dz = z + 0.5 - pos.z;
+  if (Math.hypot(dx, dz) < 0.05) return null;
+  return Math.atan2(-dz, dx);
+}

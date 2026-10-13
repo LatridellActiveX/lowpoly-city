@@ -68,13 +68,23 @@ export interface DesignParts {
   walls: THREE.BufferGeometry;
   accent: THREE.BufferGeometry;
   fixed: THREE.BufferGeometry;
+  /**
+   * Night-time window glow (PR 3): a copy of every window/glass part, drawn
+   * with an additive glowing material on top of the glass. Its opacity is 0
+   * by day and fades up at night (cityRenderer.setNight).
+   */
+  lights: THREE.BufferGeometry;
 }
+
+/** Colours that count as "a window" and get a night-time glow copy. */
+const LIT = new Set([0x3e5f7a, 0x9fd7ff, 0xbfe6ff, 0xffd98a]);
 
 /** Collects parts into the three buckets, then merges each bucket. */
 class Builder {
   walls: THREE.BufferGeometry[] = [];
   accent: THREE.BufferGeometry[] = [];
   fixed: THREE.BufferGeometry[] = [];
+  lights: THREE.BufferGeometry[] = [];
   wall(g: THREE.BufferGeometry, pos: [number, number, number] = [0, 0, 0], rot?: [number, number, number]) {
     this.walls.push(part(g, W, pos, rot));
   }
@@ -82,6 +92,8 @@ class Builder {
     this.accent.push(part(g, W, pos, rot));
   }
   fix(g: THREE.BufferGeometry, color: number, pos: [number, number, number] = [0, 0, 0], rot?: [number, number, number]) {
+    // Clone BEFORE part(), because part() moves the geometry in place.
+    if (LIT.has(color)) this.lights.push(part(g.clone(), W, pos, rot));
     this.fixed.push(part(g, color, pos, rot));
   }
   /** A row of `n` small windows on the front (+z) face at height y. */
@@ -101,7 +113,7 @@ class Builder {
   done(): DesignParts {
     // An empty bucket still needs a geometry; use a degenerate tiny box.
     const safe = (a: THREE.BufferGeometry[]) => merge(a.length ? a : [part(box(0.001, 0.001, 0.001), W, [0, -1, 0])]);
-    return { walls: safe(this.walls), accent: safe(this.accent), fixed: safe(this.fixed) };
+    return { walls: safe(this.walls), accent: safe(this.accent), fixed: safe(this.fixed), lights: safe(this.lights) };
   }
 }
 

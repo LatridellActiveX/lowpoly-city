@@ -24,16 +24,19 @@ import { ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
 import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
 import { createScene } from './render/scene';
+import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput } from './ui/input';
 import { shapeTiles, TOOLS } from './ui/tools';
 import { installDesktopNotice } from './ui/desktopOnly';
 
 const app = document.getElementById('app')!;
-const { renderer, scene, ground } = createScene(app);
+const { renderer, scene, ground, sun, hemi } = createScene(app);
 const cam = new IsoCamera();
 const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
+// Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
+const dayNight = new DayNight(scene, sun, hemi);
 
 let sim = new Simulation(loadWorld() ?? undefined);
 let tool: ToolId = 'inspect';
@@ -178,10 +181,12 @@ renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
   sim.update(dt);
   cam.update(dt);
+  dayNight.update(sim);
+  city.setNight(dayNight.night);
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
   if (hudTimer <= 0) {
-    hud.refresh(sim);
+    hud.refresh(sim, clockText(dayNight.time));
     // Previews depend on the world (a tile may have just been built on).
     updatePreview();
     hudTimer = 0.25;
@@ -204,6 +209,8 @@ if (hasSave()) hud.flash('Welcome back — city loaded');
   setTool,
   setOverlay,
   setSpeed,
+  /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
+  setTimeOfDay: (t: number | null) => (dayNight.override = t),
   inspect: (x: number, z: number) => hud.inspect(idx(x, z)),
   refresh: () => hud.refresh(sim),
 };

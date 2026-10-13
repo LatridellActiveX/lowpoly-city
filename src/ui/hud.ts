@@ -58,6 +58,8 @@ export class Hud {
   private currentTool: ToolId = 'inspect';
   private lastSim: Simulation | null = null;
   private toastTimer = 0;
+  /** Time-of-day text from the day/night cycle, e.g. "21:40". */
+  private lastClock = '';
 
   constructor(root: HTMLElement, actions: HudActions) {
     // ---- Top bar: stats, time, overlays, view, file ----
@@ -248,7 +250,8 @@ export class Hud {
   }
 
   /** Refresh numbers. Called a few times per second from main.ts. */
-  refresh(sim: Simulation): void {
+  refresh(sim: Simulation, clock = this.lastClock): void {
+    this.lastClock = clock;
     // The top bar can wrap onto two rows on narrower screens, so place the
     // floating panels just below wherever it currently ends.
     const below = `${Math.round(this.stats.parentElement!.getBoundingClientRect().bottom + 8)}px`;
@@ -273,7 +276,7 @@ export class Hud {
       `<span title="Wind: turbines make 15 × wind power (now ${Math.round(15 * sim.world.wind)} each)">🌬️ ${windGauge(sim.world.wind)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
-      `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}</span>`;
+      `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}${clock ? ` · 🕒 ${clock}` : ''}</span>`;
 
     // Grey out tools you can't afford even one of.
     for (const t of TOOLS) {

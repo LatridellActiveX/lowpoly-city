@@ -26,7 +26,7 @@ import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
-import { cableMatrix, dropGeometry, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
+import { cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -61,6 +61,25 @@ export class CityRenderer {
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
 
+  /**
+   * Glow materials for night (PR 3). ADDITIVE blending adds their colour to
+   * whatever is behind, so black = invisible and warm yellow = a glow; the
+   * polygon offset pulls the window glow just in front of the glass it copies
+   * so the two don't flicker ("z-fighting").
+   */
+  private readonly windowGlow = new THREE.MeshBasicMaterial({ color: 0xffd890, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  private readonly bulbGlow = new THREE.MeshBasicMaterial({ color: 0xfff0b8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  private readonly poolGlow = new THREE.MeshBasicMaterial({ color: 0xffb860, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+
+  /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). */
+  setNight(n: number): void {
+    this.windowGlow.opacity = n;
+    this.bulbGlow.opacity = n;
+    this.poolGlow.opacity = n * 0.4;
+    // Hide the lamp meshes completely by day so they cost nothing.
+    for (const k of ['lampBulb', 'lampPool']) this.pools[k].mesh.visible = n > 0.01;
+  }
+
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     const solid = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
@@ -76,6 +95,7 @@ export class CityRenderer {
       designs[zone].forEach((levels, k) =>
         levels.forEach((parts, lv) => {
           for (const which of ['walls', 'accent', 'fixed'] as const) add(`${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
+          add(`${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
         }),
       );
     }
@@ -93,6 +113,10 @@ export class CityRenderer {
     add('pole', poleGeometry(), solid, 512);
     add('span', spanGeometry(), solid, 1024);
     add('drop', dropGeometry(), solid, 512, false);
+    // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
+    add('lampArm', lampArmGeometry(), solid, 512);
+    add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
+    add('lampPool', lampPoolGeometry(), this.poolGlow, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     add('marker', MODELS.marker(), new THREE.MeshBasicMaterial({ vertexColors: true }), 128, false);
@@ -179,6 +203,14 @@ export class CityRenderer {
         // Pole on the street edge (see powerLines.ts for the placement rules).
         const spot = poleSpot(tiles, x, z);
         P.pole.add(this.place(spot.pos, spot.rotY));
+        // On a road, the curb pole also carries a street lamp reaching over the street.
+        const yaw = t.road ? lampYaw(spot.pos, x, z) : null;
+        if (yaw !== null) {
+          const lm = this.place(spot.pos, yaw);
+          P.lampArm.add(lm);
+          P.lampBulb.add(lm);
+          P.lampPool.add(lm);
+        }
         // Draw each span once: only to the east and south neighbours.
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
           if (!has(x + dx, z + dz, (n) => n.powerLine)) continue;
@@ -212,6 +244,11 @@ export class CityRenderer {
           P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
           P[`${key}.accent`].add(m, this.c.setHex(look.accent).multiplyScalar(dim));
           P[`${key}.fixed`].add(m, this.c.setScalar(dim));
+          // Night windows: most homes have a light on, some don't; offices and
+          // factories are mostly lit. Dark (non-operating) buildings stay dark.
+          const lit = hash2(x, z, seed + 404);
+          const on = st.operating && lit < (t.zone === 'residential' ? 0.8 : 0.9);
+          P[`${key}.lights`].add(m, this.c.setScalar(on ? 1.1 + lit * 0.9 : 0));
           const h = 0.35 + lv * 0.3;
           if (!st.operating) {
             // Marker colour says what's missing first: grey road, yellow power, blue water.

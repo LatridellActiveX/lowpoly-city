@@ -73,6 +73,10 @@ export class Simulation {
   /** Increments whenever anything visible changes; the renderer compares it. */
   version = 0;
   private acc = 0;
+  /** How far we are toward the next tick (0..1). Lets visuals move smoothly between ticks. */
+  get subTick(): number {
+    return this.acc;
+  }
 
   constructor(world = new World()) {
     this.world = world;
