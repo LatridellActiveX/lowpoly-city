@@ -27,7 +27,8 @@ import { createScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput } from './ui/input';
-import { shapeTiles, TOOLS } from './ui/tools';
+import { shapeTiles, toolDef, TOOLS } from './ui/tools';
+import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
 
 const app = document.getElementById('app')!;
@@ -45,7 +46,6 @@ let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
 /** Last mouse position in screen pixels (for the cost tooltip). */
 let mouse: [number, number] = [0, 0];
-void mouse; // read by the cost tooltip (stage 7)
 
 const hud = new Hud(app, {
   selectTool: (id) => setTool(id),
@@ -67,6 +67,7 @@ const hud = new Hud(app, {
     sim = new Simulation(w);
     sim.speed = lastSpeed;
     hud.inspect(null);
+    hud.notices.reset(sim);
     hud.flash('City loaded');
   },
   newCity: () => {
@@ -75,6 +76,7 @@ const hud = new Hud(app, {
     sim = new Simulation();
     sim.speed = lastSpeed;
     hud.inspect(null);
+    hud.notices.reset(sim);
   },
 });
 
@@ -93,19 +95,52 @@ function setOverlay(o: OverlayMode): void {
   hud.setOverlay(o);
 }
 
-/** Recompute the green/red preview for the current hover or drag. */
+/**
+ * Recompute the green/red preview for the current hover or drag, plus the
+ * cost tooltip next to the cursor (PR 3): it shows the price BEFORE you
+ * click, and while dragging a zone rectangle it shows its size and total.
+ */
 function updatePreview(): void {
-  if (!hoverTile) return preview.show([]);
-  if (tool === 'inspect') return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
+  if (!hoverTile) {
+    hud.showTip(null);
+    return preview.show([]);
+  }
+  if (tool === 'inspect') {
+    hud.showTip(null);
+    return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
+  }
   const from = dragFrom ?? hoverTile;
   const tiles = shapeTiles(tool, from[0], from[1], hoverTile[0], hoverTile[1]);
   // If the whole drag is unaffordable, every tile shows red and the cursor
   // becomes a "not allowed" sign; the hint line shows the price.
   const cost = sim.quote(tool, tiles);
   const affordable = sim.canAfford(tool, cost);
+  const valid = tiles.filter(([x, z]) => canPlace(tool, sim.world.at(x, z))).length;
   renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
   hud.showCost(tool, cost, affordable, sim.world.cash);
-  preview.show(tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })));
+  preview.show(
+    tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })),
+    affordable && valid > 0,
+  );
+  // ---- Cursor tooltip ----
+  const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
+  const def = toolDef(tool);
+  let size = '';
+  if (def.shape === 'area' && dragFrom) {
+    const w = Math.abs(hoverTile[0] - from[0]) + 1;
+    const h = Math.abs(hoverTile[1] - from[1]) + 1;
+    size = `${w}×${h} · `;
+  }
+  let html: string;
+  if (valid === 0) html = `<span class="bad">Can't build here</span>`;
+  else if (tool === 'bulldoze') {
+    const refund = tiles.reduce((a, [x, z]) => a + (canPlace(tool, sim.world.at(x, z)) ? bulldozeRefund(sim.world.at(x, z)) : 0), 0);
+    html = `${size}${valid} tile${valid > 1 ? 's' : ''} · <span class="ok">refund ${money(refund)}</span>${cost ? ` · clearing ${money(cost)}` : ''}`;
+  } else {
+    const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
+    html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
+  }
+  hud.showTip(html, mouse[0], mouse[1]);
 }
 
 attachInput(renderer.domElement, cam, ground, {
@@ -210,6 +245,13 @@ if (hasSave()) hud.flash('Welcome back — city loaded');
   setOverlay,
   setSpeed,
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
+  openGraphs: () => hud.graphs.toggle(true),
+  get timeOfDay() {
+    return dayNight.time;
+  },
+  get notices() {
+    return hud.notices.log;
+  },
   setTimeOfDay: (t: number | null) => (dayNight.override = t),
   inspect: (x: number, z: number) => hud.inspect(idx(x, z)),
   refresh: () => hud.refresh(sim),

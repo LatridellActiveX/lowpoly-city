@@ -360,26 +360,54 @@ export class CityRenderer {
   }
 }
 
-/** Highlights for the hovered tile and the green/red placement preview. */
+/**
+ * Highlights for the hovered tile and the green/red placement preview.
+ *
+ * PR 3 adds an OUTLINE: besides a soft fill on each tile, we draw a bright
+ * border around the OUTSIDE of the selection. For every tile we look at its
+ * four edges and only draw an edge whose neighbour is NOT in the selection,
+ * so a 5×3 rectangle gets one clean rectangle outline, and an L-shaped road
+ * drag gets an outline that follows the L.
+ */
 export class PreviewRenderer {
   private readonly pool: InstancePool;
+  private readonly edges: InstancePool;
   private readonly c = new THREE.Color();
   private readonly m = new THREE.Matrix4();
+  private readonly q = new THREE.Quaternion();
+  private readonly v = new THREE.Vector3();
+  private readonly one = new THREE.Vector3(1, 1, 1);
 
   constructor(scene: THREE.Scene) {
-    const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, depthTest: false });
+    const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.35, depthWrite: false, depthTest: false });
     this.pool = new InstancePool(scene, MODELS.tilePlane(), mat, GRID_SIZE * 4, false);
     this.pool.mesh.renderOrder = 10;
+    // One edge bar: 1 tile long along x, thin, lying flat.
+    const bar = new THREE.PlaneGeometry(1.0, 0.07).rotateX(-Math.PI / 2);
+    const edgeMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.95, depthWrite: false, depthTest: false });
+    this.edges = new InstancePool(scene, bar, edgeMat, GRID_SIZE * 8, false);
+    this.edges.mesh.renderOrder = 11;
   }
 
-  /** tiles: each with a validity flag; hover-only tiles are drawn white. */
-  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>): void {
+  /** tiles: each with a validity flag; hover-only tiles are drawn white. `outline` colours the border. */
+  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>, outline: boolean | null = null): void {
     this.pool.begin();
+    this.edges.begin();
+    const inSel = new Set(tiles.map((t) => t.z * GRID_SIZE + t.x));
+    const edgeColor = outline === null ? 0xffffff : outline ? 0x34c759 : 0xff3b30;
     for (const t of tiles) {
       const color = t.ok === null ? 0xffffff : t.ok ? 0x34c759 : 0xff3b30;
       this.m.makeTranslation(t.x + 0.5, 0.12, t.z + 0.5);
       this.pool.add(this.m, this.c.setHex(color));
+      // [dx, dz, bar centre offset x, z, rotation]: N, S, W, E edges.
+      for (const [dx, dz, ox, oz, rot] of [[0, -1, 0.5, 0, 0], [0, 1, 0.5, 1, 0], [-1, 0, 0, 0.5, Math.PI / 2], [1, 0, 1, 0.5, Math.PI / 2]]) {
+        if (inSel.has((t.z + dz) * GRID_SIZE + (t.x + dx)) && t.x + dx >= 0 && t.x + dx < GRID_SIZE) continue;
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rot);
+        this.m.compose(this.v.set(t.x + ox, 0.13, t.z + oz), this.q, this.one);
+        this.edges.add(this.m, this.c.setHex(edgeColor));
+      }
     }
     this.pool.end();
+    this.edges.end();
   }
 }

@@ -15,6 +15,8 @@ import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
 import { TOOLS, toolDef } from './tools';
+import { GraphsPanel } from './graphs';
+import { Notifier } from './notifications';
 import { output } from '../sim/networks';
 import { windLabel } from '../sim/wind';
 
@@ -53,6 +55,11 @@ export class Hud {
   private readonly info = el('div', 'info hidden');
   private readonly toast = el('div', 'toast');
   private readonly budget = el('div', 'budget hidden');
+  /** Cost tooltip that follows the mouse (PR 3). */
+  private readonly tip = el('div', 'cost-tip hidden');
+  /** Graphs panel and stacked notifications (PR 3). */
+  readonly graphs = new GraphsPanel();
+  readonly notices = new Notifier();
   private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
   private currentTool: ToolId = 'inspect';
@@ -108,8 +115,13 @@ export class Hud {
       budgetBtn.classList.toggle('active', open);
       if (open) this.refreshBudget(this.lastSim!);
     };
+    const graphsBtn = el('button', 'btn', '📈 Graphs') as HTMLButtonElement;
+    graphsBtn.onclick = () => {
+      const open = this.graphs.toggle();
+      if (open && this.lastSim) this.graphs.update(this.lastSim);
+    };
     const file = el('div', 'group');
-    file.append(budgetBtn);
+    file.append(budgetBtn, graphsBtn);
     for (const [label, fn] of [
       ['Save', actions.save],
       ['Load', actions.load],
@@ -132,7 +144,7 @@ export class Hud {
     }
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.hint, bar, this.toast);
+    root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -222,6 +234,16 @@ export class Hud {
     }
   }
 
+  /** Show the cost tooltip near the cursor, or hide it with null. */
+  showTip(html: string | null, x = 0, y = 0): void {
+    this.tip.classList.toggle('hidden', html === null);
+    if (html === null) return;
+    this.tip.innerHTML = html;
+    // Offset so the tip doesn't sit under the cursor and hide the tile.
+    this.tip.style.left = `${x + 18}px`;
+    this.tip.style.top = `${y + 18}px`;
+  }
+
   setTool(id: ToolId): void {
     this.currentTool = id;
     this.toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
@@ -257,6 +279,8 @@ export class Hud {
     const below = `${Math.round(this.stats.parentElement!.getBoundingClientRect().bottom + 8)}px`;
     this.info.style.top = below;
     this.budget.style.top = below;
+    this.graphs.el.style.top = below;
+    this.notices.el.style.top = below;
     const s = sim.stats();
     const bar = (used: number, cap: number) => {
       const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : used > 0 ? 100 : 0;
@@ -288,6 +312,8 @@ export class Hud {
       b.title = `${t.label} (${t.key.toUpperCase()}) — ${this.money(price)}${t.shape === 'point' ? '' : ' per tile'}${poor ? ' — NOT ENOUGH MONEY' : ''}\n${t.hint}`;
     }
     if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
+    this.graphs.update(sim);
+    this.notices.check(sim);
     void this.currentTool;
 
     if (this.infoTile !== null) this.renderInfo(sim, this.infoTile);

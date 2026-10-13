@@ -72,3 +72,20 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .desktop-only .big { font-size: 56px; }
 .desktop-only h2 { margin: 8px 0; }
 .desktop-only p { opacity: 0.85; line-height: 1.5; }
+
+/* ---- PR 3: cost tooltip, graphs, notifications ---- */
+.cost-tip { position: fixed; z-index: 20; background: var(--panel); border: 1px solid var(--line); padding: 4px 9px; border-radius: 8px; font-size: 12px; pointer-events: none; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.25); }
+.cost-tip.hidden { display: none; }
+.graphs { position: absolute; top: 60px; left: 360px; width: 384px; background: var(--panel); padding: 12px; border-radius: 12px; border: 1px solid var(--line); font-size: 13px; }
+.graphs.hidden { display: none; }
+.graphs h3 { margin: 0 0 6px; font-size: 16px; }
+.graphs .close { position: absolute; top: 6px; right: 8px; background: none; border: 0; font-size: 20px; opacity: 0.7; }
+.graphs canvas { display: block; }
+.graph-tip { min-height: 2.6em; margin-top: 4px; }
+.notices { position: absolute; top: 60px; right: 310px; display: flex; flex-direction: column; gap: 6px; pointer-events: none; width: 300px; align-items: flex-end; }
+.notice { background: var(--panel); border-left: 4px solid var(--accent); padding: 7px 12px; border-radius: 8px; font-size: 13px; transition: opacity 0.6s, transform 0.6s; animation: notice-in 0.25s ease-out; }
+.notice.bad { border-left-color: #ff5b4f; }
+.notice.good { border-left-color: #6ad37a; }
+.notice.fade { opacity: 0; transform: translateX(20px); }
+@keyframes notice-in { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: none; } }
+.meter.wind i { background: #9ad8ff; }

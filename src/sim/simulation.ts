@@ -63,7 +63,27 @@ export interface TileStatus {
   missing: string[];
 }
 
+/** One snapshot for the graphs panel (PR 3). Plain numbers, cheap to keep. */
+export interface HistoryPoint {
+  tick: number;
+  population: number;
+  jobs: number;
+  powerDemand: number;
+  powerCapacity: number;
+  waterDemand: number;
+  waterCapacity: number;
+}
+/**
+ * Take a snapshot every 20 ticks (10 s at 1×) and keep at most 500 (≈83 min
+ * at 1×). The wiki proposal said every 60 ticks; 20 makes the graph useful
+ * within the first couple of minutes of play.
+ */
+export const HISTORY_EVERY_TICKS = 20;
+export const HISTORY_MAX = 500;
+
 export class Simulation {
+  /** Session-only ring buffer of stats for the graphs (not saved). */
+  history: HistoryPoint[] = [];
   world: World;
   net: NetworkResult;
   /** Pollution / parks / desirability per tile, recomputed every tick (environment.ts). */
@@ -136,6 +156,7 @@ export class Simulation {
       t.happyTicks = 0;
     });
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
+    if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
     this.version++;
   }
 
@@ -154,6 +175,21 @@ export class Simulation {
     w.cash += Math.round(income - upkeep);
     w.lastLedger = l;
     w.ledger = emptyLedger();
+  }
+
+  /** Append a stats snapshot, dropping the oldest when the buffer is full. */
+  private record(): void {
+    const s = this.stats();
+    this.history.push({
+      tick: this.world.tick,
+      population: s.population,
+      jobs: s.jobs,
+      powerDemand: s.power.demand,
+      powerCapacity: s.power.capacity,
+      waterDemand: s.water.demand,
+      waterCapacity: s.water.capacity,
+    });
+    if (this.history.length > HISTORY_MAX) this.history.shift();
   }
 
   /** What taxes and upkeep would be if the month ended right now. */
