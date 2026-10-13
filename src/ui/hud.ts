@@ -79,6 +79,7 @@ export class Hud {
         ['none', 'Normal'],
         ['power', '⚡ Power'],
         ['water', '💧 Water'],
+        ['pollution', '☁️ Pollution'],
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       const b = el('button', 'btn', label) as HTMLButtonElement;
@@ -149,7 +150,7 @@ export class Hud {
           <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
           ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
-          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}
+          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -190,7 +191,7 @@ export class Hud {
       const inp = this.budget.querySelector<HTMLInputElement>(`input[data-zone="${z}"]`)!;
       if (document.activeElement !== inp) inp.value = String(Math.round(rate * 100));
     }
-    for (const u of ['powerPlant', 'windTurbine', 'waterTower'] as const) {
+    for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
       this.setCell(`up.${u}.last`, fmt(last?.upkeep[u], true));
     }
@@ -297,6 +298,7 @@ export class Hud {
       powerPlant: 'Power Plant',
       windTurbine: 'Wind Turbine',
       waterTower: 'Water Tower',
+      park: 'Park',
       residential: 'House',
       commercial: 'Shop',
       industrial: 'Factory',
@@ -323,13 +325,26 @@ export class Hud {
       if (t.zone) rows.push(`<div class="row">Water: ${yes(st.watered)} <span class="muted">(${netLine('water')})</span></div>`);
       if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month</div>`);
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);
-      if (t.zone && t.level === 0 && st.operating) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
+      if (t.zone === 'residential') {
+        // Pollution & desirability (PR 3): explain why a home is stuck.
+        const env = sim.env;
+        rows.push(`<div class="row">Pollution: <b class="${env.pollution[i] > 2 ? 'bad' : ''}">${env.pollution[i].toFixed(1)}</b> · Desirability: <b class="${env.desirability[i] < 0.6 ? 'bad' : 'ok'}">${env.desirability[i].toFixed(2)}</b></div>`);
+        const cap = sim.maxLevel(i);
+        if (cap === 0) rows.push('<div class="row bad">Too polluted to grow. Move industry away or add a park.</div>');
+        else if (cap < 3) rows.push(`<div class="row bad">Pollution limits this home to level ${cap}.</div>`);
+      } else if (t.zone) {
+        rows.push(`<div class="row muted">Pollution here: ${sim.env.pollution[i].toFixed(1)}</div>`);
+      }
+      if (t.zone && t.level === 0 && st.operating && sim.maxLevel(i) > 0) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
       rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 15, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
+    } else if (t.structure === 'park') {
+      rows.push(`<div class="row">Raises desirability within 3 tiles.</div>`);
+      rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP.park)}/month</div>`);
     } else if (t.powerLine || t.waterPipe) {
       if (t.powerLine) rows.push(`<div class="row">Power: <span class="muted">${netLine('power')}</span></div>`);
       if (t.waterPipe) rows.push(`<div class="row">Water: <span class="muted">${netLine('water')}</span></div>`);

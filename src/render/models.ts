@@ -116,6 +116,26 @@ export const MODELS = {
   /** Water pipe junction + a 1-unit segment along +x (lies on the ground). */
   pipeJoint: () => merge([part(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8), 0x2f7fbf, [0, 0.05, 0])]),
   pipe: () => merge([part(new THREE.CylinderGeometry(0.04, 0.04, 1, 8).rotateZ(Math.PI / 2).translate(0.5, 0, 0), 0x3d95d9, [0, 0.05, 0])]),
+  /**
+   * Park (PR 3): a lawn with a gravel cross-path, two little trees (cones on
+   * cylinders), a flower bed and a bench. Parks raise nearby desirability.
+   */
+  park: () =>
+    merge([
+      part(box(0.94, 0.035, 0.94), 0x6fbf57),
+      part(box(0.94, 0.012, 0.12), 0xd8c9a3, [0, 0.035, 0]),
+      part(box(0.12, 0.012, 0.94), 0xd8c9a3, [0, 0.035, 0]),
+      part(new THREE.CylinderGeometry(0.025, 0.03, 0.14, 5).translate(0, 0.07, 0), 0x7a5536, [-0.25, 0.035, -0.25]),
+      part(new THREE.ConeGeometry(0.15, 0.3, 7).translate(0, 0.27, 0), 0x3f8f45, [-0.25, 0.035, -0.25]),
+      part(new THREE.CylinderGeometry(0.025, 0.03, 0.12, 5).translate(0, 0.06, 0), 0x7a5536, [0.26, 0.035, 0.24]),
+      part(new THREE.IcosahedronGeometry(0.14, 0).translate(0, 0.24, 0), 0x5fae46, [0.26, 0.035, 0.24]),
+      part(new THREE.CylinderGeometry(0.12, 0.12, 0.04, 8).translate(0, 0.02, 0), 0xe86a8a, [0.25, 0.035, -0.25]),
+      part(new THREE.CylinderGeometry(0.07, 0.07, 0.05, 8).translate(0, 0.025, 0), 0xffd166, [0.25, 0.04, -0.25]),
+      part(box(0.2, 0.02, 0.06), 0x8a5a36, [-0.25, 0.08, 0.2]), // bench seat
+      part(box(0.2, 0.06, 0.015), 0x8a5a36, [-0.25, 0.1, 0.23]), // bench back
+      part(box(0.015, 0.05, 0.05), 0x444444, [-0.33, 0.035, 0.2]),
+      part(box(0.015, 0.05, 0.05), 0x444444, [-0.17, 0.035, 0.2]),
+    ]),
   /** Floating warning gem above buildings that aren't operating. */
   marker: () => merge([part(new THREE.OctahedronGeometry(0.12), 0xffffff)]),
   /** Flat square used for previews, overlays and hover. */

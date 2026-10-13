@@ -38,6 +38,28 @@ export const GROW_TICKS = 6;
 /** Simulation ticks per real second at 1x speed. */
 export const TICKS_PER_SECOND = 2;
 
+// ---- Pollution, desirability and parks (PR 3, see environment.ts) ----
+/** A coal power plant's pollution strength next door, and how far it reaches. */
+export const PLANT_POLLUTION = 5;
+export const PLANT_POLLUTION_RADIUS = 5;
+/** A factory pollutes this much per building level, within this radius. */
+export const FACTORY_POLLUTION_PER_LEVEL = 1.2;
+export const FACTORY_POLLUTION_RADIUS = 4;
+/** Desirability with no pollution and no parks. */
+export const DESIRE_BASE = 1;
+/** How much each unit of pollution lowers desirability. */
+export const POLLUTION_WEIGHT = 0.25;
+/** A park's bonus right next to it, its radius, and the cap from many parks. */
+export const PARK_BONUS = 0.8;
+export const PARK_RADIUS = 3;
+export const PARK_BONUS_MAX = 1.5;
+/** Homes below this desirability don't grow at all ("too polluted"). */
+export const DESIRE_MIN = 0.2;
+/** Homes below this can't grow past level 1. */
+export const DESIRE_FOR_DENSE = 0.6;
+/** Homes at or above this grow twice as fast. */
+export const DESIRE_FAST = 1.5;
+
 /** True if this tile has nothing on it at all. */
 export function isBare(t: Tile): boolean {
   return !t.road && !t.powerLine && !t.waterPipe && t.zone === null && t.structure === 'none';
@@ -68,6 +90,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'powerPlant':
     case 'windTurbine':
     case 'waterTower':
+    case 'park':
       return isBare(t);
     case 'bulldoze':
       return !isBare(t) || t.deco !== 0;
@@ -101,6 +124,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'powerPlant':
     case 'windTurbine':
     case 'waterTower':
+    case 'park':
       t.structure = tool;
       break;
     case 'bulldoze':

@@ -27,11 +27,12 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
+import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
 import { Tile, ToolId } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
-import { bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+import { computeEnvironment, Environment } from './environment';
+import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
 
 /** Result of trying to apply a tool, so the UI can explain what happened. */
 export interface ApplyResult {
@@ -65,6 +66,8 @@ export interface TileStatus {
 export class Simulation {
   world: World;
   net: NetworkResult;
+  /** Pollution / parks / desirability per tile, recomputed every tick (environment.ts). */
+  env: Environment;
   /** 0 = paused, 1/2/3 = speed multiplier. */
   speed = 1;
   /** Increments whenever anything visible changes; the renderer compares it. */
@@ -74,6 +77,7 @@ export class Simulation {
   constructor(world = new World()) {
     this.world = world;
     this.net = computeNetworks(world);
+    this.env = computeEnvironment(world);
   }
 
   /** Called every frame with real elapsed seconds. Runs 0..n whole ticks. */
@@ -93,6 +97,7 @@ export class Simulation {
     w.tick++;
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
+    this.env = computeEnvironment(w);
 
     // Spare capacity per network, decremented as lots grow this tick so that
     // two lots can't both claim the last bit of supply.
@@ -108,7 +113,10 @@ export class Simulation {
         return;
       }
       t.happyTicks++;
-      if (t.happyTicks < GROW_TICKS || t.level >= MAX_LEVEL) return;
+      // Homes care about pollution and parks (PR 3). Shops and factories don't.
+      const cap = this.maxLevel(i);
+      const need = t.zone === 'residential' && this.env.desirability[i] >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+      if (t.happyTicks < need || t.level >= cap) return;
       // Small random delay so a freshly zoned block doesn't pop up all at once.
       // Higher taxes make the chance smaller (economy.ts growthFactor).
       // SEEDED (PR 3): the "dice roll" is a hash of (tile, tick, city seed), so
@@ -138,7 +146,7 @@ export class Simulation {
     l.taxes = m.taxes;
     l.upkeep = m.upkeep;
     const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower;
+    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park;
     w.cash += Math.round(income - upkeep);
     w.lastLedger = l;
     w.ledger = emptyLedger();
@@ -150,7 +158,7 @@ export class Simulation {
     const l = emptyLedger();
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
-      if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower') l.upkeep[t.structure] += UPKEEP[t.structure];
+      if (isUpkeepKind(t.structure)) l.upkeep[t.structure] += UPKEEP[t.structure];
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     return l;
@@ -204,9 +212,24 @@ export class Simulation {
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
+      this.env = computeEnvironment(this.world);
       this.version++;
     }
     return res;
+  }
+
+  /**
+   * Highest level this lot may grow to right now. Homes are limited by
+   * desirability: too polluted = can't even build (0), a bit polluted = small
+   * houses only (1). Everything else can reach MAX_LEVEL.
+   */
+  maxLevel(i: number): number {
+    const t = this.world.tiles[i];
+    if (t.zone !== 'residential') return MAX_LEVEL;
+    const d = this.env.desirability[i];
+    if (d < DESIRE_MIN) return 0;
+    if (d < DESIRE_FOR_DENSE) return 1;
+    return MAX_LEVEL;
   }
 
   status(i: number): TileStatus {

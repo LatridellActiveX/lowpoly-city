@@ -34,6 +34,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   powerPlant: 4000,
   windTurbine: 600,
   waterTower: 1500,
+  park: 150,
 };
 
 /** Fee for automatically clearing a tree, bush or rock when you build on it. */
@@ -43,16 +44,22 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 80 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 80, park: 10 } as const;
+/** Structures that cost upkeep every month. */
+export type UpkeepKind = keyof typeof UPKEEP;
+export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
 
 /** Simulation ticks per in-game month (2 ticks/s at 1x => a month is 15 s). */
 export const MONTH_TICKS = 30;
 
 /**
  * Monthly tax base per building level at a 100% rate. At the default 9% a
- * level-1 house pays $27/month, a level-3 factory $162/month.
+ * level-1 house pays $18/month, a level-3 factory $108/month.
+ * PR 3 retune: cut by a third (was 300/450/600). PR 2's test city netted
+ * +$2.4k/month, which made money meaningless after a few minutes. Parks
+ * and pollution also make dense, high-tax housing harder to reach now.
  */
-export const TAX_BASE: Record<ZoneType, number> = { residential: 300, commercial: 450, industrial: 600 };
+export const TAX_BASE: Record<ZoneType, number> = { residential: 200, commercial: 300, industrial: 400 };
 
 export const DEFAULT_TAX = 0.09;
 export const MAX_TAX = 0.2;
@@ -78,7 +85,7 @@ export interface Ledger {
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
-  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0 },
+  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0 },
   construction: 0,
   refunds: 0,
 });
@@ -86,7 +93,7 @@ export const emptyLedger = (): Ledger => ({
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower;
+  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park;
   return tax + l.refunds - up - l.construction;
 }
 
@@ -104,7 +111,7 @@ export function bulldozeRefund(t: Tile): number {
   if (t.powerLine) value += BUILD_COST.powerLine;
   if (t.waterPipe) value += BUILD_COST.waterPipe;
   if (t.zone) value += BUILD_COST[t.zone];
-  if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower') value += BUILD_COST[t.structure];
+  if (isUpkeepKind(t.structure)) value += BUILD_COST[t.structure];
   return Math.round(value * REFUND_RATE);
 }
 

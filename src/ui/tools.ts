@@ -30,6 +30,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Drag along a road: poles stand on the curb and feed buildings on both sides.' },
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 80 water. Needs power to pump.' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.' },
+  { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   { id: 'bulldoze', label: 'Bulldoze', icon: '🧨', key: 'x', shape: 'area', hint: 'Drag to clear everything in the box.' },
 ];
 

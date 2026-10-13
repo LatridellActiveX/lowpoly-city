@@ -34,9 +34,12 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
   industrial: 0xeac55c,
 };
 
-export type OverlayMode = 'none' | 'power' | 'water';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
+
+/** Scratch colour for lerps. */
+const TMP = new THREE.Color();
 
 export class CityRenderer {
   private readonly group = new THREE.Group();
@@ -85,6 +88,7 @@ export class CityRenderer {
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
     add('waterTower', MODELS.waterTower(), solid, 32);
+    add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
     add('pole', poleGeometry(), solid, 512);
     add('span', spanGeometry(), solid, 1024);
@@ -218,6 +222,7 @@ export class CityRenderer {
       }
 
       if (t.structure === 'powerPlant') P.powerPlant.add(this.place(center, turn));
+      if (t.structure === 'park') P.park.add(this.place(center, turn));
       if (t.structure === 'waterTower') {
         const st = sim.status(i);
         P.waterTower.add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
@@ -228,8 +233,19 @@ export class CityRenderer {
         this.turbines.push(center.clone().setY(1.26).add(new THREE.Vector3(0, 0, 0.12)));
       }
 
-      // Coverage overlay: green-ish = served, red = connected but in outage.
-      if (this.overlay !== 'none') {
+      // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
+      // Tiles helped by a park (and not polluted) get a soft green instead.
+      if (this.overlay === 'pollution') {
+        const p = sim.env.pollution[i];
+        if (p > 0.15) {
+          const k = Math.min(1, p / 5);
+          this.c.setHex(0xffe14d).lerp(TMP.setHex(0xff3b30), Math.min(1, k * 2)).lerp(TMP.setHex(0x7a1fa2), Math.max(0, k * 2 - 1));
+          P.overlay.add(this.place(center.clone().setY(0.09)), this.c);
+        } else if (sim.env.parks[i] > 0.05) {
+          P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84));
+        }
+      } else if (this.overlay !== 'none') {
+        // Coverage overlay: yellow/blue = served, red = connected but in outage.
         const s = sim.net.service[i];
         const net = this.overlay === 'power' ? s.powerNet : s.waterNet;
         if (net >= 0) {

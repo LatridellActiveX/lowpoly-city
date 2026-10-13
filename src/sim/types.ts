@@ -25,7 +25,8 @@ export type ZoneType = 'residential' | 'commercial' | 'industrial';
  * Single-tile "structures". A tile holds at most one structure.
  * 'building' means a zone lot that has grown a house/shop/factory.
  */
-export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building';
+/** 'park' (PR 3) is a small green space that makes nearby homes more desirable. */
+export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park';
 
 /** One tile of the map. Kept as a plain object so it serialises to JSON trivially. */
 export interface Tile {
@@ -69,6 +70,7 @@ export type ToolId =
   | 'powerLine'
   | 'waterTower'
   | 'waterPipe'
+  | 'park'
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */
