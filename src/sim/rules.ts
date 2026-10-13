@@ -1,0 +1,114 @@
+/**
+ * sim/rules.ts — game balance numbers and the placement rules for each tool.
+ *
+ * "Can I put X here?" is answered in exactly one place (canPlace) so the
+ * green/red preview tint and the actual placement can never disagree.
+ */
+import { StructureType, Tile, ToolId, ZoneType } from './types';
+
+/** How many power units each source produces per tick. */
+export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
+  powerPlant: 120, // high output, the backbone of the grid
+  windTurbine: 15, // low output, cheap and clean
+};
+
+/** How many water units each water tower supplies per tick. */
+export const WATER_OUTPUT = 80;
+
+/**
+ * Consumption per building LEVEL. A level-2 house uses twice what a level-1
+ * house does. Empty lots (level 0) use nothing.
+ */
+export const DEMAND: Record<ZoneType, { power: number; water: number }> = {
+  residential: { power: 2, water: 2 },
+  commercial: { power: 3, water: 1 },
+  industrial: { power: 6, water: 3 },
+};
+
+/** People living in a house per level, and jobs per level for shops/factories. */
+export const RESIDENTS_PER_LEVEL = 5;
+export const JOBS_PER_LEVEL: Record<ZoneType, number> = { residential: 0, commercial: 4, industrial: 8 };
+
+/** Highest level a zoned building can grow to. */
+export const MAX_LEVEL = 3;
+
+/** Ticks of continuous service needed before a lot grows one level. */
+export const GROW_TICKS = 6;
+
+/** Simulation ticks per real second at 1x speed. */
+export const TICKS_PER_SECOND = 2;
+
+/** True if this tile has nothing on it at all. */
+export function isBare(t: Tile): boolean {
+  return !t.road && !t.powerLine && !t.waterPipe && t.zone === null && t.structure === 'none';
+}
+
+/**
+ * The single source of truth for placement.
+ *  - Roads, power lines and pipes are "linear" and may share a tile with each
+ *    other (a road can have a line above it and a pipe under it), but never
+ *    with a building or zone.
+ *  - Zones and utility buildings need a completely bare tile... except that a
+ *    zone can be repainted over a different zone's EMPTY lot.
+ */
+export function canPlace(tool: ToolId, t: Tile): boolean {
+  const noBuilding = t.zone === null && t.structure === 'none';
+  switch (tool) {
+    case 'road':
+      return noBuilding && !t.road;
+    case 'powerLine':
+      return noBuilding && !t.powerLine;
+    case 'waterPipe':
+      return noBuilding && !t.waterPipe;
+    case 'residential':
+    case 'commercial':
+    case 'industrial':
+      if (t.zone !== null) return t.zone !== tool && t.level === 0; // re-zone an empty lot
+      return isBare(t);
+    case 'powerPlant':
+    case 'windTurbine':
+    case 'waterTower':
+      return isBare(t);
+    case 'bulldoze':
+      return !isBare(t);
+    case 'inspect':
+      return true;
+  }
+}
+
+/** Apply a tool to a tile (assumes canPlace returned true). */
+export function applyTool(tool: ToolId, t: Tile): void {
+  switch (tool) {
+    case 'road':
+      t.road = true;
+      break;
+    case 'powerLine':
+      t.powerLine = true;
+      break;
+    case 'waterPipe':
+      t.waterPipe = true;
+      break;
+    case 'residential':
+    case 'commercial':
+    case 'industrial':
+      t.zone = tool;
+      t.structure = 'none';
+      t.level = 0;
+      t.happyTicks = 0;
+      break;
+    case 'powerPlant':
+    case 'windTurbine':
+    case 'waterTower':
+      t.structure = tool;
+      break;
+    case 'bulldoze':
+      t.road = t.powerLine = t.waterPipe = false;
+      t.zone = null;
+      t.structure = 'none';
+      t.level = 0;
+      t.happyTicks = 0;
+      break;
+    case 'inspect':
+      break;
+  }
+}
