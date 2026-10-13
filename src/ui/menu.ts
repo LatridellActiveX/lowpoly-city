@@ -45,7 +45,7 @@ export class GameMenu {
     const close = '<button class="close" aria-label="Close">×</button>';
     if (view === 'main') {
       this.el.innerHTML = `${close}<h3>Menu</h3>
-        <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, simulation speed, day/night</span></button>
+        <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => this.show(b.dataset.go as 'settings' | 'log')));
     } else if (view === 'settings') {
@@ -56,6 +56,11 @@ export class GameMenu {
         <label class="set"><span>⏱ Sim update rate</span><select data-k="tickRate">
           ${[[0.5, 'Slow (0.5 ticks/s)'], [1, 'Normal (1 tick/s)'], [2, 'Fast (2 ticks/s)']].map(([v, l]) => `<option value="${v}" ${s.tickRate === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select></label>
+        <label class="set"><span>🔄 Camera rotation speed</span><input type="range" min="0.25" max="2" step="0.05" data-k="camRotate" value="${s.camRotate}"><b>${s.camRotate}</b></label>
+        <label class="set"><span>✋ Camera pan speed</span><input type="range" min="0.25" max="2" step="0.05" data-k="camPan" value="${s.camPan}"><b>${s.camPan}</b></label>
+        <label class="set"><span>🏙 Detail</span><select data-k="detail">
+          ${[['high', 'High (detailed models up close)'], ['low', 'Low (simple models, faster)']].map(([v, l]) => `<option value="${v}" ${s.detail === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select></label>
         <label class="set check"><input type="checkbox" data-k="dayNight" ${s.dayNight ? 'checked' : ''}><span>🌗 Day/night cycle (1 hour per day at 1×)</span></label>
         <div class="muted small">Fewer vehicles helps slower computers. The update rate changes how fast the city grows and months pass at 1×; it doesn't change day length.</div>`;
       this.el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((inp) => {
@@ -63,6 +68,7 @@ export class GameMenu {
           const st = this.getSim().settings;
           const k = inp.dataset.k as keyof typeof st;
           if (k === 'dayNight') st.dayNight = (inp as HTMLInputElement).checked;
+          else if (k === 'detail') st.detail = inp.value as 'high' | 'low';
           else st[k] = Number(inp.value) as never;
           const label = inp.parentElement?.querySelector('b');
           if (label) label.textContent = inp.value;

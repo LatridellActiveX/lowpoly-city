@@ -26,11 +26,13 @@
  */
 import { World } from './grid';
 import { DEFAULT_TAX } from './economy';
-import { JOBS_PER_LEVEL, RESIDENTS_PER_LEVEL } from './rules';
+import { JOBS_PER_LEVEL, residentsOf } from './rules';
 import { ZoneType } from './types';
 
 export const WORK_SHARE = 0.55;
-export const SHOP_JOBS_PER_RESIDENT = 0.22;
+// PR 5 retune: was 0.22, which made a 120-person town with a couple of shops
+// read −1 commercial demand. 0.35 means ~1 shop level (4 jobs) per 11 people.
+export const SHOP_JOBS_PER_RESIDENT = 0.35;
 
 export interface ZoneDemand {
   value: number;
@@ -45,7 +47,7 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   let pop = 0, shopJobs = 0, factoryJobs = 0, shops = 0, emptyShops = 0;
   world.tiles.forEach((t, i) => {
     if (!t.zone || t.level === 0 || !operating(i)) return;
-    if (t.zone === 'residential') pop += RESIDENTS_PER_LEVEL * t.level;
+    if (t.zone === 'residential') pop += residentsOf(t);
     else if (t.zone === 'commercial') {
       shopJobs += JOBS_PER_LEVEL.commercial * t.level;
       shops++;
@@ -65,14 +67,18 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
 
   // Commercial: customers vs shop jobs, minus empty shelves.
   const wantShop = pop * SHOP_JOBS_PER_RESIDENT;
-  const shelves = shops ? (emptyShops / shops) * 0.5 : 0;
-  const c = clamp(0.25 + (wantShop - shopJobs) / Math.max(20, pop * 0.15) - shelves + tax('commercial'));
+  // PR 5: empty shelves only weigh in once the town is big enough to have
+  // working supply chains (pop ≥ 300), and at most −0.3; the imbalance term
+  // is divided by a gentler scale so a few extra shop jobs nudge rather than
+  // slam demand to −1. Base raised 0.25 → 0.35.
+  const shelves = shops && pop >= 300 ? (emptyShops / shops) * 0.3 : 0;
+  const c = clamp(0.35 + (wantShop - shopJobs) / Math.max(40, pop * 0.3) - shelves + tax('commercial'));
   const cDriver = shelves > 0.15 ? `${emptyShops} shop${emptyShops > 1 ? 's have' : ' has'} empty shelves — need goods` : wantShop > shopJobs + 2 ? 'Residents want more places to shop' : pop < 20 ? 'Not enough customers yet' : 'Shops are keeping up with customers';
 
   // Industrial: idle workers + shops waiting for goods + export market.
   const idle = Math.max(0, workers - jobs);
   const exportBonus = world.edgeIndex >= 0 ? 0.15 : -0.2;
-  const i = clamp(0.2 + idle / Math.max(20, pop * 0.2) + shelves * 0.8 + exportBonus - factoryJobs / Math.max(40, pop * 1.2) + tax('industrial'));
+  const i = clamp(0.2 + idle / Math.max(20, pop * 0.2) + shelves * 1.3 + exportBonus - factoryJobs / Math.max(40, pop * 1.2) + tax('industrial'));
   const iDriver = idle > 5 ? `${Math.round(idle)} workers looking for factory jobs` : shelves > 0.15 ? 'Shops are waiting for goods' : world.edgeIndex < 0 ? 'No highway connection for exports' : 'Export market keeps factories busy';
 
   return { residential: { value: r, driver: rDriver }, commercial: { value: c, driver: cDriver }, industrial: { value: i, driver: iDriver } };

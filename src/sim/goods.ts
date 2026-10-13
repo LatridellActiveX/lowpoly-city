@@ -45,22 +45,27 @@ import { FUEL_MAX } from './rules';
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal';
 
 export const GOOD_NAMES: Record<GoodType, string> = { goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Oil', coal: 'Coal' };
-/** Units in one truckload. */
-export const LOAD = 4;
+/**
+ * Units in one truckload. PR 5: 4 → 16 — each truck carries 4× more, so
+ * deliveries/exports/imports/fuel runs are ~4× rarer while goods throughput
+ * (PRODUCE_RATE / SELL_RATE) is unchanged. Stock caps, prices and the import
+ * interval below are scaled ×4 to match.
+ */
+export const LOAD = 16;
 export const PRODUCE_RATE = 0.12;
 export const SELL_RATE = 0.06;
 /** A shop orders more when below this. Factories stop producing at FACTORY_MAX. */
-export const SHOP_LOW = 3;
-export const SHOP_MAX = 10;
-export const FACTORY_MAX = 12;
+export const SHOP_LOW = 12;
+export const SHOP_MAX = 40;
+export const FACTORY_MAX = 48;
 /** $ per truckload exported through the edge connection. */
-export const EXPORT_PRICE: Record<GoodType, number> = { goods: 60, food: 45, lumber: 55, stone: 50, oil: 80, coal: 0 };
-export const IMPORT_EVERY = 20;
+export const EXPORT_PRICE: Record<GoodType, number> = { goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0 };
+export const IMPORT_EVERY = 80;
 /** Power plant fuel. One load = LOAD × FUEL_PER_UNIT fuel. */
 export const FUEL_BURN = 0.2;
 export const FUEL_ORDER = 22;
 export const FUEL_PER_UNIT = 5;
-export const COAL_PRICE = 150;
+export const COAL_PRICE = 600; // per (4× bigger) load — same $ per unit as PR 4
 
 /** What an (industrial) tile produces. */
 export function factoryGood(world: World, i: number): GoodType {
@@ -161,7 +166,7 @@ export class Shipping {
         }
       }
       // Nobody local needs it: export (only once the factory is full, so shops get first dibs).
-      if (t.stock >= FACTORY_MAX - 1 && edge >= 0) {
+      if (t.stock >= FACTORY_MAX - 4 && edge >= 0) {
         const price = EXPORT_PRICE[good] * world.exportBonus;
         if (traffic.spawn(world, 'truck', from, edge, `export: ${good}`, undefined, () => {
           world.ledger.trade.exports += price;

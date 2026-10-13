@@ -25,9 +25,9 @@ import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
-import { buildGroundMesh, NATURE } from './nature';
+import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
-import { VEHICLES, vehiclePose } from './vehicles';
+import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
 import { isIntersection, lightState } from '../sim/traffic';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
@@ -85,6 +85,9 @@ function iconMaterial(kind: 'power' | 'water'): THREE.MeshBasicMaterial {
  * (FLOOR = 0.26 per storey); used for roof-corner drop wires, scaffolds and icons.
  */
 function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: number } {
+  // PR 5: levels 4/5 are the medium-density rowhouses / apartment blocks.
+  if (zone === 'residential' && level === 4) return { w: 0.9, d: 0.6, h: 0.26 * 3 + 0.25 };
+  if (zone === 'residential' && level === 5) return { w: 0.88, d: 0.68, h: 0.26 * 5 + 0.2 };
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
   if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
   return { w: 0.6 + level * 0.08, d: 0.48 + level * 0.07, h: 0.22 + level * 0.12 };
@@ -96,16 +99,25 @@ function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: numb
  * blending, it reads as a soft halo around each bulb instead of the flat
  * discs PR 3 painted on the road.
  */
-function haloMaterial(): THREE.MeshBasicMaterial {
+function haloMaterial(neutral = false): THREE.MeshBasicMaterial {
+  // PR 5: the PR 4 halo had a fully opaque centre and a hard 25% stop, so
+  // with additive blending each lamp read as a white blob. Now the gradient
+  // is a smooth, mostly-transparent falloff (many stops approximating a
+  // Gaussian), peaking at only ~40% so overlapping halos don't blow out.
+  // `neutral` = white gradient, so the instance colour can tint it (used
+  // for traffic-signal glows, which take the lamp's red/amber/green).
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
+  cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-  grad.addColorStop(0, 'rgba(255,236,190,1)');
-  grad.addColorStop(0.25, 'rgba(255,205,130,0.55)');
-  grad.addColorStop(1, 'rgba(255,180,90,0)');
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  const rgb = neutral ? '255,255,255' : '255,214,150';
+  for (let k = 0; k <= 10; k++) {
+    const r = k / 10;
+    const a = (neutral ? 0.55 : 0.4) * Math.exp(-r * r * 5) * (1 - r); // soft bell, exactly 0 at the rim
+    grad.addColorStop(r, `rgba(${rgb},${a.toFixed(3)})`);
+  }
   g.fillStyle = grad;
-  g.fillRect(0, 0, 64, 64);
+  g.fillRect(0, 0, 128, 128);
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
@@ -118,11 +130,13 @@ export class CityRenderer {
   private readonly group = new THREE.Group();
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
+  /** PR 5 smooth river/lake surface (rebuilt with the ground when the seed changes). */
+  private waterMesh: THREE.Mesh | null = null;
   private lastOverlay: OverlayMode = 'none';
   /** PR 4: smokestack tops of fuelled power plants. */
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
-  private junctions: Array<{ i: number; pos: THREE.Vector3 }> = [];
+  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
@@ -159,13 +173,30 @@ export class CityRenderer {
   private readonly bulbGlow = new THREE.MeshBasicMaterial({ color: 0xfff0b8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 
   private readonly haloMat = haloMaterial();
+  /** PR 5: small coloured halo for lit traffic-signal lamps (night only). */
+  private readonly signalGlowMat = haloMaterial(true);
   /** Hour bucket used for window lights (they switch on/off through the night). */
   private hour = -1;
 
+  /**
+   * PR 5 level of detail: 'high' shows the detailed models (and road
+   * furniture like manholes); 'low' the simpler PR 4 models. main.ts calls
+   * setLod() every frame from the zoom level + the Detail setting; a change
+   * forces one rebuild of the instance pools.
+   */
+  lod: 'high' | 'low' = 'high';
+  setLod(lod: 'high' | 'low'): void {
+    if (lod === this.lod) return;
+    this.lod = lod;
+    this.lastVersion = -1;
+  }
+
   /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). `time` is time of day 0..1. */
   setNight(n: number, time = 0.5): void {
-    this.haloMat.opacity = n * 0.9;
+    this.haloMat.opacity = n * 0.75; // PR 5: subtler (was 0.9 on an opaque-centred texture)
     this.pools.lampHalo.mesh.visible = n > 0.01;
+    this.signalGlowMat.opacity = n * 0.8;
+    this.pools.signalGlow.mesh.visible = n > 0.05;
     // Rebuild window lights when the in-game hour changes at night.
     const h = n > 0.01 ? Math.floor(time * 24) : -1;
     if (h !== this.hour) {
@@ -189,28 +220,49 @@ export class CityRenderer {
     add('roadCurve', ROADS.curve(), solid, 256, false);
     add('sidewalk', ROADS.sidewalk(), solid, 2048, false);
     add('avenueMarks', ROADS.avenueMarks(), solid, 512, false);
-    add('roadDash', MODELS.roadDash(), solid, 1024, false);
+    add('roadDash', ROADS.streetMarks(), solid, 1024, false); // PR 5: dashes + edge lines
+    // PR 5 road furniture: crosswalks at junctions, manholes, gutter drains.
+    add('crosswalk', ROADS.crosswalk(), solid, 512, false);
+    add('stopLine', ROADS.stopLine(), solid, 1024, false);
+    add('manhole', ROADS.manhole(), solid, 512, false);
+    add('drain', ROADS.drain(), solid, 512, false);
     add('bridge', ROADS.bridgeDeck(), solid, 128);
     add('railing', ROADS.railing(), solid, 256);
     add('highway', ROADS.highway(), solid, 4);
     add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
-    const designs = buildDesigns();
-    for (const zone of ['residential', 'commercial', 'industrial'] as const) {
-      designs[zone].forEach((levels, k) =>
-        levels.forEach((parts, lv) => {
-          for (const which of ['walls', 'accent', 'fixed'] as const) add(`${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32);
-          add(`${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
-        }),
-      );
+    // PR 5: two levels of detail. "high" pools are named like
+    // "residential.2.1.walls", "low" ones "lo:residential.2.1.walls". Both
+    // exist all the time; rebuild() only fills the set for the current LOD
+    // (the other set is left with 0 instances, so it costs nothing to draw).
+    for (const lod of ['high', 'low'] as const) {
+      const designs = buildDesigns(lod);
+      const pre = lod === 'low' ? 'lo:' : '';
+      for (const zone of ['residential', 'commercial', 'industrial'] as const) {
+        designs[zone].forEach((levels, k) =>
+          levels.forEach((parts, lv) => {
+            // PR 5 perf: the small "fixed" trim (frames, vents, steps...) doesn't
+            // cast shadows — at this scale they're invisible and cost a lot in the shadow pass.
+            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
+            add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
+          }),
+        );
+      }
     }
     // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
     add('car', VEHICLES.car(), solid, 256);
+    // PR 5 driving polish: spinning wheels, tail/brake lights, headlight glow.
+    add('wheel', VEHICLES.wheel(), solid, 1536, false);
+    add('carRoof', VEHICLES.carRoof(), solid, 320, false);
+    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 320, false);
+    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 128);
-    add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 512, false);
+    add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
+    // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
+    add('signalGlow', new THREE.PlaneGeometry(0.11, 0.11), this.signalGlowMat, 512, false);
     add('driveway', VEHICLES.driveway(), solid, 512, false);
     add('garage', VEHICLES.garage(), solid, 256);
     add('loadingDock', VEHICLES.loadingDock(), solid, 128, false);
@@ -240,7 +292,7 @@ export class CityRenderer {
     // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
     add('lampArm', lampArmGeometry(), solid, 512);
     add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
-    add('lampHalo', new THREE.PlaneGeometry(0.42, 0.42), this.haloMat, 512, false);
+    add('lampHalo', new THREE.PlaneGeometry(0.55, 0.55), this.haloMat, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
@@ -276,10 +328,14 @@ export class CityRenderer {
     // blades jump to a new position.
     const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
     this.lastTime = time;
+    this.frameDt = dt * (this.sim?.speed ?? 1); // PR 5: wheel spin uses game-time distance
     if (sim.speed > 0) this.bladeAngle += dt * (0.3 + sim.world.wind * 4.5);
     this.animate(time);
   }
   private lastTime = 0;
+  /** PR 5: per-vehicle wheel angle and last frame's duration (seconds, game time). */
+  private wheelSpin = new Map<number, number>();
+  private frameDt = 0;
   private bladeAngle = 0;
 
   private rebuild(sim: Simulation): void {
@@ -304,6 +360,13 @@ export class CityRenderer {
       }
       this.groundMesh = buildGroundMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
       this.group.add(this.groundMesh);
+      // PR 5: one smooth-shored water mesh instead of per-tile water squares.
+      if (this.waterMesh) {
+        this.group.remove(this.waterMesh);
+        this.waterMesh.geometry.dispose();
+      }
+      this.waterMesh = buildWaterMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
+      if (this.waterMesh) this.group.add(this.waterMesh);
       this.groundSeed = seed;
     }
     tiles.forEach((t, i) => {
@@ -328,19 +391,22 @@ export class CityRenderer {
         }
       }
 
-      if (t.water) {
-        // River/lake surface. A gentle per-tile tint wobble keeps it from looking flat.
-        const k = 0.92 + hash2(x, z, seed + 5) * 0.1;
-        P.water.add(this.place(center), this.c.setRGB(k, k, k));
-      }
+      // (PR 5: water is drawn by the single smooth waterMesh, see buildWaterMesh.)
 
       if (t.road) {
         this.addRoad(t, x, z, center, has);
         if (isIntersection(tiles, i)) {
-          // Light pole on the north-west corner, arm reaching over the junction.
-          const pos = center.clone().add(new THREE.Vector3(-0.44, t.water ? BRIDGE_Y : 0.04, -0.44));
-          P.lightPole.add(this.place(pos, Math.PI * 1.25));
-          this.junctions.push({ i, pos });
+          // PR 5: two signal poles on opposite corners (north-west and
+          // south-east). Each has a mast-arm head over the road for the
+          // north-south traffic and a pole-mounted head for east-west.
+          // NW pole: yaw 0 (arm → east, arm head faces north).
+          // SE pole: yaw π (arm → west, arm head faces south).
+          const y = t.water ? BRIDGE_Y : 0.04;
+          for (const [ox, oz, yaw] of [[-0.44, -0.44, 0], [0.44, 0.44, Math.PI]] as const) {
+            const pos = center.clone().add(new THREE.Vector3(ox, y, oz));
+            P.lightPole.add(this.place(pos, yaw));
+            this.junctions.push({ i, pos, yaw });
+          }
         }
       }
 
@@ -410,7 +476,7 @@ export class CityRenderer {
           // Turn the building so its front (+z in model space) faces a road.
           const face = this.roadFacing(x, z, has) ?? turn;
           if (st.powered) this.addDropWire(tiles, x, z, face, lv, has, t.zone);
-          const key = `${t.zone}.${look.design}.${lv}`;
+          const key = `${this.lod === 'low' ? 'lo:' : ''}${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
           P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
@@ -540,8 +606,27 @@ export class CityRenderer {
         // Kerb strips on the edges with no road beyond them (yaw: N=0, W=π/2, S=π, E=3π/2).
         [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => {
           // The map-edge side of the highway tile stays open: the road continues off the map.
-          if (!has_ && !(t.edge && this.edgeOutward(x, z) === yaw)) P.sidewalk.add(this.place(center, yaw as number));
+          if (!has_ && !(t.edge && this.edgeOutward(x, z) === yaw)) {
+            P.sidewalk.add(this.place(center, yaw as number));
+            // PR 5: a storm drain in the gutter on roughly every third kerb.
+            if (this.lod === 'high' && hash2(x * 4 + (yaw as number) * 7, z, 911) > 0.66) P.drain.add(this.place(center, yaw as number));
+          }
         });
+        // PR 5: a stop line on this tile's approach lane for every
+        // neighbouring junction (unless this tile is a junction itself).
+        if (+n + +e + +s + +w < 3) {
+          const tiles = this.sim!.world.tiles;
+          ([[0, -1, 0], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [1, 0, (3 * Math.PI) / 2]] as const).forEach(([dx, dz, yaw]) => {
+            if (has(x + dx, z + dz, (q) => q.road && !q.water) && isIntersection(tiles, idx(x + dx, z + dz))) P.stopLine.add(this.place(center, yaw));
+          });
+        }
+        // PR 5: zebra crossings on every arm of a junction (3+ road neighbours).
+        if (+n + +e + +s + +w >= 3) {
+          [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => has_ && P.crosswalk.add(this.place(center, yaw as number)));
+        } else if (this.lod === 'high' && hash2(x, z, 913) > 0.72) {
+          // A manhole on some plain road tiles, nudged off the centreline.
+          P.manhole.add(this.place(center.clone().add(new THREE.Vector3(0.12, 0, -0.1))));
+        }
       }
     }
     // Lane markings on straight pieces only.
@@ -573,11 +658,11 @@ export class CityRenderer {
   private addConstruction(t: Tile, i: number, x: number, z: number, center: THREE.Vector3, seed: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
     const P = this.pools;
     const zone = t.zone!;
-    const lv = Math.min(3, t.level + 1);
+    const lv = Math.min(zone === 'residential' ? 5 : 3, t.level + 1); // PR 5: homes go to level 5
     const progress = 1 - t.construct / CONSTRUCT_TICKS;
     const look = pickLook(zone, x, z, seed);
     const face = this.roadFacing(x, z, has) ?? 0;
-    const key = `${zone}.${look.design}.${lv}`;
+    const key = `${this.lod === 'low' ? 'lo:' : ''}${zone}.${look.design}.${lv}`;
     const m = this.place(center, face, 1, Math.max(0.06, progress), 1);
     const raw = 0.75; // washed-out "unfinished" tint
     P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw));
@@ -601,31 +686,78 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
+      // PR 5: each vehicle gets a full pose — Bézier position + heading,
+      // body roll in turns and pitch under braking/acceleration — composed
+      // as yaw · pitch(about local z) · roll(about local x). Wheels spin by
+      // distance travelled / radius. Tail lights: dim red at night, bright
+      // red when braking (any time), off otherwise. Headlights add a soft
+      // warm glow in front of the car at night.
+      const night = this.signalGlowMat.opacity > 0.05;
+      const pose = { yaw: 0, roll: 0, pitch: 0 };
+      const e = new THREE.Euler(0, 0, 0, 'YZX');
+      const wq = new THREE.Quaternion(), tmpQ = new THREE.Quaternion();
+      const one = new THREE.Vector3(1, 1, 1), wp = new THREE.Vector3();
       for (const v of sim.traffic.vehicles) {
         if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
-        const yaw = vehiclePose(v, tiles, pos);
-        const m = this.place(pos, yaw);
-        if (v.kind === 'car') P.car.add(m, this.c.setHex(v.color));
+        vehiclePose(v, tiles, pos, pose);
+        e.set(pose.roll, pose.yaw, pose.pitch);
+        this.q.setFromEuler(e);
+        const m = this.m.compose(pos, this.q, one);
+        if (v.kind === 'car') {
+          P.car.add(m, this.c.setHex(v.color));
+          P.carRoof.add(m, this.c.setHex(roofColor(v.id, v.color))); // PR 5 two-tone roofs
+        }
         else {
           P.truckCab.add(m);
           P.truckBox.add(m, this.c.setHex(v.color));
         }
+        // Wheels: distance-based spin, stored per vehicle on the render side.
+        const spin = ((this.wheelSpin.get(v.id) ?? 0) + (v.v * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
+        this.wheelSpin.set(v.id, spin);
+        tmpQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -spin);
+        for (const [wx, wz] of v.kind === 'car' ? WHEELS.car : WHEELS.truck) {
+          wp.set(wx, WHEELS.radius, wz).applyQuaternion(this.q).add(pos);
+          wq.copy(this.q).multiply(tmpQ);
+          P.wheel.add(this.m.compose(wp, wq, one));
+        }
+        if (v.kind === 'car') {
+          const braking = v.acc < -0.4 || (v.v < 0.05 && v.waitGreen >= 0 && v.acc <= 0 && v.t > 0.5);
+          if (braking || night) P.tailLight.add(this.m.compose(pos, this.q, one), this.c.setRGB(braking ? 1 : 0.55, braking ? 0.08 : 0.02, braking ? 0.05 : 0.02));
+          if (night) {
+            wp.set(0.2, 0.03, 0).applyQuaternion(this.q).add(pos);
+            P.headGlow.add(this.m.compose(wp, this.cameraQuat, one), this.c.setRGB(1, 0.9, 0.65));
+          }
+        }
       }
-      // Two heads per junction: one facing the north-south traffic, one the east-west.
-      for (const { i, pos: p } of this.junctions) {
+      if (this.wheelSpin.size > 4 * sim.traffic.vehicles.length + 64) {
+        const live = new Set(sim.traffic.vehicles.map((v) => v.id));
+        for (const k of this.wheelSpin.keys()) if (!live.has(k)) this.wheelSpin.delete(k);
+      }
+      // PR 5: every pole has two heads × three lamps. Only the active lamp
+      // of each head is lit (full colour; the material is unlit so it reads
+      // as glowing, and at night a soft coloured halo is added on top);
+      // the other two lamps are drawn very dark, like real unlit lenses.
+      // The arm head serves north-south traffic, the pole head east-west.
+      const glowOn = this.pools.signalGlow.mesh.visible;
+      for (const { i, pos: p, yaw } of this.junctions) {
         const st = lightState(i, sim.world.clock);
-        for (const axis of ['ns', 'ew'] as const) {
-          const col = st.green === axis ? (st.amber ? 0xffb020 : 0x35e06a) : 0xff3b30;
-          const off = axis === 'ns' ? new THREE.Vector3(0.05, 0.37, 0.11) : new THREE.Vector3(0.11, 0.37, 0.05);
-          P.lightHead.add(this.place(p.clone().add(off)), this.c.setHex(col));
+        for (const lamp of SIGNAL_LAMPS) {
+          const axis = lamp.head === 'arm' ? 'ns' : 'ew';
+          const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
+          const lit = lamp.slot === active;
+          const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(p);
+          this.c.setHex(SIGNAL_COLORS[lamp.slot]);
+          if (!lit) this.c.multiplyScalar(0.12);
+          P.lightHead.add(this.place(wp), this.c);
+          if (lit && glowOn) P.signalGlow.add(this.m.compose(wp, this.cameraQuat, this.s.set(1, 1, 1)), this.c);
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */

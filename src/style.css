@@ -126,3 +126,39 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .log-row .t { opacity: 0.55; }
 .sev-warn b, label.sev-warn { color: #ffc94a; } .sev-error b, label.sev-error { color: #ff7a6e; } .sev-event b, label.sev-event { color: #7be08a; }
 .log-actions { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+
+/* ---- PR 5: grouped toolbar buttons + flyout menus ---- */
+.toolbar { overflow: visible; }
+.tool-group { position: relative; display: flex; }
+.group-btn.open { background: rgba(255,255,255,0.12); }
+.flyout { position: absolute; bottom: calc(100% + 12px); left: 50%; transform: translateX(-50%); min-width: 250px; background: rgba(20,26,36,0.97); border: 1px solid rgba(79,195,247,0.45); border-radius: 12px; padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.45); display: flex; flex-direction: column; gap: 2px; z-index: 30; }
+.flyout::after { content: ''; position: absolute; top: 100%; left: 50%; margin-left: -7px; border: 7px solid transparent; border-top-color: rgba(79,195,247,0.45); }
+.flyout.hidden { display: none; }
+.flyout-title { font-size: 12px; font-weight: 600; opacity: 0.75; padding: 2px 6px 5px; border-bottom: 1px solid rgba(255,255,255,0.1); margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.06em; }
+.fly-item { display: grid; grid-template-columns: 22px 28px 1fr auto auto; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; background: transparent; border: 2px solid transparent; text-align: left; color: inherit; }
+.fly-item:hover { background: rgba(255,255,255,0.08); }
+.fly-item.active { border-color: var(--accent); background: rgba(79,195,247,0.18); }
+.fly-item kbd { font-size: 11px; background: rgba(255,255,255,0.12); border-radius: 4px; padding: 1px 5px; text-align: center; }
+.fly-item .icon { font-size: 20px; }
+.fly-item .name { font-size: 13px; display: flex; flex-direction: column; }
+.fly-item .name small { font-size: 10px; opacity: 0.55; }
+.fly-item .price { font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.9; }
+.fly-item .lock { font-size: 11px; color: #ffcc66; }
+.fly-item.info { opacity: 0.75; font-style: italic; }
+.fly-item.locked { opacity: 0.45; }
+.fly-item.locked .icon::after { content: none; }
+.fly-item.unaffordable .price { color: #ff7a7a; }
+
+/* ---- PR 5: keep the top bar on ONE row on 1366-px-wide screens ----
+   Below 1500 px we tighten spacing and type a little and stop wrapping;
+   the stats block may shrink (its items wrap internally only as a last resort). */
+@media (max-width: 1500px) {
+  .topbar { flex-wrap: nowrap; gap: 3px; }
+  .stats { overflow: hidden; text-overflow: ellipsis; }
+  .stats { gap: 5px; padding: 5px 7px; font-size: 12px; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
+  .stats .meter { margin: 0 3px 1px 2px; }
+  .stats .meter { width: 24px; }
+  .btn { padding: 3px 5px; font-size: 11px; }
+  .group { padding: 2px; }
+  .topbar .btn .lbl { display: none; }
+}

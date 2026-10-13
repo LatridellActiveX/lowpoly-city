@@ -14,7 +14,7 @@ import { ToolId, ZoneType } from '../sim/types';
 import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
-import { TOOLS, toolDef } from './tools';
+import { ToolGroupId, TOOL_GROUPS, TOOLS, toolDef } from './tools';
 import { GraphsPanel } from './graphs';
 import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
@@ -53,6 +53,13 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls = '', html = '') 
 
 export class Hud {
   private readonly toolButtons = new Map<ToolId, HTMLButtonElement>();
+  /** PR 5: grouped toolbar — one button + one flyout menu per group. */
+  private readonly groupButtons = new Map<ToolGroupId, HTMLButtonElement>();
+  private readonly flyouts = new Map<ToolGroupId, HTMLDivElement>();
+  /** Last tool used in each group; the group button shows and re-selects it. */
+  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe' };
+  /** Which flyout is open right now (null = none). Number keys pick inside it. */
+  openGroup: ToolGroupId | null = null;
   private readonly speedButtons: HTMLButtonElement[] = [];
   private readonly overlayButtons = new Map<OverlayMode, HTMLButtonElement>();
   private readonly stats = el('div', 'stats');
@@ -99,7 +106,11 @@ export class Hud {
         ['resources', '🗺 Resources'],
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
-      const b = el('button', 'btn', label) as HTMLButtonElement;
+      // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
+      // screens, leaving just the icon (full name stays in the tooltip).
+      const sp = label.indexOf(' ');
+      const b = el('button', 'btn', sp > 0 ? `${label.slice(0, sp)}<span class="lbl">${label.slice(sp)}</span>` : label) as HTMLButtonElement;
+      if (!b.title) b.title = label;
       b.onclick = () => actions.setOverlay(mode);
       this.overlayButtons.set(mode, b);
       overlays.append(b);
@@ -117,13 +128,15 @@ export class Hud {
     mk('＋', 'Zoom in', () => actions.zoom(1.25));
     mk('－', 'Zoom out', () => actions.zoom(0.8));
 
-    const budgetBtn = el('button', 'btn', '💰 Budget') as HTMLButtonElement;
+    const budgetBtn = el('button', 'btn', '💰<span class="lbl"> Budget</span>') as HTMLButtonElement;
+    budgetBtn.title = 'Budget';
     budgetBtn.onclick = () => {
       const open = this.budget.classList.toggle('hidden') === false;
       budgetBtn.classList.toggle('active', open);
       if (open) this.refreshBudget(this.lastSim!);
     };
-    const graphsBtn = el('button', 'btn', '📈 Graphs') as HTMLButtonElement;
+    const graphsBtn = el('button', 'btn', '📈<span class="lbl"> Graphs</span>') as HTMLButtonElement;
+    graphsBtn.title = 'Graphs';
     graphsBtn.onclick = () => {
       const open = this.graphs.toggle();
       if (open && this.lastSim) this.graphs.update(this.lastSim);
@@ -142,14 +155,31 @@ export class Hud {
     top.append(time, overlays, view, file);
 
     // ---- Bottom toolbar ----
+    // PR 5: tools with a `group` live in a flyout above their group button.
+    // The group button sits where the first of its tools used to be, so the
+    // toolbar order stays familiar: Inspect, Roads, zones, Power, Water, Park...
     const bar = el('div', 'toolbar');
+    const placed = new Set<ToolGroupId>();
     for (const t of TOOLS) {
+      if (t.group) {
+        if (placed.has(t.group)) continue;
+        placed.add(t.group);
+        bar.append(this.buildGroup(t.group, actions));
+        continue;
+      }
       const b = el('button', 'tool', `<span class="icon">${t.icon}</span><span class="label">${t.label}</span>`) as HTMLButtonElement;
       b.title = `${t.label} (${t.key.toUpperCase()}) — ${t.hint}`;
-      b.onclick = () => actions.selectTool(t.id);
+      b.onclick = () => {
+        this.closeFlyout();
+        actions.selectTool(t.id);
+      };
       this.toolButtons.set(t.id, b);
       bar.append(b);
     }
+    // Clicking anywhere outside the toolbar closes an open flyout.
+    window.addEventListener('pointerdown', (e) => {
+      if (this.openGroup && !(e.target as HTMLElement).closest('.tool-group')) this.closeFlyout();
+    });
 
     this.buildBudget(actions);
     root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
@@ -259,9 +289,96 @@ export class Hud {
     this.tip.style.top = `${y + 18}px`;
   }
 
+  /**
+   * PR 5: build one group button + its flyout. The flyout is a column of
+   * rows: [number] icon  name  price  (🔒 tier badge when locked).
+   */
+  private buildGroup(gid: ToolGroupId, actions: HudActions): HTMLElement {
+    const g = TOOL_GROUPS.find((x) => x.id === gid)!;
+    const wrap = el('div', 'tool-group');
+    const btn = el('button', 'tool group-btn') as HTMLButtonElement;
+    btn.title = `${g.label} — click for the menu, then pick with the mouse or number keys`;
+    const fly = el('div', 'flyout hidden') as HTMLDivElement;
+    fly.append(el('div', 'flyout-title', `${g.icon} ${g.label}`));
+    g.tools.forEach((id, n) => {
+      const t = toolDef(id);
+      const row = el(
+        'button',
+        'fly-item',
+        `<kbd>${n + 1}</kbd><span class="icon">${t.icon}</span><span class="name">${t.label}<small>${t.key.toUpperCase()}</small></span><span class="price"></span><span class="lock"></span>`,
+      ) as HTMLButtonElement;
+      row.onclick = () => {
+        actions.selectTool(id);
+        this.closeFlyout();
+      };
+      this.toolButtons.set(id, row);
+      fly.append(row);
+    });
+    if (gid === 'roads') {
+      // Bridges are automatic: any road dragged over water becomes a bridge.
+      const row = el('button', 'fly-item info', `<kbd>${g.tools.length + 1}</kbd><span class="icon">🌉</span><span class="name">Bridge<small>auto</small></span><span class="price">+$48</span><span class="lock"></span>`) as HTMLButtonElement;
+      row.title = 'Bridges build automatically: drag a road or avenue across water (+$48 per water tile). Selects the Road tool.';
+      row.onclick = () => {
+        actions.selectTool('road');
+        this.closeFlyout();
+      };
+      fly.append(row);
+    }
+    btn.onclick = () => {
+      if (this.openGroup === gid) return this.closeFlyout();
+      this.openFlyout(gid);
+      // Opening the menu also picks the tool you used last in this group.
+      actions.selectTool(this.lastInGroup[gid]);
+    };
+    this.groupButtons.set(gid, btn);
+    this.flyouts.set(gid, fly);
+    wrap.append(fly, btn);
+    this.paintGroup(gid);
+    return wrap;
+  }
+
+  /** Group button face = icon of the remembered tool + group name + ▴ caret. */
+  private paintGroup(gid: ToolGroupId): void {
+    const t = toolDef(this.lastInGroup[gid]);
+    const g = TOOL_GROUPS.find((x) => x.id === gid)!;
+    this.groupButtons.get(gid)!.innerHTML = `<span class="icon">${t.icon}</span><span class="label">${g.label} ▴</span>`;
+  }
+
+  openFlyout(gid: ToolGroupId): void {
+    this.closeFlyout();
+    this.openGroup = gid;
+    this.flyouts.get(gid)!.classList.remove('hidden');
+    this.groupButtons.get(gid)!.classList.add('open');
+  }
+
+  closeFlyout(): void {
+    if (!this.openGroup) return;
+    this.flyouts.get(this.openGroup)!.classList.add('hidden');
+    this.groupButtons.get(this.openGroup)!.classList.remove('open');
+    this.openGroup = null;
+  }
+
+  /**
+   * PR 5: number key n while a flyout is open → the n-th row of it.
+   * Returns the tool to select, or null if no flyout is open / no such row.
+   */
+  flyoutPick(n: number): ToolId | null {
+    if (!this.openGroup) return null;
+    const g = TOOL_GROUPS.find((x) => x.id === this.openGroup)!;
+    if (n === g.tools.length + 1 && g.id === 'roads') return 'road'; // the Bridge info row
+    return g.tools[n - 1] ?? null;
+  }
+
   setTool(id: ToolId): void {
     this.currentTool = id;
     this.toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
+    // PR 5: remember the tool in its group and highlight the group button.
+    const gid = toolDef(id).group;
+    if (gid) {
+      this.lastInGroup[gid] = id;
+      this.paintGroup(gid);
+    }
+    this.groupButtons.forEach((b, k) => b.classList.toggle('active', k === gid));
     this.hint.textContent = toolDef(id).hint;
   }
 
@@ -313,7 +430,7 @@ export class Hud {
       `<span title="Jobs">💼 ${s.jobs}</span>` +
       this.tierBadge(sim, s.population) +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
-      `<span title="Wind: turbines make 15 × wind power (now ${Math.round(15 * sim.world.wind)} each)">🌬️ ${windGauge(sim.world.wind)}</span>` +
+      `<span title="Wind: turbines make 800 × wind power (now ${Math.round(800 * sim.world.wind)} each, ~400 people at average wind)">🌬️ ${windGauge(sim.world.wind)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
       `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}${clock ? ` · 🕒 ${clock}` : ''}</span>`;
@@ -329,6 +446,11 @@ export class Hud {
       b.classList.toggle('locked', locked);
       b.classList.toggle('unaffordable', poor && !locked);
       const need = TIERS[TOOL_TIER[t.id] ?? 0];
+      // PR 5: flyout rows show the price (or the tier needed) as text.
+      const priceEl = b.querySelector('.price');
+      if (priceEl) priceEl.textContent = `${this.money(price)}${t.shape === 'line' ? '/tile' : ''}`;
+      const lockEl = b.querySelector('.lock');
+      if (lockEl) lockEl.textContent = locked ? `🔒 ${need.pop.toLocaleString()}` : '';
       b.title = locked
         ? `🔒 ${t.label} — unlocks at ${need.pop.toLocaleString()} people (${need.name})`
         : `${t.label} (${t.key.toUpperCase()}) — ${this.money(price)}${t.shape === 'point' ? '' : ' per tile'}${poor ? ' — NOT ENOUGH MONEY' : ''}\n${t.hint}`;

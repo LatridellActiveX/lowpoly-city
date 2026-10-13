@@ -1,7 +1,7 @@
 /**
  * sim/wind.ts — one global wind strength (0..1) that changes over time.
  *
- * Wind turbines now produce `15 × wind` power (rounded), so a city that relies
+ * Wind turbines now produce `800 × wind` power (PR 5; was 15) (rounded), so a city that relies
  * only on turbines browns out during calm spells. Power plants don't care.
  *
  * HOW THE WIND MOVES

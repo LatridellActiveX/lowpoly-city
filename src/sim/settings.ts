@@ -10,6 +10,8 @@
  *     = the city grows and books months faster. It does NOT change the length
  *     of a day, which runs on the game clock (see World.clock).
  *   - dayNight: false freezes the sky at noon.
+ *   - detail (PR 5): 'high' = detailed buildings/roads when zoomed in,
+ *     'low' = always the simple models (faster on slow PCs).
  */
 import { TICKS_PER_SECOND } from './rules';
 
@@ -18,10 +20,15 @@ export interface Settings {
   maxTrucks: number;
   tickRate: number;
   dayNight: boolean;
+  detail: 'high' | 'low';
+  /** PR 5: camera sensitivity multipliers (0.25–2). Rotation = middle-drag orbit; pan = drag + WASD. */
+  camRotate: number;
+  camPan: number;
 }
 
 const KEY = 'lowpoly-city-settings';
-export const defaultSettings = (): Settings => ({ maxCars: 150, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true });
+// PR 5: maxCars default 150 → 75 (half the commuters; see COMMUTE_PEOPLE).
+export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1 });
 
 export function loadSettings(): Settings {
   try {

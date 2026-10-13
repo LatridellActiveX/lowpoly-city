@@ -69,7 +69,9 @@ export function loadWorld(): World | null {
     if (data.size !== GRID_SIZE || !Array.isArray(data.tiles)) return null;
     const version: number = data.version ?? 1;
     // Merge each saved tile over a default tile so fields added later get defaults.
-    const tiles: Tile[] = data.tiles.map((t: Partial<Tile>) => ({ ...emptyTile(), ...t }));
+    // PR 5: movingIn is reset — cars in transit aren't saved, so anyone who
+    // was still driving in simply arrives when the save loads.
+    const tiles: Tile[] = data.tiles.map((t: Partial<Tile>) => ({ ...emptyTile(), ...t, movingIn: false }));
     const seed: number = data.seed ?? Math.floor(Math.random() * 1e9);
     const w = new World(tiles, seed);
     w.tick = data.tick ?? 0;

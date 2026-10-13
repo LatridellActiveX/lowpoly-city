@@ -81,6 +81,12 @@ const LIT = new Set([0x3e5f7a, 0x9fd7ff, 0xbfe6ff, 0xffd98a]);
 
 /** Collects parts into the three buckets, then merges each bucket. */
 class Builder {
+  /**
+   * PR 5: `hi` = build the HIGH-detail version (window frames, sills,
+   * gutters, steps, vents...). The LOW version is exactly the PR 4 model and
+   * is used when zoomed far out or when Settings → Detail is Low.
+   */
+  constructor(readonly hi = true) {}
   walls: THREE.BufferGeometry[] = [];
   accent: THREE.BufferGeometry[] = [];
   fixed: THREE.BufferGeometry[] = [];
@@ -101,13 +107,30 @@ class Builder {
     for (let k = 0; k < n; k++) {
       const x = -width / 2 + (width * (k + 0.5)) / n;
       this.fix(box(size, size * 1.1, 0.02), color, [x, y, depth / 2 + 0.005]);
+      if (this.hi) this.frame(x, y, depth / 2 + 0.005, size, size * 1.1, 'z');
     }
+  }
+  /**
+   * PR 5: a window frame — sill (sticks out a little), lintel on top, two
+   * side jambs and a vertical mullion splitting the glass. `face` is the
+   * axis the window looks along ('z' = front, 'x' = right side).
+   */
+  frame(cx: number, y: number, c: number, ww: number, wh: number, face: 'z' | 'x') {
+    const T = 0xf4f1ea; // white trim
+    const at = (a: number, yy: number, out: number): [number, number, number] => (face === 'z' ? [cx + a, yy, c + out] : [c + out, yy, cx + a]);
+    const bx = (a: number, b2: number, d2: number) => (face === 'z' ? box(a, b2, d2) : box(d2, b2, a));
+    this.fix(bx(ww + 0.03, 0.012, 0.035), T, at(0, y - 0.012, 0.01)); // sill
+    this.fix(bx(ww + 0.02, 0.012, 0.022), T, at(0, y + wh, 0.004)); // lintel
+    this.fix(bx(0.01, wh, 0.022), T, at(-ww / 2 - 0.005, y, 0.004)); // jambs
+    this.fix(bx(0.01, wh, 0.022), T, at(ww / 2 + 0.005, y, 0.004));
+    this.fix(bx(0.006, wh, 0.024), T, at(0, y, 0.004)); // mullion
   }
   /** Windows on the right (+x) face too, so corners don't look blank. */
   sideWindows(n: number, width: number, depth: number, y: number, color = GLASS) {
     for (let k = 0; k < n; k++) {
       const z = -depth / 2 + (depth * (k + 0.5)) / n;
       this.fix(box(0.02, 0.1, 0.09), color, [width / 2 + 0.005, y, z]);
+      if (this.hi) this.frame(z, y, width / 2 + 0.005, 0.09, 0.1, 'x');
     }
   }
   done(): DesignParts {
@@ -122,8 +145,9 @@ const FLOOR = 0.26; // height of one storey
 // ----------------------------------------------------------------------------
 // Residential: cottages to small apartment blocks
 // ----------------------------------------------------------------------------
-function residential(k: number, level: number): DesignParts {
-  const b = new Builder();
+function residential(k: number, level: number, hi = true): DesignParts {
+  if (level >= 4) return medium(k % 3, level, hi); // PR 5 medium density
+  const b = new Builder(hi);
   const floors = level;
   const h = FLOOR * floors + 0.06;
   const w = 0.46 + level * 0.08;
@@ -188,6 +212,7 @@ function residential(k: number, level: number): DesignParts {
       b.fix(new THREE.CylinderGeometry(0.06, 0.08, 0.12, 6).translate(0, 0.06, 0), 0x6f8a5a, [w / 2 + 0.05, 0, d / 2]); // shrub
       break;
   }
+  if (hi) resDetails(b, k, level, w, h, d, floors);
   return b.done();
 }
 const f0 = (level: number) => level === 1;
@@ -195,8 +220,8 @@ const f0 = (level: number) => level === 1;
 // ----------------------------------------------------------------------------
 // Commercial: corner shops to office blocks
 // ----------------------------------------------------------------------------
-function commercial(k: number, level: number): DesignParts {
-  const b = new Builder();
+function commercial(k: number, level: number, hi = true): DesignParts {
+  const b = new Builder(hi);
   const floors = level === 3 ? 4 : level;
   const h = FLOOR * floors + 0.1;
   const w = 0.56 + level * 0.08;
@@ -268,14 +293,15 @@ function commercial(k: number, level: number): DesignParts {
       b.fix(box(w * 0.4, 0.07, 0.02), 0xff6b6b, [0, h * 0.6 - 0.1, d / 2 + 0.01]);
       break;
   }
+  if (hi) comDetails(b, k, level, w, h, d, floors);
   return b.done();
 }
 
 // ----------------------------------------------------------------------------
 // Industrial: workshops to heavy plants
 // ----------------------------------------------------------------------------
-function industrial(k: number, level: number): DesignParts {
-  const b = new Builder();
+function industrial(k: number, level: number, hi = true): DesignParts {
+  const b = new Builder(hi);
   const h = 0.22 + level * 0.12;
   const w = 0.6 + level * 0.08;
   const d = 0.48 + level * 0.07;
@@ -344,15 +370,313 @@ function industrial(k: number, level: number): DesignParts {
       b.windows(2, w * 0.85, d * 0.85, h * 0.6, 0xffd98a);
       break;
   }
+  if (hi) indDetails(b, k, level, w, h, d);
   return b.done();
 }
 
-/** Build all designs: result[zone][design][level-1]. */
-export function buildDesigns(): Record<ZoneType, DesignParts[][]> {
-  const make = (fn: (k: number, level: number) => DesignParts) =>
-    Array.from({ length: DESIGNS_PER_ZONE }, (_, k) => [1, 2, 3].map((lv) => fn(k, lv)));
-  return { residential: make(residential), commercial: make(commercial), industrial: make(industrial) };
+// ----------------------------------------------------------------------------
+// PR 5 medium-density residential: level 4 rowhouses, level 5 apartments.
+// Three variants each (design k uses variant k % 3). They fill most of the
+// lot (~0.9 wide), front faces +z like every other design.
+// ----------------------------------------------------------------------------
+function medium(v: number, level: number, hi: boolean): DesignParts {
+  const b = new Builder(hi);
+  const BRICK = 0xb5654a;
+  if (level === 4) {
+    // ROWHOUSES / TOWNHOUSES: three attached units, 3 storeys.
+    const units = 3, uw = 0.29, d = 0.56, hBase = FLOOR * 3 + 0.04;
+    for (let u = 0; u < units; u++) {
+      const x = -uw + u * uw;
+      // Variant 0: gabled units with alternating heights; 1: flat-roof brick
+      // with bay windows; 2: mansard roofs with dormers.
+      const h = v === 0 ? hBase + (u % 2) * 0.05 : hBase;
+      if (v === 1) b.fix(box(uw - 0.004, h, d), BRICK, [x, 0, 0]);
+      else b.wall(box(uw - 0.004, h, d), [x, 0, 0]);
+      if (v === 0) b.acc(gable(uw + 0.01, 0.16, d + 0.06), [x, h, 0], [0, Math.PI / 2, 0]);
+      else if (v === 1) {
+        b.acc(box(uw + 0.004, 0.04, d + 0.02), [x, h, 0]); // cornice
+        b.wall(box(uw * 0.6, FLOOR * 2 - 0.04, 0.07), [x, FLOOR, d / 2 + 0.035]); // bay
+        b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR + 0.07, d / 2 + 0.072]);
+        b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR * 2 + 0.07, d / 2 + 0.072]);
+      } else {
+        b.acc(gambrel(uw + 0.01, 0.2, d + 0.04), [x, h, 0], [0, Math.PI / 2, 0]);
+        b.wall(box(0.09, 0.08, 0.08), [x, h + 0.05, d / 2 - 0.02]);
+        b.fix(box(0.06, 0.05, 0.02), GLASS, [x, h + 0.065, d / 2 + 0.025]);
+      }
+      // Door with steps on the left of each unit, windows on every floor.
+      b.fix(box(0.07, 0.16, 0.02), [0x2e4a62, 0x6b3b2a, 0x3f5f3f][u], [x - uw * 0.22, 0.04, d / 2 + 0.005]);
+      steps(b, x - uw * 0.22, d / 2, 0.1);
+      b.windows(1, uw * 0.4, d, 0.1, GLASS, 0.08);
+      for (let f = 1; f < 3; f++) if (v !== 1) b.windows(2, uw - 0.04, d, 0.1 + f * FLOOR, GLASS, 0.075);
+      if (hi) {
+        b.fix(box(0.012, h, 0.014), TRIM, [x + uw / 2 - 0.002, 0, d / 2 + 0.006]); // party-wall trim
+        chimney(b, x + uw * 0.25, h, -d * 0.2, 0.16);
+        shrub(b, x + uw * 0.2, d / 2 + 0.07, 0.035);
+        b.fix(box(uw - 0.02, 0.05, 0.012), 0x2b2b2b, [x, 0, d / 2 + 0.17]); // railing along the front yard
+      }
+    }
+    if (hi) {
+      gutterX(b, 0.9, hBase, d / 2 + 0.03);
+      acUnit(b, 0.47, 0, -d * 0.25);
+      b.fix(box(0.9, 0.035, d + 0.02), STONE, [0, 0, 0]);
+    }
+  } else {
+    // SMALL APARTMENT BLOCKS: 5 storeys.
+    const floors = 5, w = 0.86, d = 0.66, h = FLOOR * floors + 0.06;
+    if (v === 0) {
+      // Slab block with a grid of balconies and a flat roof.
+      b.wall(box(w, h, d));
+      b.acc(box(w + 0.03, 0.04, d + 0.03), [0, h, 0]);
+      for (let f = 0; f < floors; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
+      b.sideWindows(3, w, d, 0.12);
+    } else if (v === 1) {
+      // Brick block with a central glass stair core rising above the roof.
+      b.fix(box(w, h, d), BRICK, [0, 0, 0]);
+      b.wall(box(0.18, h + 0.12, 0.12), [0, 0, d / 2 - 0.02]);
+      b.fix(box(0.12, h, 0.02), 0x9fd7ff, [0, 0.04, d / 2 + 0.042]);
+      b.acc(box(0.2, 0.03, 0.14), [0, h + 0.12, d / 2 - 0.02]);
+      b.acc(box(w + 0.02, 0.035, d + 0.02), [0, h, 0]);
+      for (let f = 0; f < floors; f++) for (const sx of [-1, 1]) b.windows(2, w * 0.36, d, 0.1 + f * FLOOR, GLASS, 0.08), void sx;
+    } else {
+      // Block with a ground-floor shopfront, upper floors set back, corner tower.
+      b.wall(box(w, FLOOR + 0.04, d));
+      b.fix(box(w * 0.85, 0.13, 0.02), 0x9fd7ff, [0, 0.05, d / 2 + 0.005]);
+      b.acc(box(w * 0.85, 0.025, 0.12), [0, 0.22, d / 2 + 0.05], [0.3, 0, 0]); // awning
+      b.wall(box(w * 0.92, h - FLOOR - 0.04, d * 0.86), [0, FLOOR + 0.04, -d * 0.05]);
+      b.wall(box(0.2, h + 0.15, 0.2), [w / 2 - 0.08, 0, d / 2 - 0.1]); // corner tower
+      b.acc(pyramid(0.24, 0.14), [w / 2 - 0.08, h + 0.15, d / 2 - 0.1]);
+      b.acc(box(w * 0.94, 0.035, d * 0.88), [0, h, -d * 0.05]);
+      for (let f = 1; f < floors; f++) b.windows(4, w * 0.8, d * 0.86 - 0.1, 0.1 + f * FLOOR, GLASS, 0.08);
+    }
+    if (hi) {
+      // Balconies on upper floors, roof plant, entrance canopy, bike racks, plinth.
+      for (let f = 1; f < floors; f++) {
+        balcony(b, -w * 0.28, f * FLOOR + 0.02, d / 2 - (v === 2 ? 0.1 : 0), 0.18);
+        if (v !== 1) balcony(b, w * 0.2, f * FLOOR + 0.02, d / 2 - (v === 2 ? 0.1 : 0), 0.18);
+      }
+      coping(b, w, d, h);
+      acUnit(b, -w * 0.25, h, -d * 0.2, 1.3);
+      acUnit(b, w * 0.1, h, -d * 0.25, 1.3);
+      vent(b, w * 0.3, h, d * 0.1, 0.025);
+      b.fix(box(0.9, 0.035, 0.7), STONE, [0, 0, 0]);
+      door(b, v === 1 ? 0 : -w * 0.1, d / 2, 0x9fd7ff, 0.12, 0.17);
+      steps(b, v === 1 ? 0 : -w * 0.1, d / 2, 0.18);
+      for (let n = 0; n < 4; n++) b.fix(box(0.006, 0.05, 0.04), METAL, [w * 0.3 + n * 0.03, 0, d / 2 + 0.12]);
+      for (const sx of [-1, 1]) b.fix(box(0.016, h, 0.016), METAL, [sx * (w / 2 - 0.01), 0, d / 2 + 0.01]);
+    }
+  }
+  return b.done();
 }
+
+/**
+ * Build all designs: result[zone][design][level-1].
+ * PR 5: `lod` picks the high-detail (default) or the low-detail (PR 4) set.
+ */
+export function buildDesigns(lod: 'high' | 'low' = 'high'): Record<ZoneType, DesignParts[][]> {
+  const hi = lod === 'high';
+  const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3]) =>
+    Array.from({ length: DESIGNS_PER_ZONE }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
+  // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments).
+  return { residential: make(residential, [1, 2, 3, 4, 5]), commercial: make(commercial), industrial: make(industrial) };
+}
+
+// ----------------------------------------------------------------------------
+// PR 5 HIGH-DETAIL extras
+// ----------------------------------------------------------------------------
+// These run only for the high-detail LOD. They add the small things that make
+// a low-poly building read as "real" up close: plinths, door steps, gutters,
+// downspouts, chimney caps, AC units, vents, mailboxes, balconies, signs,
+// pipes, tanks and loading docks. Everything is still boxes/cylinders, so a
+// model stays a few hundred triangles — and still ONE shared geometry per
+// design+level (instancing is unchanged).
+
+const TRIM = 0xf4f1ea;
+const METAL = 0x9aa1a8;
+const STONE = 0x9b948a;
+const cyl = (r: number, h: number, seg = 8) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
+
+/** Little air-conditioning box with a round fan on top and a grille line. */
+function acUnit(b: Builder, x: number, y: number, z: number, s = 1) {
+  b.fix(box(0.09 * s, 0.065 * s, 0.075 * s), 0xc5ccd3, [x, y, z]);
+  b.fix(cyl(0.028 * s, 0.008, 10), DARK, [x, y + 0.065 * s, z]);
+  b.fix(box(0.092 * s, 0.006, 0.077 * s), METAL, [x, y + 0.03 * s, z]);
+}
+/** Mushroom roof vent: a pipe with a cone cap. */
+function vent(b: Builder, x: number, y: number, z: number, r = 0.018) {
+  b.fix(cyl(r, 0.05, 8), METAL, [x, y, z]);
+  b.fix(new THREE.ConeGeometry(r * 1.8, 0.025, 8).translate(0, 0.0125, 0), 0x7b828a, [x, y + 0.05, z]);
+}
+/** Two front steps, centred on x, in front of the face at z. */
+function steps(b: Builder, x: number, z: number, wdt = 0.14) {
+  b.fix(box(wdt, 0.02, 0.06), 0xcfc8bb, [x, 0, z + 0.03]);
+  b.fix(box(wdt, 0.02, 0.035), 0xdcd6ca, [x, 0.02, z + 0.0175]);
+}
+/** A door with frame, lintel and a round knob on the face at z. */
+function door(b: Builder, x: number, z: number, color = WOOD, dw = 0.09, dh = 0.16) {
+  b.fix(box(dw, dh, 0.02), color, [x, 0.04, z + 0.004]);
+  b.fix(box(dw + 0.025, 0.014, 0.026), TRIM, [x, 0.04 + dh, z + 0.004]);
+  b.fix(box(0.012, dh, 0.026), TRIM, [x - dw / 2 - 0.006, 0.04, z + 0.004]);
+  b.fix(box(0.012, dh, 0.026), TRIM, [x + dw / 2 + 0.006, 0.04, z + 0.004]);
+  b.fix(new THREE.SphereGeometry(0.008, 6, 4), 0xd8b45a, [x + dw * 0.3, 0.04 + dh * 0.45, z + 0.018]);
+}
+/** Half-round gutter along x at the eave (y, z), plus a downspout at each end. */
+function gutterX(b: Builder, len: number, y: number, z: number, x0 = 0, spouts = true) {
+  b.fix(new THREE.CylinderGeometry(0.014, 0.014, len, 8, 1, true, 0, Math.PI).rotateZ(Math.PI / 2).rotateX(Math.PI), METAL, [x0, y, z]);
+  if (spouts) for (const sx of [-1, 1]) b.fix(box(0.016, y, 0.016), METAL, [x0 + sx * (len / 2 - 0.02), 0, z]);
+}
+/** Ring of coping stones around a flat roof (rw × rd) at height y. */
+function coping(b: Builder, rw: number, rd: number, y: number, cx = 0, cz = 0) {
+  b.fix(box(rw + 0.02, 0.03, 0.025), TRIM, [cx, y, cz + rd / 2]);
+  b.fix(box(rw + 0.02, 0.03, 0.025), TRIM, [cx, y, cz - rd / 2]);
+  b.fix(box(0.025, 0.03, rd), TRIM, [cx + rw / 2, y, cz]);
+  b.fix(box(0.025, 0.03, rd), TRIM, [cx - rw / 2, y, cz]);
+}
+/** Balcony: slab + front rail + 4 balusters, on the front face at height y. */
+function balcony(b: Builder, x: number, y: number, z: number, bw: number) {
+  b.fix(box(bw, 0.018, 0.08), 0xd8dde2, [x, y, z + 0.04]);
+  b.fix(box(bw, 0.012, 0.012), DARK, [x, y + 0.07, z + 0.078]);
+  for (let k = 0; k < 4; k++) b.fix(box(0.008, 0.07, 0.008), DARK, [x - bw / 2 + 0.01 + (k * (bw - 0.02)) / 3, y + 0.018, z + 0.078]);
+  b.fix(box(0.012, 0.012, 0.08), DARK, [x - bw / 2 + 0.006, y + 0.07, z + 0.04]);
+  b.fix(box(0.012, 0.012, 0.08), DARK, [x + bw / 2 - 0.006, y + 0.07, z + 0.04]);
+}
+/** Chimney with a cap stone and a clay pot. */
+function chimney(b: Builder, x: number, y: number, z: number, ch: number) {
+  b.fix(box(0.07, ch, 0.07), 0x8c5a48, [x, y, z]);
+  b.fix(box(0.085, 0.02, 0.085), STONE, [x, y + ch, z]);
+  b.fix(cyl(0.015, 0.035, 8), 0xb0603f, [x, y + ch + 0.02, z]);
+}
+/** Round shrub (icosahedron). */
+const shrub = (b: Builder, x: number, z: number, r = 0.045) => b.fix(new THREE.IcosahedronGeometry(r, 0).translate(0, r * 0.8, 0), 0x5f8f4a, [x, 0, z]);
+
+function resDetails(b: Builder, k: number, level: number, w: number, h: number, d: number, floors: number): void {
+  const zoff = k === 1 ? -0.04 : 0;
+  const bw = k === 4 ? w * 0.9 : w;
+  const front = zoff + d / 2;
+  const wallH = k === 4 ? FLOOR * Math.max(1, floors - 1) + 0.04 : k === 2 ? FLOOR + 0.04 : h;
+  // Stone plinth the house sits on.
+  b.fix(box(bw + 0.025, 0.035, d + 0.025), STONE, [0, 0, zoff]);
+  // Door + steps (designs that already have a door get steps and trim).
+  const doorX = [-w / 4, 0, -w * 0.3, 0, 0][k];
+  if (k === 2) door(b, doorX, front, 0x3b4a57);
+  else if (k !== 1) {
+    b.fix(box(0.125, 0.014, 0.026), TRIM, [doorX, 0.17, front + 0.004]); // lintel over the existing door
+    b.fix(new THREE.SphereGeometry(0.008, 6, 4), 0xd8b45a, [doorX + 0.03, 0.08, front + 0.02]);
+  }
+  if (k !== 1) steps(b, doorX, front);
+  else steps(b, 0, front + 0.1, w * 0.4); // porch steps
+  shrub(b, doorX - 0.11, front + 0.06);
+  shrub(b, doorX + 0.11, front + 0.06, 0.04);
+  // Gutters + downspouts: along front & back eaves for ridge roofs, all 4 for hip, coping for flat.
+  if (k === 2) {
+    coping(b, w + 0.04, d + 0.04, FLOOR + 0.07);
+    if (floors > 1) coping(b, w * 0.74, d * 0.9, h + 0.03, w * 0.12, -d * 0.05);
+  } else {
+    gutterX(b, bw + 0.06, wallH, front + 0.045);
+    gutterX(b, bw + 0.06, wallH, zoff - d / 2 - 0.045, 0, false);
+  }
+  // Chimney (design 0 already has one: just cap it).
+  if (k === 0) {
+    b.fix(box(0.085, 0.02, 0.085), STONE, [w / 3, h + 0.18, -d / 5]);
+    b.fix(cyl(0.015, 0.035, 8), 0xb0603f, [w / 3, h + 0.2, -d / 5]);
+  } else if (k !== 2) chimney(b, -bw / 3, wallH, zoff - d / 5, 0.24 + level * 0.05);
+  else vent(b, -w * 0.3, FLOOR + 0.07, -d * 0.2);
+  // AC unit on the right-hand side and a mailbox at the curb.
+  acUnit(b, bw / 2 + 0.06, 0, zoff - d / 5);
+  b.fix(box(0.012, 0.09, 0.012), WOOD, [bw / 2 + 0.02, 0, front + 0.2]);
+  b.fix(box(0.04, 0.03, 0.06), 0x3b5f8a, [bw / 2 + 0.02, 0.09, front + 0.2]);
+  // Upper floors get balconies on bigger houses; level 3 adds a satellite dish.
+  if (level >= 2 && k !== 2 && k !== 4) for (let f = 1; f < floors; f++) balcony(b, w * 0.18, f * FLOOR + 0.02, front, w * 0.38);
+  if (level === 3) {
+    b.fix(new THREE.SphereGeometry(0.04, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-1.1), 0xe4e6e8, [bw / 2 - 0.02, wallH * 0.85, zoff - d / 2 - 0.03]);
+    b.fix(box(0.01, 0.04, 0.01), METAL, [bw / 2 - 0.02, wallH * 0.85 - 0.03, zoff - d / 2 - 0.02]);
+  }
+}
+
+function comDetails(b: Builder, k: number, level: number, w: number, h: number, d: number, floors: number): void {
+  // Footprint (rw × rd centred at cz) and roof height of each design.
+  const [rw, rd, cz, roofY] = [
+    [w, d, 0, h],
+    [w, d * 0.85, 0, Math.max(0.3, h * 0.8)],
+    [w * 0.9, d * 0.9, 0, h + FLOOR * (level - 1) * 0.5],
+    [w, d * 0.5, -d * 0.25, Math.min(h, 0.34)],
+    [w * 0.65, d * 0.65, 0, h * 1.2],
+  ][k];
+  const front = k === 4 ? d / 2 : cz + rd / 2;
+  // Parapet coping round the flat roof + vents + AC units.
+  coping(b, rw, rd, roofY, 0, cz);
+  vent(b, rw * 0.3, roofY, cz - rd * 0.25);
+  vent(b, -rw * 0.3, roofY, cz + rd * 0.2, 0.022);
+  acUnit(b, -rw * 0.12, roofY, cz - rd * 0.2, 1.2);
+  if (level >= 2) acUnit(b, rw * 0.15, roofY, cz + rd * 0.15, 1.2);
+  // Glass entrance door with a frame, step and a little canopy.
+  const dx = k === 3 ? -w * 0.3 : -w * 0.32;
+  door(b, dx, front, 0x9fd7ff, 0.1, 0.17);
+  steps(b, dx, front, 0.16);
+  b.acc(box(0.16, 0.02, 0.07), [dx, 0.23, front + 0.035]);
+  // Downspouts on the front corners + bollards on the pavement.
+  for (const sx of [-1, 1]) b.fix(box(0.016, roofY, 0.016), METAL, [sx * (rw / 2 - 0.01), 0, front + 0.01]);
+  for (let n = 0; n < 3; n++) b.fix(cyl(0.012, 0.05, 6), 0x5a5f66, [-w * 0.3 + n * w * 0.3, 0, d / 2 + 0.14]);
+  // Projecting "blade" sign on the corner; level 3 gets a rooftop billboard.
+  if (level >= 2) {
+    b.fix(box(0.05, 0.012, 0.012), DARK, [rw / 2 + 0.025, roofY * 0.7, front - 0.04]);
+    b.acc(box(0.012, 0.12, 0.07), [rw / 2 + 0.05, roofY * 0.7 - 0.13, front - 0.04]);
+  }
+  if (level === 3) {
+    for (const sx of [-1, 1]) b.fix(box(0.012, 0.12, 0.012), DARK, [sx * rw * 0.22, roofY, cz]);
+    b.acc(box(rw * 0.55, 0.1, 0.015), [0, roofY + 0.1, cz]);
+    b.fix(box(rw * 0.5, 0.06, 0.017), 0xffd166, [0, roofY + 0.12, cz]);
+  }
+  // Striped awning over the ground floor on the shops (levels 2+).
+  if ((k === 0 || k === 1) && level >= 2) {
+    for (let n = 0; n < 6; n++) {
+      const sx = -rw * 0.4 + (n + 0.5) * ((rw * 0.8) / 6);
+      b.fix(box((rw * 0.8) / 6, 0.02, 0.11), n % 2 ? 0xffffff : 0xd94a4a, [sx, 0.3, front + 0.055], [0.35, 0, 0]);
+    }
+  }
+}
+
+function indDetails(b: Builder, k: number, level: number, w: number, h: number, d: number): void {
+  const front = [d / 2, d / 2, d * 0.34, d / 2, d * 0.425][k];
+  const back = -[d / 2, d / 2, d * 0.46, d / 2, d * 0.425][k];
+  // Pipe run along the back wall with two drops and elbow joints.
+  const py = Math.max(0.12, h * 0.6);
+  b.fix(new THREE.CylinderGeometry(0.016, 0.016, w * 0.7, 8).rotateZ(Math.PI / 2), 0xb07a45, [0, py, back - 0.03]);
+  for (const sx of [-1, 1]) {
+    b.fix(cyl(0.016, py, 8), 0xb07a45, [sx * w * 0.35, 0, back - 0.03]);
+    b.fix(new THREE.SphereGeometry(0.02, 8, 4), 0x8a5a36, [sx * w * 0.35, py, back - 0.03]);
+  }
+  // Loading dock: raised platform, yellow bumpers and a ribbed roller door.
+  const dockX = k === 1 ? -w * 0.22 : w * 0.22;
+  b.fix(box(0.22, 0.05, 0.08), 0x9c9890, [dockX, 0, front + 0.04]);
+  for (const sx of [-1, 1]) b.fix(box(0.025, 0.035, 0.02), 0x222222, [dockX + sx * 0.09, 0.01, front + 0.085]);
+  b.fix(box(0.16, 0.15, 0.02), 0x8c9096, [dockX, 0.05, front + 0.003]);
+  for (let n = 0; n < 4; n++) b.fix(box(0.162, 0.006, 0.022), 0x6c6f73, [dockX, 0.07 + n * 0.035, front + 0.004]);
+  b.fix(box(0.2, 0.012, 0.012), 0xf2c14e, [dockX, 0.05, front + 0.081]);
+  // Small pressure tank on legs at the side.
+  const tx = -w / 2 - 0.02, tz = -d * 0.15;
+  b.fix(new THREE.CylinderGeometry(0.045, 0.045, 0.12, 10).rotateX(Math.PI / 2), 0xd9dde1, [tx, 0.09, tz]);
+  for (const [lx, lz] of [[-0.03, -0.04], [0.03, -0.04], [-0.03, 0.04], [0.03, 0.04]]) b.fix(box(0.01, 0.05, 0.01), DARK, [tx + lx, 0, tz + lz]);
+  // Roof turbine vents (or ground vents beside the round quonset roof).
+  const roofY = k === 2 ? 0 : k === 3 ? h * 1.15 : h;
+  vent(b, -w * 0.25, roofY, 0, 0.026);
+  vent(b, w * 0.1, roofY, -d * 0.15, 0.026);
+  // Wall ladder with rungs on the right side.
+  if (k !== 2) {
+    const lx = k === 1 ? -w * 0.22 + w * 0.275 + 0.01 : (k === 3 ? -w * 0.12 + w * 0.35 : k === 4 ? w * 0.425 : w / 2) + 0.01;
+    for (const sz of [-0.025, 0.025]) b.fix(box(0.008, roofY, 0.008), METAL, [lx, 0, sz]);
+    for (let n = 1; n < 6; n++) b.fix(box(0.006, 0.006, 0.05), METAL, [lx, (n * roofY) / 6, 0]);
+  }
+  // Chain-link-style fence along the back: posts and two rails.
+  for (let n = 0; n < 5; n++) b.fix(box(0.012, 0.09, 0.012), 0x7d848b, [-0.44 + n * 0.22, 0, -0.45]);
+  for (const ry of [0.04, 0.085]) b.fix(box(0.9, 0.006, 0.006), 0x7d848b, [0, ry, -0.45]);
+  // Bigger plants get a second tank and a pallet stack.
+  if (level >= 2) {
+    b.fix(cyl(0.05, 0.16, 10), 0x5e8f6e, [w / 2 + 0.03, 0, -d * 0.35]);
+    b.fix(cyl(0.052, 0.012, 10), METAL, [w / 2 + 0.03, 0.16, -d * 0.35]);
+  }
+  if (level === 3) for (let n = 0; n < 3; n++) b.fix(box(0.09, 0.025, 0.09), 0xa77b4a, [-w / 2 + 0.06, n * 0.03, d / 2 + 0.12]);
+}
+
 
 // ----------------------------------------------------------------------------
 // Palettes and deterministic picking

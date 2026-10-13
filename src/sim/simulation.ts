@@ -27,11 +27,11 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
+import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, MEDIUM_DENSITY, residentsOf, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
 import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
-import { Traffic, roadNextTo } from './traffic';
+import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Shipping } from './goods';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
@@ -88,7 +88,8 @@ export interface HistoryPoint {
 export const HISTORY_EVERY_TICKS = 20;
 export const HISTORY_MAX = 500;
 /** PR 4: about one car on the road per this many residents (before the Settings cap). */
-export const COMMUTE_PEOPLE = 6;
+/** PR 5: 6 → 12 — half as many commuter cars (rush-hour curve unchanged). */
+export const COMMUTE_PEOPLE = 12;
 
 export class Simulation {
   /** Session-only ring buffer of stats for the graphs (not saved). */
@@ -389,7 +390,14 @@ export class Simulation {
     for (const i of this.completed) {
       if (tiles[i].zone !== 'residential' || edgeTile < 0 || cars() >= this.settings.maxCars) continue;
       const home = roadNextTo(tiles, i);
-      if (home >= 0) this.traffic.spawn(w, 'car', edgeTile, home, 'moving in');
+      // PR 5: the residents only count once their car pulls up (onArrive).
+      // If the trip can't start (no route), spawn() returns false and they
+      // move in straight away so a disconnected town still grows.
+      if (home >= 0) {
+        const t = tiles[i];
+        t.movingIn = true;
+        if (!this.traffic.spawn(w, 'car', edgeTile, home, 'moving in', undefined, () => (t.movingIn = false))) t.movingIn = false;
+      }
     }
     const homes: number[] = [];
     const work: number[] = [];
@@ -398,10 +406,11 @@ export class Simulation {
       if (!t.zone || t.level === 0) return;
       if (t.zone === 'residential') {
         homes.push(i);
-        pop += RESIDENTS_PER_LEVEL * t.level;
+        pop += residentsOf(t);
       } else work.push(i);
     });
-    const target = Math.min(this.settings.maxCars, Math.floor(pop / COMMUTE_PEOPLE));
+    // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
+    const target = Math.min(this.settings.maxCars, Math.floor((pop / COMMUTE_PEOPLE) * rushFactor(timeOfDay(w.clock))));
     for (let k = 0; k < 3 && cars() < target && homes.length; k++) {
       const r = (n: number) => hash2(w.tick, k * 13 + n, w.seed + 4100);
       const home = roadNextTo(tiles, homes[Math.floor(r(1) * homes.length)]);
@@ -426,7 +435,15 @@ export class Simulation {
     const d = this.env.desirability[i];
     if (d < DESIRE_MIN) return 0;
     if (d < DESIRE_FOR_DENSE) return 1;
-    return MAX_LEVEL;
+    // PR 5 medium density: level 4 (townhouses) at the Town tier, level 5
+    // (apartments) at the City tier — each also needs high desirability
+    // (parks, no pollution) and positive residential demand.
+    let cap = MAX_LEVEL;
+    for (const lv of [4, 5] as const) {
+      const g = MEDIUM_DENSITY[lv];
+      if (this.world.tier >= g.tier && d >= g.desire && this.demand.residential.value > 0) cap = lv;
+    }
+    return cap;
   }
 
   status(i: number): TileStatus {
@@ -457,7 +474,7 @@ export class Simulation {
         inactive++;
         return;
       }
-      if (t.zone === 'residential') population += RESIDENTS_PER_LEVEL * t.level;
+      if (t.zone === 'residential') population += residentsOf(t); // PR 5: per-level table; not until their car arrives
       jobs += JOBS_PER_LEVEL[t.zone] * t.level;
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>

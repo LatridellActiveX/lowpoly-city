@@ -86,11 +86,20 @@ export class IsoCamera {
    * vertical = pitch (clamped). The yaw is applied directly (no easing) so
    * the view follows the mouse 1:1.
    */
+  /**
+   * PR 5: player sensitivity multipliers (Settings → Camera rotation / pan
+   * speed, 0.25–2, default 1). main.ts copies them from the settings every
+   * frame so slider changes apply live.
+   */
+  rotateSpeed = 1;
+  panSpeed = 1;
+
   orbit(dxPixels: number, dyPixels: number): void {
-    const dYaw = -dxPixels * 0.006;
+    // PR 5: base sensitivity halved (was 0.006 / 0.004 rad per pixel — too twitchy).
+    const dYaw = -dxPixels * 0.003 * this.rotateSpeed;
     this.freeYaw += dYaw;
     this.azimuth += dYaw; // move now; the easing in update() then has nothing to catch up
-    this.elevation = THREE.MathUtils.clamp(this.elevation + dyPixels * 0.004, MIN_PITCH, MAX_PITCH);
+    this.elevation = THREE.MathUtils.clamp(this.elevation + dyPixels * 0.002 * this.rotateSpeed, MIN_PITCH, MAX_PITCH);
   }
 
   zoomBy(factor: number): void {
@@ -100,7 +109,7 @@ export class IsoCamera {
 
   /** Pan by a screen-space delta in pixels (drag right => map moves right). */
   panPixels(dx: number, dy: number, canvasHeight: number): void {
-    const worldPerPixel = VIEW_HEIGHT / this.zoom / canvasHeight;
+    const worldPerPixel = (VIEW_HEIGHT / this.zoom / canvasHeight) * this.panSpeed;
     const right = new THREE.Vector3(Math.cos(this.azimuth), 0, -Math.sin(this.azimuth));
     // "Forward" = the ground direction pointing away from the camera (up the screen).
     const forward = new THREE.Vector3(-Math.sin(this.azimuth), 0, -Math.cos(this.azimuth));
@@ -113,8 +122,8 @@ export class IsoCamera {
   panWorld(rightAmount: number, upAmount: number): void {
     const right = new THREE.Vector3(Math.cos(this.azimuth), 0, -Math.sin(this.azimuth));
     const forward = new THREE.Vector3(-Math.sin(this.azimuth), 0, -Math.cos(this.azimuth));
-    this.target.addScaledVector(right, rightAmount / this.zoom);
-    this.target.addScaledVector(forward, upAmount / this.zoom);
+    this.target.addScaledVector(right, (rightAmount * this.panSpeed) / this.zoom);
+    this.target.addScaledVector(forward, (upAmount * this.panSpeed) / this.zoom);
     this.clampTarget();
   }
 

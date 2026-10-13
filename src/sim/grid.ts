@@ -32,6 +32,7 @@ export function emptyTile(): Tile {
     construct: 0,
     stock: 0,
     part: 0,
+    movingIn: false,
   };
 }
 
@@ -86,7 +87,7 @@ export class World {
   /** Books for the month in progress, and the last finished month. */
   ledger: Ledger = emptyLedger();
   lastLedger: Ledger | null = null;
-  /** Current wind strength 0..1 (see wind.ts). Turbines make 15 × wind power. */
+  /** Current wind strength 0..1 (see wind.ts). Turbines make 800 × wind power (PR 5). */
   wind = 0.5;
   /** The random-walk part of the wind, kept so the weather continues smoothly after a reload. */
   windDrift = 0;

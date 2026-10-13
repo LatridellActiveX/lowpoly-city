@@ -29,8 +29,10 @@ import * as THREE from 'three';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE } from '../sim/types';
 
-export const DAY_SECONDS = 3600;
-const START = 0.3;
+// PR 5: day length + start time now live in sim/traffic.ts (traffic volume
+// follows the clock too), re-exported here for existing imports.
+import { DAY_SECONDS, DAY_START as START } from '../sim/traffic';
+export { DAY_SECONDS };
 
 interface Key {
   t: number;

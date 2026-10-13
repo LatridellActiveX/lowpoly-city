@@ -17,22 +17,53 @@ export interface ToolDef {
   key: string;
   shape: 'point' | 'line' | 'area';
   hint: string;
+  /**
+   * PR 5: tools that belong to a toolbar GROUP live inside that group's
+   * flyout menu instead of having their own toolbar button.
+   */
+  group?: ToolGroupId;
 }
+
+/** PR 5: the three grouped toolbar buttons. */
+export type ToolGroupId = 'roads' | 'power' | 'water';
+
+export interface ToolGroupDef {
+  id: ToolGroupId;
+  label: string;
+  icon: string;
+  /** Tools shown in the flyout, in order — number keys 1..n pick them while it's open. */
+  tools: ToolId[];
+}
+
+/**
+ * PR 5 grouped toolbar. Each group is one button on the toolbar; clicking it
+ * opens a small flyout menu listing its tools with icon, price and lock badge.
+ * The group button shows (and re-selects) whichever tool you used last.
+ *
+ * "Bridge" isn't a separate tool in the sim — dragging a road across water
+ * builds a bridge automatically — so the flyout entry for it is an info row
+ * that selects the Road tool (see hud.ts).
+ */
+export const TOOL_GROUPS: ToolGroupDef[] = [
+  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue'] },
+  { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'windTurbine', 'nuclearPlant'] },
+  { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'pumpStation'] },
+];
 
 export const TOOLS: ToolDef[] = [
   { id: 'inspect', label: 'Inspect', icon: '🔍', key: 'i', shape: 'point', hint: 'Click a tile to see its status.' },
-  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($12/tile incl. street power poles). Roads carry power and buildings need one next to them. Crossing water builds a bridge (+$48/tile).' },
-  { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($24/tile): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.' },
+  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($12/tile incl. street power poles). Roads carry power and buildings need one next to them. Crossing water builds a bridge (+$48/tile).', group: 'roads' },
+  { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($24/tile): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.', group: 'roads' },
   { id: 'residential', label: 'Homes', icon: '🏠', key: '1', shape: 'area', hint: 'Drag to zone low-density residential.' },
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial.' },
-  { id: 'powerPlant', label: 'Power Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'High output (120). Connect with power lines.' },
-  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Huge clean output (600), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.' },
-  { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $7,500 + $400/month. Unlocks at 10,000 people.' },
-  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: 'Up to 15 power, depending on the wind. Connect with power lines.' },
-  { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).' },
-  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump.' },
-  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.' },
+  { id: 'powerPlant', label: 'Coal/Oil Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal or oil delivered by truck. $4,000 + $250/month.', group: 'power' },
+  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 8,000 (about 8,000 people), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.', group: 'power' },
+  { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },
+  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '800 × wind power: ~400 people at average wind, up to ~800 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
+  { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },
+  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
+  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.', group: 'water' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   { id: 'bulldoze', label: 'Bulldoze', icon: '🧨', key: 'x', shape: 'area', hint: 'Drag to clear everything in the box.' },
 ];
