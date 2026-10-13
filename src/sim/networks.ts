@@ -140,6 +140,10 @@ function solve(
     }
 
     // ---- Share capacity out, nearest consumers first ----
+    // PR 4: water pumps (towers / pump stations) are served FIRST. Otherwise a
+    // small power shortage at the end of the line could switch off the pumps
+    // and take the whole city's water down with it.
+    if (kind === 'power') consumers.sort((a, b) => +(tiles[b].structure === 'waterTower' || tiles[b].structure === 'pumpStation') - +(tiles[a].structure === 'waterTower' || tiles[a].structure === 'pumpStation'));
     let remaining = net.capacity;
     for (const c of consumers) {
       const t = tiles[c];

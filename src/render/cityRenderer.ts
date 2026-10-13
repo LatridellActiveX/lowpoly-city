@@ -391,8 +391,10 @@ export class CityRenderer {
         // PR 4 fix: EMPTY lots and construction sites also show missing
         // power/water (PR 3 only flagged finished buildings, so a freshly
         // zoned block with no pipe showed nothing at all).
-        if (t.level === 0 || t.construct > 0) {
-          const st0 = sim.status(i);
+        const st0 = sim.status(i);
+        // (Lots with no road at all are skipped: they can't build anyway and
+        // a sea of icons in the middle of a block would hide the real problems.)
+        if ((t.level === 0 || t.construct > 0) && st0.roadAccess) {
           const both = !st0.powered && !st0.watered;
           const pos = center.clone().setY(t.construct > 0 ? 0.9 : 0.45);
           if (!st0.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
