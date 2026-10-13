@@ -49,3 +49,27 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .hint { display: none; }
   .info { top: auto; bottom: 84px; left: 8px; right: 8px; width: auto; }
 }
+
+/* ---- Milestone 2: money + budget ---- */
+.stats .cash { font-weight: 700; color: #b9f3a8; }
+.stats .cash.bad, .bad { color: #ff7a6e; }
+.ok { color: #7be08a; }
+.tool.unaffordable { opacity: 0.38; filter: grayscale(1); }
+.tool.unaffordable.active { opacity: 0.6; }
+.budget { position: absolute; top: 60px; left: 10px; width: 340px; background: var(--panel); padding: 12px 14px; border-radius: 12px; font-size: 13px; border: 1px solid var(--line); max-height: calc(100% - 170px); overflow-y: auto; }
+.budget.hidden { display: none; }
+.budget h3 { margin: 0 0 8px; font-size: 16px; }
+.budget h4 { margin: 12px 0 4px; font-size: 13px; }
+.budget table { width: 100%; border-collapse: collapse; }
+.budget th { font-weight: 500; opacity: 0.7; text-align: right; font-size: 11px; }
+.budget td { padding: 2px 0; }
+.budget td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
+.budget tr.sec td { padding-top: 8px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.65; }
+.budget tr.net td { border-top: 1px solid var(--line); padding-top: 6px; font-weight: 700; }
+.budget .close { position: absolute; top: 6px; right: 8px; background: none; border: 0; font-size: 20px; opacity: 0.7; }
+.budget .small { font-size: 11px; margin-top: 6px; }
+.budget .muted { opacity: 0.7; }
+.tax { display: grid; grid-template-columns: 110px 1fr 36px; align-items: center; gap: 8px; margin: 4px 0; }
+.tax input { width: 100%; accent-color: var(--accent); }
+.tax b { text-align: right; }
+@media (max-width: 700px) { .budget { left: 8px; right: 8px; width: auto; top: 150px; } }

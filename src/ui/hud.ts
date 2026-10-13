@@ -5,9 +5,13 @@
  * The UI is plain DOM (no framework). It reads from the Simulation and calls
  * back into main.ts through the `HudActions` interface, so it never touches
  * Three.js directly.
+ *
+ * The BUDGET PANEL is built once (so the tax sliders don't get recreated
+ * while you drag them) and only its numbers are refreshed.
  */
 import { Simulation } from '../sim/simulation';
-import { ToolId } from '../sim/types';
+import { ToolId, ZoneType } from '../sim/types';
+import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
 import { TOOLS, toolDef } from './tools';
@@ -16,6 +20,7 @@ export interface HudActions {
   selectTool(id: ToolId): void;
   setSpeed(s: number): void;
   setOverlay(o: OverlayMode): void;
+  setTax(zone: ZoneType, rate: number): void;
   rotate(dir: 1 | -1): void;
   zoom(f: number): void;
   save(): void;
@@ -38,7 +43,11 @@ export class Hud {
   private readonly hint = el('div', 'hint');
   private readonly info = el('div', 'info hidden');
   private readonly toast = el('div', 'toast');
+  private readonly budget = el('div', 'budget hidden');
+  private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
+  private currentTool: ToolId = 'inspect';
+  private lastSim: Simulation | null = null;
   private toastTimer = 0;
 
   constructor(root: HTMLElement, actions: HudActions) {
@@ -81,7 +90,14 @@ export class Hud {
     mk('＋', 'Zoom in', () => actions.zoom(1.25));
     mk('－', 'Zoom out', () => actions.zoom(0.8));
 
+    const budgetBtn = el('button', 'btn', '💰 Budget') as HTMLButtonElement;
+    budgetBtn.onclick = () => {
+      const open = this.budget.classList.toggle('hidden') === false;
+      budgetBtn.classList.toggle('active', open);
+      if (open) this.refreshBudget(this.lastSim!);
+    };
     const file = el('div', 'group');
+    file.append(budgetBtn);
     for (const [label, fn] of [
       ['Save', actions.save],
       ['Load', actions.load],
@@ -103,10 +119,99 @@ export class Hud {
       bar.append(b);
     }
 
-    root.append(top, this.info, this.hint, bar, this.toast);
+    this.buildBudget(actions);
+    root.append(top, this.info, this.budget, this.hint, bar, this.toast);
+  }
+
+  /** Create the budget panel's static structure + tax sliders. */
+  private buildBudget(actions: HudActions): void {
+    const zones: Array<[ZoneType, string]> = [
+      ['residential', '🏠 Residential'],
+      ['commercial', '🏪 Commercial'],
+      ['industrial', '🏭 Industrial'],
+    ];
+    const row = (id: string, label: string) => `<tr><td>${label}</td><td data-k="${id}.now"></td><td data-k="${id}.last"></td></tr>`;
+    this.budget.innerHTML = `
+      <button class="close" aria-label="Close">×</button>
+      <h3>City budget</h3>
+      <table>
+        <thead><tr><th></th><th>This month*</th><th>Last month</th></tr></thead>
+        <tbody>
+          <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
+          ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}
+          <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
+          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}
+          <tr class="sec"><td colspan="3">One-off</td></tr>
+          ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
+          <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
+        </tbody>
+      </table>
+      <div class="muted small">*Taxes and upkeep are projected from the city as it is now; they're booked at month end.</div>
+      <h4>Tax rates</h4>
+      ${zones
+        .map(
+          ([z, l]) => `<label class="tax"><span>${l}</span><input type="range" min="0" max="${MAX_TAX * 100}" step="1" data-zone="${z}">
+          <b data-k="rate.${z}"></b></label>`,
+        )
+        .join('')}
+      <div class="muted small" data-k="growth"></div>`;
+    (this.budget.querySelector('.close') as HTMLButtonElement).onclick = () => this.budget.classList.add('hidden');
+    this.budget.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp) => {
+      inp.oninput = () => actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100);
+    });
+  }
+
+  private setCell(k: string, html: string): void {
+    const c = this.budget.querySelector(`[data-k="${k}"]`);
+    if (c) c.innerHTML = html;
+  }
+
+  private refreshBudget(sim: Simulation): void {
+    const w = sim.world;
+    const now = sim.projectMonth();
+    now.construction = w.ledger.construction;
+    now.refunds = w.ledger.refunds;
+    const last = w.lastLedger;
+    const fmt = (n: number | undefined, neg = false) => (n === undefined ? '—' : n === 0 ? '$0' : `<span class="${neg ? 'bad' : 'ok'}">${neg ? '-' : '+'}${this.money(n)}</span>`);
+    for (const z of ['residential', 'commercial', 'industrial'] as const) {
+      this.setCell(`tax.${z}.now`, fmt(now.taxes[z]));
+      this.setCell(`tax.${z}.last`, fmt(last?.taxes[z]));
+      const rate = w.taxRates[z];
+      this.setCell(`rate.${z}`, `${Math.round(rate * 100)}%`);
+      const inp = this.budget.querySelector<HTMLInputElement>(`input[data-zone="${z}"]`)!;
+      if (document.activeElement !== inp) inp.value = String(Math.round(rate * 100));
+    }
+    for (const u of ['powerPlant', 'windTurbine', 'waterTower'] as const) {
+      this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
+      this.setCell(`up.${u}.last`, fmt(last?.upkeep[u], true));
+    }
+    this.setCell('construction.now', fmt(now.construction, true));
+    this.setCell('construction.last', fmt(last?.construction, true));
+    this.setCell('refunds.now', fmt(now.refunds));
+    this.setCell('refunds.last', fmt(last?.refunds));
+    const n = ledgerNet(now);
+    const ln = last ? ledgerNet(last) : undefined;
+    this.setCell('net.now', fmt(Math.abs(n), n < 0));
+    this.setCell('net.last', ln === undefined ? '—' : fmt(Math.abs(ln), ln < 0));
+    const g = (z: ZoneType) => `${Math.round(growthFactor(w.taxRates[z]) * 100)}%`;
+    this.setCell('growth', `Growth speed vs. default: homes ${g('residential')}, shops ${g('commercial')}, industry ${g('industrial')}. Lower taxes grow faster.`);
+  }
+
+  /** Update the hint line with the price of the current hover/drag. */
+  showCost(tool: ToolId, cost: number, affordable: boolean, cash: number): void {
+    const base = toolDef(tool).hint;
+    if (tool === 'inspect') return void (this.hint.textContent = base);
+    if (!affordable) {
+      this.hint.innerHTML = `<span class="bad">Not enough money: costs ${this.money(cost)}, you have ${this.money(cash)}</span>`;
+    } else if (tool === 'bulldoze') {
+      this.hint.textContent = `${base} Refunds 25% of what it cost.`;
+    } else {
+      this.hint.textContent = `${base} Cost: ${this.money(cost)}`;
+    }
   }
 
   setTool(id: ToolId): void {
+    this.currentTool = id;
     this.toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
     this.hint.textContent = toolDef(id).hint;
   }
@@ -134,19 +239,42 @@ export class Hud {
 
   /** Refresh numbers. Called a few times per second from main.ts. */
   refresh(sim: Simulation): void {
+    // The top bar can wrap onto two rows on narrower screens, so place the
+    // floating panels just below wherever it currently ends.
+    const below = `${Math.round(this.stats.parentElement!.getBoundingClientRect().bottom + 8)}px`;
+    if (window.innerWidth > 700) this.info.style.top = below;
+    this.budget.style.top = below;
     const s = sim.stats();
     const bar = (used: number, cap: number) => {
       const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : used > 0 ? 100 : 0;
       const cls = used > cap ? 'over' : pct > 85 ? 'warn' : '';
       return `<span class="meter ${cls}"><i style="width:${pct}%"></i></span>${used}/${cap}`;
     };
+    this.lastSim = sim;
+    const cash = sim.world.cash;
+    const mo = sim.world.month;
+    const year = Math.floor((mo - 1) / 12) + 1;
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     this.stats.innerHTML =
+      `<span class="cash ${cash < 0 ? 'bad' : ''}" title="Cash">💵 ${this.money(cash)}</span>` +
       `<span title="Residents">👥 ${s.population}</span>` +
       `<span title="Jobs">💼 ${s.jobs}</span>` +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
-      `<span class="day" title="Ticks since founding">Day ${Math.floor(sim.world.tick / 20) + 1}</span>`;
+      `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}</span>`;
+
+    // Grey out tools you can't afford even one of.
+    for (const t of TOOLS) {
+      const b = this.toolButtons.get(t.id)!;
+      if (t.id === 'inspect' || t.id === 'bulldoze') continue;
+      const price = BUILD_COST[t.id];
+      const poor = cash < price;
+      b.classList.toggle('unaffordable', poor);
+      b.title = `${t.label} (${t.key.toUpperCase()}) — ${this.money(price)}${t.shape === 'point' ? '' : ' per tile'}${poor ? ' — NOT ENOUGH MONEY' : ''}\n${t.hint}`;
+    }
+    if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
+    void this.currentTool;
 
     if (this.infoTile !== null) this.renderInfo(sim, this.infoTile);
   }
@@ -183,10 +311,12 @@ export class Hud {
       if (t.zone) rows.push(`<div class="row">Road access: ${yes(st.roadAccess)}</div>`);
       rows.push(`<div class="row">Power: ${yes(st.powered)} <span class="muted">(${netLine('power')})</span></div>`);
       if (t.zone) rows.push(`<div class="row">Water: ${yes(st.watered)} <span class="muted">(${netLine('water')})</span></div>`);
+      if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month</div>`);
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);
       if (t.zone && t.level === 0 && st.operating) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine') {
       rows.push(`<div class="row">Output: ${t.structure === 'powerPlant' ? 120 : 15} power</div>`);
+      rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
     } else if (t.powerLine || t.waterPipe) {
       if (t.powerLine) rows.push(`<div class="row">Power: <span class="muted">${netLine('power')}</span></div>`);

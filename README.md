@@ -3,7 +3,7 @@
 A browser-based isometric low-poly city builder built with **Vite + TypeScript + Three.js**.
 Zone land, lay roads, power lines and water pipes, and keep your city's power and water networks running.
 
-![Test city](docs/city-m1-desktop.png)
+![Test city](docs/city-m2-desktop.png)
 
 ## Run it locally
 
@@ -18,7 +18,8 @@ npm run build    # type-check + production build into dist/
 2. Build a **Power Plant** (120 power) or **Wind Turbine** (15) and drag **Power Lines** past where you'll build.
 3. Build a **Water Tower** (80 water, needs power to pump) and drag **Pipes** past the same blocks.
 4. Paint **Homes / Shops / Industry** zones beside the road. Lots grow into buildings over time once they have road + power + water.
-5. Watch the ⚡ and 💧 meters. If demand passes capacity, the furthest buildings go dark (outage) and get a warning gem.
+5. Watch your 💵 cash. Everything costs money, bulldozing refunds 25%, and each month operating buildings pay taxes while plants, turbines and towers cost upkeep. Open **💰 Budget** to see the books and set tax rates (0–20%; higher taxes slow growth).
+6. Watch the ⚡ and 💧 meters. If demand passes capacity, the furthest buildings go dark (outage) and get a warning gem.
 
 ## Controls
 | Action | Mouse / keys | Touch |
@@ -32,8 +33,8 @@ npm run build    # type-check + production build into dist/
 
 ## Code layout
 ```
-src/sim/     the city as plain data + rules (no graphics)  — grid, rules, networks, simulation, save
-src/render/  Three.js drawing (reads the sim, never changes it) — camera, scene, models, instancing
+src/sim/     the city as plain data + rules (no graphics)  — grid, rules, networks, simulation, economy, terrain, random, save
+src/render/  Three.js drawing (reads the sim, never changes it) — camera, scene, models, buildings, nature, instancing
 src/ui/      HTML toolbar/panels and input                    — hud, input, tools
 src/main.ts  wires the layers together and runs the game loop
 ```
@@ -41,5 +42,6 @@ Every file starts with a comment explaining its job; see the wiki for longer exp
 
 ## Roadmap
 - **Milestone 1:** grid, isometric camera, placement tools, utilities, zone growth, save/load. ✅
-- **Milestone 2:** car traffic (A* pathfinding, traffic lights, settings for car count).
+- **Milestone 2:** building variety, terrain & trees, money and budget. ✅
+- **Next:** car traffic (A* pathfinding, traffic lights, settings for car count).
 - **Milestone 3:** economy (industrial goods shipped by truck to commercial), polish.

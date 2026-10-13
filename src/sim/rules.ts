@@ -70,7 +70,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'waterTower':
       return isBare(t);
     case 'bulldoze':
-      return !isBare(t);
+      return !isBare(t) || t.deco !== 0;
     case 'inspect':
       return true;
   }
@@ -78,6 +78,8 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
 
 /** Apply a tool to a tile (assumes canPlace returned true). */
 export function applyTool(tool: ToolId, t: Tile): void {
+  // Anything you build (or bulldoze) clears the tree/bush/rock on the tile.
+  if (tool !== 'inspect') t.deco = 0;
   switch (tool) {
     case 'road':
       t.road = true;

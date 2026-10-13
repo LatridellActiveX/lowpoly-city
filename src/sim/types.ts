@@ -47,8 +47,14 @@ export interface Tile {
    * fill in gradually instead of instantly.
    */
   happyTicks: number;
-  /** Small per-tile random number (0..1) so neighbouring buildings look different. */
+  /**
+   * Legacy (M1) per-tile random number. Building variety now comes from a
+   * deterministic hash of the coordinates (random.ts), so this is unused but
+   * kept so old saves round-trip.
+   */
   variant: number;
+  /** Natural decoration on this tile (see terrain.ts `Deco`): 0 = none. */
+  deco: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */

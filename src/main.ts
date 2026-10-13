@@ -46,6 +46,10 @@ const hud = new Hud(app, {
   setOverlay: (o) => setOverlay(o),
   rotate: (d) => cam.rotate(d),
   zoom: (f) => cam.zoomBy(f),
+  setTax: (zone, rate) => {
+    sim.world.taxRates[zone] = rate;
+    hud.refresh(sim);
+  },
   save: () => {
     saveWorld(sim.world);
     hud.flash('City saved');
@@ -88,7 +92,13 @@ function updatePreview(): void {
   if (tool === 'inspect') return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
   const from = dragFrom ?? hoverTile;
   const tiles = shapeTiles(tool, from[0], from[1], hoverTile[0], hoverTile[1]);
-  preview.show(tiles.map(([x, z]) => ({ x, z, ok: canPlace(tool, sim.world.at(x, z)) })));
+  // If the whole drag is unaffordable, every tile shows red and the cursor
+  // becomes a "not allowed" sign; the hint line shows the price.
+  const cost = sim.quote(tool, tiles);
+  const affordable = sim.canAfford(tool, cost);
+  renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
+  hud.showCost(tool, cost, affordable, sim.world.cash);
+  preview.show(tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })));
 }
 
 attachInput(renderer.domElement, cam, ground, {
@@ -110,8 +120,12 @@ attachInput(renderer.domElement, cam, ground, {
     if (dragFrom && end) {
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
-        const n = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
-        if (n === 0) hud.flash("Can't build there");
+        const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
+        if (r.broke && r.changed === 0) hud.flash('Not enough money');
+        else if (r.broke) hud.flash(`Ran out of money after ${r.changed} tiles (-$${r.spent.toLocaleString()})`);
+        else if (r.changed === 0) hud.flash("Can't build there");
+        else if (tool === 'bulldoze') hud.flash(`Bulldozed — refund $${r.refunded.toLocaleString()}${r.spent ? `, clearing $${r.spent}` : ''}`);
+        else hud.flash(`-$${r.spent.toLocaleString()}`);
       }
     }
     dragFrom = null;
