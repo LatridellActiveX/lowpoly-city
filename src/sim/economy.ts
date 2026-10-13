@@ -37,7 +37,8 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   industrial: 30,
   powerPlant: 4000,
   // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
-  //   coal plant 120 power for $4,000 + $250/mo  →  nuclear 600 power (5×) = $20,000 + $1,250/mo
+  //   PR 5: coal plant 2,000 power (~2,000 people) for $4,000 + $250/mo; nuclear 8,000 (~8,000 people) = $20,000 + $1,250/mo;
+  //   wind turbine 800 × wind (~400 people at average wind) = $1,500 + $60/mo
   //   water tower 800 water for $4,000 + $200/mo →  pump station 4,000 water (5×) = $16,000 + $850/mo
   //   (tower capacity raised 80 → 800 in PR 4 so one tower serves ~1,000 people at ~75% load;
   //   PR 5 re-priced it from $1,500/$80 since it now does 10× the work. The pump station keeps
@@ -46,7 +47,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // makes no pollution and needs no fuel trucks; the pump station is 1 tile.)
   nuclearPlant: 20000,
   pumpStation: 16000,
-  windTurbine: 600,
+  windTurbine: 1500, // PR 5: was $600 when it made 15 power; now ~400 at average wind
   waterTower: 4000,
   park: 150,
 };
@@ -61,7 +62,7 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850 } as const;
 /** Structures that cost upkeep every month. */
 export type UpkeepKind = keyof typeof UPKEEP;
 export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;

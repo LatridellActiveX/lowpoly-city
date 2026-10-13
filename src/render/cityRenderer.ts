@@ -27,7 +27,7 @@ import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
-import { SIGNAL_COLORS, SIGNAL_LAMPS, VEHICLES, vehiclePose } from './vehicles';
+import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
 import { isIntersection, lightState } from '../sim/traffic';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
@@ -246,6 +246,11 @@ export class CityRenderer {
     }
     // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
     add('car', VEHICLES.car(), solid, 256);
+    // PR 5 driving polish: spinning wheels, tail/brake lights, headlight glow.
+    add('wheel', VEHICLES.wheel(), solid, 1536, false);
+    add('carRoof', VEHICLES.carRoof(), solid, 320, false);
+    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 320, false);
+    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 128);
@@ -317,10 +322,14 @@ export class CityRenderer {
     // blades jump to a new position.
     const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
     this.lastTime = time;
+    this.frameDt = dt * (this.sim?.speed ?? 1); // PR 5: wheel spin uses game-time distance
     if (sim.speed > 0) this.bladeAngle += dt * (0.3 + sim.world.wind * 4.5);
     this.animate(time);
   }
   private lastTime = 0;
+  /** PR 5: per-vehicle wheel angle and last frame's duration (seconds, game time). */
+  private wheelSpin = new Map<number, number>();
+  private frameDt = 0;
   private bladeAngle = 0;
 
   private rebuild(sim: Simulation): void {
@@ -663,19 +672,56 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
+      // PR 5: each vehicle gets a full pose — Bézier position + heading,
+      // body roll in turns and pitch under braking/acceleration — composed
+      // as yaw · pitch(about local z) · roll(about local x). Wheels spin by
+      // distance travelled / radius. Tail lights: dim red at night, bright
+      // red when braking (any time), off otherwise. Headlights add a soft
+      // warm glow in front of the car at night.
+      const night = this.signalGlowMat.opacity > 0.05;
+      const pose = { yaw: 0, roll: 0, pitch: 0 };
+      const e = new THREE.Euler(0, 0, 0, 'YZX');
+      const wq = new THREE.Quaternion(), tmpQ = new THREE.Quaternion();
+      const one = new THREE.Vector3(1, 1, 1), wp = new THREE.Vector3();
       for (const v of sim.traffic.vehicles) {
         if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
-        const yaw = vehiclePose(v, tiles, pos);
-        const m = this.place(pos, yaw);
-        if (v.kind === 'car') P.car.add(m, this.c.setHex(v.color));
+        vehiclePose(v, tiles, pos, pose);
+        e.set(pose.roll, pose.yaw, pose.pitch);
+        this.q.setFromEuler(e);
+        const m = this.m.compose(pos, this.q, one);
+        if (v.kind === 'car') {
+          P.car.add(m, this.c.setHex(v.color));
+          P.carRoof.add(m, this.c.setHex(roofColor(v.id, v.color))); // PR 5 two-tone roofs
+        }
         else {
           P.truckCab.add(m);
           P.truckBox.add(m, this.c.setHex(v.color));
         }
+        // Wheels: distance-based spin, stored per vehicle on the render side.
+        const spin = ((this.wheelSpin.get(v.id) ?? 0) + (v.v * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
+        this.wheelSpin.set(v.id, spin);
+        tmpQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -spin);
+        for (const [wx, wz] of v.kind === 'car' ? WHEELS.car : WHEELS.truck) {
+          wp.set(wx, WHEELS.radius, wz).applyQuaternion(this.q).add(pos);
+          wq.copy(this.q).multiply(tmpQ);
+          P.wheel.add(this.m.compose(wp, wq, one));
+        }
+        if (v.kind === 'car') {
+          const braking = v.acc < -0.4 || (v.v < 0.05 && v.waitGreen >= 0 && v.acc <= 0 && v.t > 0.5);
+          if (braking || night) P.tailLight.add(this.m.compose(pos, this.q, one), this.c.setRGB(braking ? 1 : 0.55, braking ? 0.08 : 0.02, braking ? 0.05 : 0.02));
+          if (night) {
+            wp.set(0.2, 0.03, 0).applyQuaternion(this.q).add(pos);
+            P.headGlow.add(this.m.compose(wp, this.cameraQuat, one), this.c.setRGB(1, 0.9, 0.65));
+          }
+        }
+      }
+      if (this.wheelSpin.size > 4 * sim.traffic.vehicles.length + 64) {
+        const live = new Set(sim.traffic.vehicles.map((v) => v.id));
+        for (const k of this.wheelSpin.keys()) if (!live.has(k)) this.wheelSpin.delete(k);
       }
       // PR 5: every pole has two heads × three lamps. Only the active lamp
       // of each head is lit (full colour; the material is unlit so it reads
@@ -697,7 +743,7 @@ export class CityRenderer {
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */

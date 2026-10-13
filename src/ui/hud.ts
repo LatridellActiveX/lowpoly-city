@@ -430,7 +430,7 @@ export class Hud {
       `<span title="Jobs">💼 ${s.jobs}</span>` +
       this.tierBadge(sim, s.population) +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
-      `<span title="Wind: turbines make 15 × wind power (now ${Math.round(15 * sim.world.wind)} each)">🌬️ ${windGauge(sim.world.wind)}</span>` +
+      `<span title="Wind: turbines make 800 × wind power (now ${Math.round(800 * sim.world.wind)} each, ~400 people at average wind)">🌬️ ${windGauge(sim.world.wind)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
       `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}${clock ? ` · 🕒 ${clock}` : ''}</span>`;

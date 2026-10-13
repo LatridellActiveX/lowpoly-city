@@ -14,6 +14,7 @@ import { box, merge, part } from './models';
 import { GRID_SIZE, Tile } from '../sim/types';
 import { Vehicle } from '../sim/traffic';
 import { BRIDGE_Y } from './roads';
+import { hash2 } from '../sim/random';
 
 const LANE = 0.17;
 const GLASS = 0x2a3440;
@@ -25,15 +26,30 @@ export const VEHICLES = {
       part(box(0.24, 0.06, 0.12), 0xffffff, [0, 0.025, 0]),
       part(box(0.12, 0.05, 0.105), GLASS, [-0.02, 0.085, 0]),
       part(box(0.02, 0.02, 0.1), 0xfff3c4, [0.12, 0.045, 0]), // headlights
-      ...[[-0.08, -0.055], [0.08, -0.055], [-0.08, 0.055], [0.08, 0.055]].map(([x, z]) => part(new THREE.CylinderGeometry(0.024, 0.024, 0.02, 8).rotateX(Math.PI / 2), 0x1b1b1b, [x, 0.024, z])),
+      // (PR 5: wheels are a separate instanced pool so they can spin — see WHEELS.)
     ]),
+  /**
+   * PR 5 wheel: tyre + a light hub bar across it, so the rotation is
+   * visible. Axis along z; the renderer spins it about z by distance/radius.
+   */
+  wheel: () =>
+    merge([
+      part(new THREE.CylinderGeometry(0.025, 0.025, 0.022, 10).rotateX(Math.PI / 2), 0x1b1b1b),
+      part(box(0.03, 0.008, 0.024).translate(0, -0.004, 0), 0xb9bec4),
+    ]),
+  /**
+   * PR 5 car roof panel: sits on top of the glass cabin. White geometry so
+   * the per-instance colour paints it (roofColor() picks it per car).
+   */
+  carRoof: () => merge([part(box(0.125, 0.014, 0.109), 0xffffff, [-0.02, 0.135, 0]), part(box(0.01, 0.01, 0.1), 0xffffff, [0.045, 0.128, 0], [0, 0, 0.5])]),
+  /** PR 5 rear light pair (red, coloured per frame: off / tail-light / brake). Car rear is −x. */
+  tailLights: () => merge([part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, -0.04]), part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, 0.04])]),
   /** Truck cab (fixed colours) along +x. */
   truckCab: () =>
     merge([
       part(box(0.1, 0.11, 0.13), 0xe8e8e8, [0.15, 0.025, 0]),
       part(box(0.02, 0.05, 0.11), GLASS, [0.2, 0.08, 0]),
       part(box(0.36, 0.025, 0.1), 0x3a3a3a, [0.02, 0.02, 0]), // chassis
-      ...[[-0.11, -0.06], [0.0, -0.06], [0.15, -0.06], [-0.11, 0.06], [0.0, 0.06], [0.15, 0.06]].map(([x, z]) => part(new THREE.CylinderGeometry(0.026, 0.026, 0.02, 8).rotateX(Math.PI / 2), 0x1b1b1b, [x, 0.026, z])),
     ]),
   /** Truck cargo box: white, tinted per cargo type by the instance colour. */
   truckBox: () => merge([part(box(0.24, 0.13, 0.13), 0xffffff, [-0.05, 0.045, 0])]),
@@ -100,37 +116,128 @@ for (const slot of [0, 1, 2] as const) {
 /** Lit lamp colours (red, amber, green) — dark lamps are drawn at ~12%. */
 export const SIGNAL_COLORS = [0xff3b30, 0xffb020, 0x35e06a];
 
+/** PR 5: wheel hub positions (vehicle-local, +x forward) and radius. */
+export const WHEELS = {
+  car: [[-0.08, -0.055], [0.08, -0.055], [-0.08, 0.055], [0.08, 0.055]] as Array<[number, number]>,
+  truck: [[-0.11, -0.06], [0.0, -0.06], [0.15, -0.06], [-0.11, 0.06], [0.0, 0.06], [0.15, 0.06]] as Array<[number, number]>,
+  radius: 0.025,
+};
+
+/**
+ * PR 5: seeded roof colour for a car, separate from its body. Mix:
+ * 35% same as the body, 25% white, 20% black (two-tone "contrast" roofs),
+ * 20% from a varied palette. Deterministic: depends only on the vehicle id.
+ */
+const ROOF_PALETTE = [0xc0392b, 0x2e86de, 0xf1c40f, 0x27ae60, 0x8e44ad, 0xe67e22, 0x95a5a6, 0x1abc9c];
+export function roofColor(id: number, body: number): number {
+  const r = hash2(id, 3, 9100);
+  if (r < 0.35) return body;
+  if (r < 0.6) return 0xf4f4f4;
+  if (r < 0.8) return 0x1e1f22;
+  return ROOF_PALETTE[Math.floor(hash2(id, 4, 9100) * ROOF_PALETTE.length)];
+}
+
 /** Cargo colours for truck boxes (goods.ts types). */
 export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6cc551, lumber: 0xb07a45, stone: 0xa9a9a9, oil: 0x2b2b2b, coal: 0x4a4038, residents: 0xffffff };
 
-const centre = (i: number, tiles: Tile[], out: THREE.Vector3) =>
-  out.set((i % GRID_SIZE) + 0.5, tiles[i].water ? BRIDGE_Y + 0.02 : 0.04, Math.floor(i / GRID_SIZE) + 0.5);
+// ---------------------------------------------------------------------------
+// PR 5 SMOOTH DRIVING PATHS
+// ---------------------------------------------------------------------------
+// The sim says "vehicle is on segment k (tile centre A → tile centre B) at
+// progress t". Instead of sliding along the line between centres, we think
+// of the trip TILE BY TILE: a vehicle crosses each tile from the middle of
+// the edge it entered by to the middle of the edge it leaves by, always in
+// its RIGHT-HAND lane. Within a tile the path is a CUBIC BÉZIER curve:
+//     P0 = entry point (edge middle + right-hand lane offset)
+//     P1 = P0 pushed forward along the entry heading
+//     P2 = P3 pulled back along the exit heading
+//     P3 = exit point
+// Straight on → a straight line. A turn → a smooth quarter curve (tighter
+// for right turns, wider for left turns, because the lane offsets differ).
+// A dead-end U-turn → a smooth hairpin. Consecutive tiles share their edge
+// points AND headings, so the whole route is one continuous, kink-free
+// curve: no 90° snapping. The heading is the curve's derivative.
+// Lane offset blends from the entry road type to the exit road type, so
+// turning from a street onto an avenue drifts smoothly into the wider lane.
 
-const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3();
-const smooth = (a: number, b: number, v: number) => {
-  const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-};
+const LANE_AVENUE = 0.24;
+const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+const dirIdx = (a: number, b: number) => { const d = b - a; return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3; };
+const groundY = (t: Tile) => (t.water ? BRIDGE_Y + 0.02 : 0.04);
 
-/** Write a vehicle's world position into `pos` and return its yaw (rotateY angle for a +x model). */
-export function vehiclePose(v: Vehicle, tiles: Tile[], pos: THREE.Vector3): number {
-  const i0 = v.path[v.seg], i1 = v.path[v.seg + 1];
-  const i2 = v.path[v.seg + 2] ?? i1;
-  centre(i0, tiles, A);
-  centre(i1, tiles, B);
-  centre(i2, tiles, C);
-  const d1x = B.x - A.x, d1z = B.z - A.z;
-  let d2x = C.x - B.x, d2z = C.z - B.z;
-  if (d2x === 0 && d2z === 0) { d2x = d1x; d2z = d1z; }
-  // Blend from this segment's direction to the next one over the last 40%.
-  const b = smooth(0.6, 1.0, v.t) * 0.5; // reach the half-way blend at the tile edge
-  const hx = d1x * (1 - b) + d2x * b, hz = d1z * (1 - b) + d2z * b;
-  pos.lerpVectors(A, B, v.t);
-  // Right-hand lane offset (−dz, dx) of the blended heading.
-  const len = Math.hypot(hx, hz) || 1;
-  // PR 5: each driver sits slightly off the lane centre (traits.wobble).
-  const lane = LANE + (v.traits?.wobble ?? 0);
-  pos.x += (-hz / len) * lane;
-  pos.z += (hx / len) * lane;
-  return Math.atan2(-hz, hx);
+/** Pose output: position + yaw + body roll/pitch (radians) + speed for wheel spin. */
+export interface Pose { yaw: number; roll: number; pitch: number }
+
+const P0 = new THREE.Vector3(), P1 = new THREE.Vector3(), P2 = new THREE.Vector3(), P3 = new THREE.Vector3();
+
+/** Evaluate a vehicle's spot on its route at (seg, t); writes pos, returns heading (dx, dz) via out. */
+function routePoint(v: Vehicle, tiles: Tile[], seg: number, t: number, pos: THREE.Vector3, head: { x: number; z: number }): void {
+  const path = v.path;
+  // Which tile are we crossing, and how far through it (u = 0..1)?
+  let tile: number, u: number, din: number, dout: number;
+  if (t >= 0.5) {
+    tile = path[seg + 1];
+    u = t - 0.5;
+    din = dirIdx(path[seg], path[seg + 1]);
+    dout = seg + 2 < path.length ? dirIdx(path[seg + 1], path[seg + 2]) : din;
+  } else {
+    tile = path[seg];
+    u = t + 0.5;
+    dout = dirIdx(path[seg], path[seg + 1]);
+    din = seg > 0 ? dirIdx(path[seg - 1], path[seg]) : dout;
+  }
+  const T = tiles[tile];
+  const cx = (tile % GRID_SIZE) + 0.5, cz = Math.floor(tile / GRID_SIZE) + 0.5;
+  const [ix, iz] = DIRS[din], [ox, oz] = DIRS[dout];
+  // Lane offset for this tile's road type (blend with neighbours via the edge points).
+  const laneIn = (seg > 0 || t >= 0.5) && tiles[t >= 0.5 ? path[seg] : path[seg - 1] ?? tile]?.roadType === 1 && T.roadType === 1 ? LANE_AVENUE : T.roadType === 1 ? (LANE + LANE_AVENUE) / 2 : LANE;
+  const nextT = tiles[t >= 0.5 ? path[seg + 2] ?? tile : path[seg + 1]];
+  const laneOut = nextT?.roadType === 1 && T.roadType === 1 ? LANE_AVENUE : T.roadType === 1 ? (LANE + LANE_AVENUE) / 2 : LANE;
+  const wob = v.traits?.wobble ?? 0;
+  // Right of heading (dx, dz) is (−dz, dx).
+  P0.set(cx - ix * 0.5 - iz * (laneIn + wob), 0, cz - iz * 0.5 + ix * (laneIn + wob));
+  P3.set(cx + ox * 0.5 - oz * (laneOut + wob), 0, cz + oz * 0.5 + ox * (laneOut + wob));
+  const uturn = din !== dout && (din >> 1) === (dout >> 1);
+  const h = din === dout ? 0.33 : uturn ? 0.45 : 0.28;
+  P1.set(P0.x + ix * h, 0, P0.z + iz * h);
+  P2.set(P3.x - ox * h, 0, P3.z - oz * h);
+  // Cubic Bézier B(u) and its derivative B'(u).
+  const m = 1 - u;
+  const b0 = m * m * m, b1 = 3 * m * m * u, b2 = 3 * m * u * u, b3 = u * u * u;
+  pos.set(P0.x * b0 + P1.x * b1 + P2.x * b2 + P3.x * b3, 0, P0.z * b0 + P1.z * b1 + P2.z * b2 + P3.z * b3);
+  const d0 = 3 * m * m, d1 = 6 * m * u, d2 = 3 * u * u;
+  head.x = (P1.x - P0.x) * d0 + (P2.x - P1.x) * d1 + (P3.x - P2.x) * d2;
+  head.z = (P1.z - P0.z) * d0 + (P2.z - P1.z) * d1 + (P3.z - P2.z) * d2;
+  if (Math.abs(head.x) + Math.abs(head.z) < 1e-6) { head.x = ix; head.z = iz; }
+  // Height: blend between this tile's deck/road height and the next tile's (bridge ramps).
+  const yA = groundY(tiles[path[seg]]), yB = groundY(tiles[path[seg + 1]]);
+  pos.y = yA + (yB - yA) * Math.min(1, Math.max(0, (t - 0.3) / 0.4));
+}
+
+const H1 = { x: 0, z: 0 }, H2 = { x: 0, z: 0 };
+const Q = new THREE.Vector3();
+
+/**
+ * Write a vehicle's world position into `pos` and its pose into `out`.
+ * Roll leans the body OUT of a turn in proportion to v²·curvature (we
+ * measure the heading change a short way ahead); pitch noses the body down
+ * under braking and up under acceleration. Both are small and clamped.
+ */
+export function vehiclePose(v: Vehicle, tiles: Tile[], pos: THREE.Vector3, out?: Pose): number {
+  routePoint(v, tiles, v.seg, v.t, pos, H1);
+  const yaw = Math.atan2(-H1.z, H1.x);
+  if (out) {
+    out.yaw = yaw;
+    // Heading a little further along (same segment math, clamped to the route).
+    let t2 = v.t + 0.08, s2 = v.seg;
+    if (t2 >= 1 && s2 + 2 < v.path.length) { t2 -= 1; s2++; } else t2 = Math.min(t2, 0.999);
+    routePoint(v, tiles, s2, t2, Q, H2);
+    let dy = Math.atan2(-H2.z, H2.x) - yaw;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    const curvature = dy / 0.08; // radians per tile
+    const speed = v.v ?? 1;
+    out.roll = Math.max(-0.12, Math.min(0.12, -curvature * speed * speed * 0.02));
+    out.pitch = Math.max(-0.07, Math.min(0.07, -(v.acc ?? 0) * 0.025));
+  }
+  return yaw;
 }

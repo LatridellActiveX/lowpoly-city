@@ -7,14 +7,26 @@
 import { StructureType, Tile, ToolId, ZoneType } from './types';
 
 /** How many power units each source produces per tick. */
+/*
+ * PR 5 POWER REBALANCE (Parker: "a turbine ≈ 400 people, a coal plant ≈
+ * 2,000, nuclear ≈ 8,000, including their shops and factories").
+ * A typical town per 1,000 residents: 200 home levels × 2 = 400 power,
+ * ~85 shop levels × 3 ≈ 255 (SHOP_JOBS_PER_RESIDENT 0.35 ÷ 4 jobs/level),
+ * ~25–40 factory levels × 6 ≈ 150–240 → about 0.8–0.9 power per resident.
+ * Sizing each source so its rated population runs at ~85% load:
+ *   wind turbine  800 at FULL wind (wind = 1) → 400 at average wind 0.5
+ *                 → ~400 people at average wind, ~800 in a full gale, 0 when calm
+ *   coal/oil      2,000 → ~2,000 people
+ *   nuclear       8,000 → ~8,000 people (2×2, no fuel, no pollution)
+ */
 export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
-  powerPlant: 120, // high output, the backbone of the grid
-  windTurbine: 15, // low output, cheap and clean
-  nuclearPlant: 600, // PR 4 high tier (10,000 people): huge, clean, no fuel trucks, 2×2 tiles
+  powerPlant: 2000, // the backbone of the grid (was 120)
+  windTurbine: 800, // at full wind; output = 800 × wind (was 15)
+  nuclearPlant: 8000, // PR 4 high tier, 2×2 (was 600)
 };
 
-/** PR 4: a power plant out of fuel still makes this much (backup generators). */
-export const UNFUELLED_OUTPUT = 30;
+/** PR 4: a power plant out of fuel still makes this much (backup generators) — PR 5: 25% of rated. */
+export const UNFUELLED_OUTPUT = 500;
 
 /**
  * How many water units each water tower supplies per tick.

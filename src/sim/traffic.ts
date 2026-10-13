@@ -131,6 +131,8 @@ export interface Vehicle {
   traits: DriverTraits;
   /** PR 5: current speed in tiles per game-second (ramps with accel/brake). */
   v: number;
+  /** PR 5: current acceleration (tiles/s², negative = braking) — the renderer uses it for brake lights and pitch. */
+  acc: number;
   /** PR 5: seconds left before pulling away from a light that just went green. */
   waitGreen: number;
 }
@@ -141,6 +143,10 @@ export const AVENUE_COST = 0.6;
 const SPEED = { car: 1.5, truck: 1.1 } as const;
 const AVENUE_SPEED_BONUS = 1.6;
 /** (PR 5: the following gap is now per-driver, DriverTraits.gap.) */
+/** PR 5: vehicle length in tiles (gaps are measured bumper to bumper). */
+const CAR_LEN = 0.26;
+/** PR 5: largest traffic sub-step in game-seconds (see Traffic.update). */
+const SUBSTEP = 1 / 30;
 /** Where a vehicle waits on red: 0.62 along the tile before the junction. */
 const STOP_T = 0.62;
 const STUCK_SECONDS = 25;
@@ -301,22 +307,36 @@ export class Traffic {
     }
     const id = this.nextId++;
     const traits = traitsFor(id, kind, world.seed);
-    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length], traits, v: 0, waitGreen: 0 });
+    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length], traits, v: 0, acc: 0, waitGreen: 0 });
     return true;
   }
 
   /** Move every vehicle by `dt` game-seconds. */
+  /**
+   * Move every vehicle by `dt` game-seconds.
+   * PR 5: split into fixed sub-steps of at most 1/30 game-second, so the
+   * car-following maths stays stable and motion stays smooth even at 3×
+   * speed or after a slow frame (a 0.75 s jump would make cars teleport
+   * and overshoot each other). The renderer reads positions every frame,
+   * and since the sim advances continuously each frame there is nothing to
+   * interpolate between — positions are always "now".
+   */
   update(world: World, dt: number): void {
     if (dt <= 0) return;
+    const n = Math.ceil(dt / SUBSTEP);
+    for (let k = 0; k < n; k++) this.stepOnce(world, dt / n);
+  }
+
+  private stepOnce(world: World, dt: number): void {
     const tiles = world.tiles;
-    // ---- Bucket vehicles by lane: (tile, direction) -> list of progress values ----
-    const lanes = new Map<number, number[]>();
+    // ---- Bucket vehicles by lane: (tile, direction) -> list of {progress, speed} ----
+    const lanes = new Map<number, Array<{ t: number; v: number }>>();
     const laneOf = (v: Vehicle, seg: number) => v.path[seg] * 4 + dirOf(v.path[seg], v.path[seg + 1]);
     for (const v of this.vehicles) {
       const k = laneOf(v, v.seg);
       let l = lanes.get(k);
       if (!l) lanes.set(k, (l = []));
-      l.push(v.t);
+      l.push({ t: v.t, v: v.v });
     }
     // ---- PR 5: who is inside each intersection right now ----
     // A vehicle is physically inside junction J during the last part of the
@@ -349,25 +369,41 @@ export class Traffic {
       const slow = hash2(v.id, Math.floor(world.clock / 8), world.seed + 7800) < 0.05 ? 0.5 : 1;
       const speed = SPEED[v.kind] * v.traits.cruise * slow * (cur.roadType === 1 && next.roadType === 1 ? AVENUE_SPEED_BONUS : 1);
       const GAP = v.traits.gap;
+      const s0 = Math.max(0.06, GAP - CAR_LEN); // bumper-to-bumper standstill gap
+      // `limit` = hard "never pass this" position; `obsPos/obsV` = nearest
+      // obstacle ahead (a leader's rear bumper or a stop line) and its speed,
+      // which feed the IDM car-following model below.
       let limit = Infinity;
+      let obsPos = Infinity, obsV = 0;
+      const lead = (pos: number, speedAhead: number) => {
+        limit = Math.min(limit, pos - GAP * 0.55);
+        if (pos < obsPos) { obsPos = pos; obsV = speedAhead; }
+      };
       // 1. Vehicle ahead in the same lane on this tile.
-      for (const other of lanes.get(laneOf(v, v.seg))!) if (other > v.t + 1e-6) limit = Math.min(limit, other - GAP);
+      for (const o of lanes.get(laneOf(v, v.seg))!) if (o.t > v.t + 1e-6) lead(o.t - CAR_LEN, o.v);
       // ...or just past the tile boundary in the next lane.
       if (v.seg + 2 < v.path.length) {
         const ahead = lanes.get(laneOf(v, v.seg + 1));
-        if (ahead) for (const other of ahead) limit = Math.min(limit, 1 + other - GAP);
+        if (ahead) for (const o of ahead) lead(1 + o.t - CAR_LEN, o.v);
       }
+      const stopAt = () => {
+        limit = Math.min(limit, STOP_T);
+        // A stop line is a stationary obstacle; +s0 so IDM's desired gap
+        // brings the car to rest exactly ON the line, not s0 short of it.
+        const p = STOP_T + s0;
+        if (p < obsPos) { obsPos = p; obsV = 0; }
+      };
       // 2. Red light at the junction we're about to enter (the next tile).
       if (v.t <= STOP_T && isIntersection(tiles, v.path[v.seg + 1])) {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
         if (lightState(v.path[v.seg + 1], world.clock).green !== axis) {
-          limit = Math.min(limit, STOP_T);
+          stopAt();
           // Waiting at red: arm the reaction delay for when it turns green.
           if (v.t > STOP_T - 0.05) v.waitGreen = v.traits.react;
         } else if (v.waitGreen > 0) {
           // PR 5: green now, but this driver takes a moment to react.
           v.waitGreen -= dt;
-          limit = Math.min(limit, v.t);
+          stopAt();
         }
       }
       // 3. PR 5: yield to crossing traffic already inside the junction ahead.
@@ -376,17 +412,31 @@ export class Traffic {
       const enteringJunction = v.t <= STOP_T && isIntersection(tiles, jNext);
       if (enteringJunction) {
         const holders = inJunction.get(jNext);
-        if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) limit = Math.min(limit, STOP_T);
+        if (holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) stopAt();
       }
-      // PR 5 speed model: accelerate toward cruise speed, but brake so we
-      // could stop before `limit` (v² = 2·brake·distance), then never pass it.
-      const room = Math.max(0, limit - v.t);
-      const safe = Math.sqrt(2 * v.traits.brake * room);
-      const targetV = Math.min(speed, safe);
-      v.v = targetV > v.v ? Math.min(targetV, v.v + v.traits.accel * dt) : Math.max(targetV, v.v - v.traits.brake * dt * 2);
+      // ---- PR 5 IDM (Intelligent Driver Model) ----
+      // The standard car-following model used in traffic research:
+      //   a = A · [ 1 − (v/v0)^4 − (s*/s)^2 ]
+      //   s* = s0 + v·T + v·Δv / (2·√(A·B))
+      // v0 = desired speed, s = gap to the obstacle ahead, Δv = closing speed,
+      // s0 = minimum standstill gap, T = time headway, A/B = comfortable
+      // acceleration/braking. It gives smooth S-shaped speed-ups, early
+      // gentle braking when closing in, and queues that start one car after
+      // another (each waits for the gap in front to open).
+      const A = v.traits.accel, Bk = v.traits.brake;
+      const T = 0.5 + v.traits.react * 0.5;
+      const gapS = obsPos - v.t;
+      let acc = A * (1 - Math.pow(v.v / Math.max(speed, 0.05), 4));
+      if (gapS < 6) {
+        const sStar = s0 + Math.max(0, v.v * T + (v.v * (v.v - obsV)) / (2 * Math.sqrt(A * Bk)));
+        acc -= A * (sStar / Math.max(gapS, 0.01)) ** 2;
+      }
+      acc = Math.max(acc, -Bk * 3); // physical braking limit
+      v.v = Math.max(0, v.v + acc * dt);
+      v.acc = acc;
       const want = v.t + v.v * dt;
       const nt = Math.max(v.t, Math.min(want, limit));
-      if (nt >= limit) v.v = Math.min(v.v, room / Math.max(dt, 1e-3));
+      if (nt < want) v.v = Math.min(v.v, (nt - v.t) / Math.max(dt, 1e-3)); // safety clamp hit: shed speed
       v.stuck = nt - v.t < 1e-4 ? v.stuck + dt : 0;
       // Crossed the stop line this frame? Then we hold the junction from now
       // on, so a crossing car later in this same loop has to wait for us.
