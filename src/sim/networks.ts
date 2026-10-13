@@ -46,8 +46,14 @@ function isConduit(t: Tile, kind: Kind): boolean {
   return isSource(t, kind) || (kind === 'power' ? t.powerLine : t.waterPipe);
 }
 
-function output(t: Tile, kind: Kind): number {
-  return kind === 'power' ? POWER_OUTPUT[t.structure] ?? 0 : WATER_OUTPUT;
+/**
+ * What one source tile produces. Wind turbines scale with the wind (PR 3):
+ * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
+ */
+export function output(t: Tile, kind: Kind, wind: number): number {
+  if (kind === 'water') return WATER_OUTPUT;
+  if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
+  return POWER_OUTPUT[t.structure] ?? 0;
 }
 
 /** How much of this utility a tile wants right now (0 for non-buildings). */
@@ -104,7 +110,7 @@ function solve(
       const t = tiles[i];
       netOf[i] = id;
       served[i] = 1; // conduits and sources are always "live" when part of a network
-      if (isSource(t, kind) && (!pumpsOn || pumpsOn[i])) net.capacity += output(t, kind);
+      if (isSource(t, kind) && (!pumpsOn || pumpsOn[i])) net.capacity += output(t, kind, world.wind);
 
       const [x, z] = coords(i);
       for (const [dx, dz] of NEIGHBOURS) {

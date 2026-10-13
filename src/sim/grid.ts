@@ -78,6 +78,10 @@ export class World {
   /** Books for the month in progress, and the last finished month. */
   ledger: Ledger = emptyLedger();
   lastLedger: Ledger | null = null;
+  /** Current wind strength 0..1 (see wind.ts). Turbines make 15 × wind power. */
+  wind = 0.5;
+  /** The random-walk part of the wind, kept so the weather continues smoothly after a reload. */
+  windDrift = 0;
 
   /**
    * Pass `tiles` + `seed` when loading a save. With no arguments a fresh city

@@ -9,14 +9,20 @@
  *   v1 (milestone 1) had no money, seed or decorations. We give it the
  *   starting cash and default taxes, pick a seed, and scatter trees only on
  *   tiles that are still completely empty, so nothing the player built moves.
+ *   v2 (PR 2) had no wind. v1 and v2 saves start with a moderate wind (0.5)
+ *   and no drift. v3 (PR 3) stores `wind` and `windDrift`.
+ *
+ * Merging over defaults: each tile is spread over emptyTile(), and the ledger
+ * is merged section by section, so a field added later (like the park upkeep
+ * line) gets its default instead of `undefined`.
  */
 import { World, emptyTile } from './grid';
-import { defaultTaxRates, emptyLedger, STARTING_CASH } from './economy';
+import { defaultTaxRates, emptyLedger, Ledger, STARTING_CASH } from './economy';
 import { scatterDecorations } from './terrain';
 import { GRID_SIZE, Tile } from './types';
 
 const KEY = 'lowpoly-city-save';
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -28,6 +34,8 @@ export function saveWorld(world: World): void {
     taxRates: world.taxRates,
     ledger: world.ledger,
     lastLedger: world.lastLedger,
+    wind: world.wind,
+    windDrift: world.windDrift,
     tiles: world.tiles,
   };
   localStorage.setItem(KEY, JSON.stringify(data));
@@ -58,13 +66,33 @@ export function loadWorld(): World | null {
     } else {
       w.cash = data.cash ?? STARTING_CASH;
       w.taxRates = { ...defaultTaxRates(), ...data.taxRates };
-      w.ledger = { ...emptyLedger(), ...data.ledger };
-      w.lastLedger = data.lastLedger ?? null;
+      w.ledger = mergeLedger(data.ledger) ?? emptyLedger();
+      w.lastLedger = mergeLedger(data.lastLedger);
+    }
+    if (version < 3) {
+      // ---- v1/v2 -> v3 migration: no weather yet, start with a moderate breeze ----
+      w.wind = 0.5;
+      w.windDrift = 0;
+    } else {
+      w.wind = typeof data.wind === 'number' ? data.wind : 0.5;
+      w.windDrift = typeof data.windDrift === 'number' ? data.windDrift : 0;
     }
     return w;
   } catch {
     return null;
   }
+}
+
+/** Merge a saved ledger over an empty one, section by section (null stays null). */
+function mergeLedger(l: Partial<Ledger> | null | undefined): Ledger | null {
+  if (!l) return null;
+  const e = emptyLedger();
+  return {
+    taxes: { ...e.taxes, ...l.taxes },
+    upkeep: { ...e.upkeep, ...l.upkeep },
+    construction: l.construction ?? 0,
+    refunds: l.refunds ?? 0,
+  };
 }
 
 export function clearSave(): void {

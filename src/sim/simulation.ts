@@ -30,6 +30,7 @@ import { computeNetworks, NetworkResult } from './networks';
 import { applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
 import { Tile, ToolId } from './types';
 import { hash2 } from './random';
+import { stepWind } from './wind';
 import { bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
 
 /** Result of trying to apply a tool, so the UI can explain what happened. */
@@ -90,6 +91,7 @@ export class Simulation {
   step(): void {
     const w = this.world;
     w.tick++;
+    stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
 
     // Spare capacity per network, decremented as lots grow this tick so that

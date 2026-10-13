@@ -15,6 +15,15 @@ import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
 import { TOOLS, toolDef } from './tools';
+import { output } from '../sim/networks';
+import { windLabel } from '../sim/wind';
+
+/** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
+function windGauge(wind: number): string {
+  const pct = Math.round(wind * 100);
+  const cls = wind < 0.2 ? 'over' : wind < 0.4 ? 'warn' : '';
+  return `<span class="meter wind ${cls}"><i style="width:${pct}%"></i></span>${windLabel(wind)}`;
+}
 
 export interface HudActions {
   selectTool(id: ToolId): void;
@@ -260,6 +269,7 @@ export class Hud {
       `<span title="Residents">👥 ${s.population}</span>` +
       `<span title="Jobs">💼 ${s.jobs}</span>` +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
+      `<span title="Wind: turbines make 15 × wind power (now ${Math.round(15 * sim.world.wind)} each)">🌬️ ${windGauge(sim.world.wind)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
       `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}</span>`;
@@ -315,7 +325,9 @@ export class Hud {
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);
       if (t.zone && t.level === 0 && st.operating) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine') {
-      rows.push(`<div class="row">Output: ${t.structure === 'powerPlant' ? 120 : 15} power</div>`);
+      // Turbine output follows the wind (sim/wind.ts); plants are constant.
+      const out = output(t, 'power', sim.world.wind);
+      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 15, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
     } else if (t.powerLine || t.waterPipe) {

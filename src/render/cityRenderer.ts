@@ -111,8 +111,16 @@ export class CityRenderer {
       this.lastVersion = sim.version;
       this.lastOverlay = this.overlay;
     }
+    // Blades turn faster in stronger wind. We integrate an angle instead of
+    // using time × speed directly, so a change in wind doesn't make the
+    // blades jump to a new position.
+    const dt = Math.min(0.1, Math.max(0, time - this.lastTime));
+    this.lastTime = time;
+    if (sim.speed > 0) this.bladeAngle += dt * (0.3 + sim.world.wind * 4.5);
     this.animate(time);
   }
+  private lastTime = 0;
+  private bladeAngle = 0;
 
   private rebuild(sim: Simulation): void {
     const P = this.pools;
@@ -282,7 +290,7 @@ export class CityRenderer {
     const spin = new THREE.Quaternion();
     for (const [k, hub] of this.turbines.entries()) {
       // Each turbine gets a slightly different phase so they don't spin in lockstep.
-      spin.setFromAxisAngle(new THREE.Vector3(0, 0, 1), time * 2.2 + k * 1.7);
+      spin.setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.bladeAngle + k * 1.7);
       blades.add(this.m.compose(hub, spin, this.s.set(1, 1, 1)));
     }
     blades.end();

@@ -26,7 +26,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial.' },
   { id: 'powerPlant', label: 'Power Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'High output (120). Connect with power lines.' },
-  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: 'Low output (15). Connect with power lines.' },
+  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: 'Up to 15 power, depending on the wind. Connect with power lines.' },
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Drag along a road: poles stand on the curb and feed buildings on both sides.' },
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 80 water. Needs power to pump.' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.' },
