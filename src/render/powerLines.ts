@@ -185,10 +185,6 @@ export function lampArmGeometry(): THREE.BufferGeometry {
 export function lampBulbGeometry(): THREE.BufferGeometry {
   return merge([part(box(0.05, 0.012, 0.032), 0xffffff, [LAMP_REACH, 0.595, 0])]);
 }
-/** A soft pool of light on the road under the lamp (additive disc). */
-export function lampPoolGeometry(): THREE.BufferGeometry {
-  return merge([part(new THREE.CircleGeometry(0.26, 16).rotateX(-Math.PI / 2), 0xffffff, [LAMP_REACH, 0.05, 0])]);
-}
 /** Yaw that points a lamp at (x,z)'s tile centre from a pole at `pos`, or null if the pole is centred. */
 export function lampYaw(pos: THREE.Vector3, x: number, z: number): number | null {
   const dx = x + 0.5 - pos.x, dz = z + 0.5 - pos.z;
@@ -217,4 +213,55 @@ export function substationGeometry(): THREE.BufferGeometry {
     parts.push(part(box(w, 0.06, d), 0xc9ced3, [x, 0.01, z]));
   }
   return merge(parts);
+}
+
+/**
+ * PR 4 POLE SPACING: poles on every other tile instead of every tile.
+ * A line tile gets a pole if:
+ *   - it isn't a road (manual cross-country line): always, or
+ *   - it's a junction, corner or dead end of the line (wires have to turn
+ *     or stop there), or
+ *   - it's a straight piece at an EVEN coordinate along its run (x for
+ *     east-west runs, z for north-south runs).
+ * A straight piece always has two line neighbours on its axis, and one of
+ * any two consecutive coordinates is even, so a gap is at most one tile and
+ * the wire simply hangs over it to the next pole (see nextPole()).
+ */
+export function isPoleTile(tiles: Tile[], x: number, z: number): boolean {
+  const has: Has = (a, b, f) => inBounds(a, b) && f(tiles[idx(a, b)]);
+  const t = tiles[idx(x, z)];
+  if (!carriesPower(t)) return false;
+  if (!t.road) return true;
+  const n = has(x, z - 1, carriesPower), s = has(x, z + 1, carriesPower);
+  const e = has(x + 1, z, carriesPower), w = has(x - 1, z, carriesPower);
+  const straightEW = e && w && !n && !s;
+  const straightNS = n && s && !e && !w;
+  if (straightEW) return x % 2 === 0;
+  if (straightNS) return z % 2 === 0;
+  return true;
+}
+
+/**
+ * From a pole tile, walk (dx, dz) along the line to the next pole tile.
+ * Returns its coordinates, or null if the line stops first.
+ */
+export function nextPole(tiles: Tile[], x: number, z: number, dx: number, dz: number): [number, number] | null {
+  let cx = x + dx, cz = z + dz;
+  for (let k = 0; k < 3; k++) {
+    if (!inBounds(cx, cz) || !carriesPower(tiles[idx(cx, cz)])) return null;
+    if (isPoleTile(tiles, cx, cz)) return [cx, cz];
+    cx += dx;
+    cz += dz;
+  }
+  return null;
+}
+
+/** The pole that serves line tile (x, z): itself, or a pole-tile neighbour along the line. */
+export function servingPole(tiles: Tile[], x: number, z: number): [number, number] {
+  if (isPoleTile(tiles, x, z)) return [x, z];
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const ax = x + dx, az = z + dz;
+    if (inBounds(ax, az) && isPoleTile(tiles, ax, az)) return [ax, az];
+  }
+  return [x, z];
 }

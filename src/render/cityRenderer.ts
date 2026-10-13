@@ -27,7 +27,7 @@ import { buildGroundMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
-import { substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampPoolGeometry, lampYaw, poleGeometry, poleSpot, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
+import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
@@ -56,6 +56,17 @@ function iconMaterial(emoji: string, ring: string): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
 }
 
+/**
+ * Roof box of a zoned building: footprint (w × d) and roof height h.
+ * Mirrors the formulas at the top of each zone function in buildings.ts
+ * (FLOOR = 0.26 per storey); used to hang drop wires on the roof corner.
+ */
+function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: number } {
+  if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
+  if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
+  return { w: 0.6 + level * 0.08, d: 0.48 + level * 0.07, h: 0.22 + level * 0.12 };
+}
+
 /** Scratch colour for lerps. */
 const TMP = new THREE.Color();
 
@@ -64,6 +75,8 @@ export class CityRenderer {
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
   private lastOverlay: OverlayMode = 'none';
+  /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
+  private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
   private turbines: THREE.Vector3[] = [];
   /** Positions + colours of warning markers (for bobbing animation). */
@@ -92,15 +105,13 @@ export class CityRenderer {
    */
   private readonly windowGlow = new THREE.MeshBasicMaterial({ color: 0xffd890, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   private readonly bulbGlow = new THREE.MeshBasicMaterial({ color: 0xfff0b8, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
-  private readonly poolGlow = new THREE.MeshBasicMaterial({ color: 0xffb860, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 
   /** 0 = day, 1 = night: fades in lit windows and street lamps (dayNight.ts). */
   setNight(n: number): void {
     this.windowGlow.opacity = n;
     this.bulbGlow.opacity = n;
-    this.poolGlow.opacity = n * 0.25;
     // Hide the lamp meshes completely by day so they cost nothing.
-    for (const k of ['lampBulb', 'lampPool']) this.pools[k].mesh.visible = n > 0.01;
+    for (const k of ['lampBulb']) this.pools[k].mesh.visible = n > 0.01;
   }
 
   constructor(scene: THREE.Scene) {
@@ -148,7 +159,6 @@ export class CityRenderer {
     // Street lamps on road-side poles (PR 3): arm + glowing bulb + light pool.
     add('lampArm', lampArmGeometry(), solid, 512);
     add('lampBulb', lampBulbGeometry(), this.bulbGlow, 512, false);
-    add('lampPool', lampPoolGeometry(), this.poolGlow, 512, false);
     add('pipeJoint', MODELS.pipeJoint(), solid, 512, false);
     add('pipe', MODELS.pipe(), solid, 1024, false);
     // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
@@ -193,6 +203,7 @@ export class CityRenderer {
     for (const p of Object.values(P)) p.begin();
     this.turbines = [];
     this.markers = [];
+    this.lamps = [];
     const tiles = sim.world.tiles;
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
@@ -237,23 +248,26 @@ export class CityRenderer {
 
       if (t.road) this.addRoad(t, x, z, center, has);
 
-      if (carriesPower(t)) {
-        // Pole on the street edge (see powerLines.ts for the placement rules).
+      // PR 4: poles only on "pole tiles" (every other tile on straight runs,
+      // always at junctions/corners/ends), see powerLines.isPoleTile. The
+      // round light pools PR 3 painted on the road under lamps are gone; the
+      // lamp's glow is now a soft halo around the bulb (stage 6).
+      if (carriesPower(t) && isPoleTile(tiles, x, z)) {
         const spot = poleSpot(tiles, x, z);
         P.pole.add(this.place(spot.pos, spot.rotY));
-        // On a road, the curb pole also carries a street lamp reaching over the street.
-        // Lamps on every other road pole, so streets get pools of light with dark gaps between.
-        const yaw = t.road && (x + z) % 2 === 0 ? lampYaw(spot.pos, x, z) : null;
+        // Road poles carry a street lamp reaching over the street.
+        const yaw = t.road ? lampYaw(spot.pos, x, z) : null;
         if (yaw !== null) {
           const lm = this.place(spot.pos, yaw);
           P.lampArm.add(lm);
           P.lampBulb.add(lm);
-          P.lampPool.add(lm);
+          this.lamps.push(new THREE.Vector3(LAMP_REACH, 0.6, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(spot.pos));
         }
-        // Draw each span once: only to the east and south neighbours.
+        // Each span once: walk east and south to the next pole (may skip a tile).
         for (const [dx, dz] of [[1, 0], [0, 1]]) {
-          if (!has(x + dx, z + dz, carriesPower)) continue;
-          const other = poleSpot(tiles, x + dx, z + dz);
+          const np = nextPole(tiles, x, z, dx, dz);
+          if (!np) continue;
+          const other = poleSpot(tiles, np[0], np[1]);
           const a = spot.pos.clone().setY(spot.pos.y + WIRE_Y);
           const b = other.pos.clone().setY(other.pos.y + WIRE_Y);
           P.span.add(cableMatrix(a, b, this.m));
@@ -266,6 +280,14 @@ export class CityRenderer {
         P.pipeJoint.add(this.place(joint));
         if (has(x + 1, z, (n) => n.waterPipe)) P.pipe.add(this.place(joint, 0));
         if (has(x, z + 1, (n) => n.waterPipe)) P.pipe.add(this.place(joint, -Math.PI / 2));
+        // PR 4: pipes auto-connect to a neighbouring water tower. In the sim a
+        // tower already joins any adjacent pipe network (networks.ts: sources
+        // are conduits); here we draw the short pipe into the tower's base so
+        // the connection is visible. rotateY(a) sends the +x pipe to (cos a, −sin a).
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (!has(x + dx, z + dz, (n) => n.structure === 'waterTower')) continue;
+          P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
+        }
       }
 
       if (t.zone) {
@@ -277,7 +299,7 @@ export class CityRenderer {
           const look = pickLook(t.zone, x, z, seed);
           // Turn the building so its front (+z in model space) faces a road.
           const face = this.roadFacing(x, z, has) ?? turn;
-          if (st.powered) this.addDropWire(tiles, x, z, face, lv, has);
+          if (st.powered) this.addDropWire(tiles, x, z, face, lv, has, t.zone);
           const key = `${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
@@ -421,21 +443,34 @@ export class CityRenderer {
    * only line is elsewhere, we still connect to it so it's clear where power
    * comes from.
    */
-  private addDropWire(tiles: Tile[], x: number, z: number, face: number, level: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
+  private addDropWire(tiles: Tile[], x: number, z: number, face: number, level: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean, zone: ZoneType): void {
     const fx = Math.round(Math.sin(face));
     const fz = Math.round(Math.cos(face));
     const options: Array<[number, number]> = [[fx, fz], [0, 1], [1, 0], [0, -1], [-1, 0]];
     const pick = options.find(([dx, dz]) => has(x + dx, z + dz, carriesPower));
     if (!pick) return; // powered via a plant/turbine next door, no wire to draw
-    const spot = poleSpot(tiles, x + pick[0], z + pick[1]);
+    // PR 4: with poles every other tile, the street tile in front may have no
+    // pole of its own; hook onto the pole that serves it.
+    const [px, pz] = servingPole(tiles, x + pick[0], z + pick[1]);
+    const spot = poleSpot(tiles, px, pz);
     // Start at whichever insulator is nearer the house.
-    const a = spot.pos.clone().setY(WIRE_Y - 0.03);
+    const a = spot.pos.clone().setY(spot.pos.y + WIRE_Y - 0.03);
     const armDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, spot.rotY);
     const toHouse = new THREE.Vector3(x + 0.5, 0, z + 0.5).sub(spot.pos);
     a.addScaledVector(armDir, toHouse.dot(armDir) >= 0 ? WIRE_HALF : -WIRE_HALF);
-    // End on the building's front wall, about eave height.
-    const b = new THREE.Vector3(x + 0.5 + fx * 0.22, 0.22 + Math.min(level, 2) * 0.12, z + 0.5 + fz * 0.22);
-    this.pools.drop.add(cableMatrix(a, b, this.m));
+    // PR 4: end on the ROOF CORNER nearest the pole. roofBox() mirrors the
+    // footprint/height formulas in buildings.ts, so the attachment point moves
+    // up and out automatically when the building upgrades a level (the
+    // renderer rebuilds on every sim change, including level-ups).
+    const { w, d, h } = roofBox(zone, level);
+    const local = new THREE.Vector3(0, h, d / 2); // front edge, roof height
+    const worldDir = (v: THREE.Vector3) => v.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, face);
+    const centre = new THREE.Vector3(x + 0.5, 0, z + 0.5);
+    // Try both front corners; keep the one closer to the pole.
+    const cA = centre.clone().add(worldDir(local.clone().setX(w / 2)));
+    const cB = centre.clone().add(worldDir(local.clone().setX(-w / 2)));
+    const b2 = cA.distanceToSquared(spot.pos) < cB.distanceToSquared(spot.pos) ? cA : cB;
+    this.pools.drop.add(cableMatrix(a, b2, this.m));
   }
 
   /**
@@ -453,7 +488,9 @@ export class CityRenderer {
     const sp = new THREE.Vector3(x + 0.5 + dx * 0.3 + dz * 0.22, 0, z + 0.5 + dz * 0.3 + dx * 0.22);
     if (substation) this.pools.substation.add(this.place(sp, Math.atan2(dx, dz)));
     const a = substation ? sp.clone().setY(SUBSTATION_WIRE_Y) : new THREE.Vector3(x + 0.5 + dx * 0.4, 0.45, z + 0.5 + dz * 0.4);
-    const b = poleSpot(tiles, x + dx, z + dz).pos.clone().setY(WIRE_Y - 0.03);
+    const [px, pz] = servingPole(tiles, x + dx, z + dz);
+    const pp = poleSpot(tiles, px, pz).pos;
+    const b = pp.clone().setY(pp.y + WIRE_Y - 0.03);
     this.pools.drop.add(cableMatrix(a, b, this.m));
   }
 
