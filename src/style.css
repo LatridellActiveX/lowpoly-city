@@ -3,7 +3,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; background: #9fd3e8; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--ink); }
 #app { position: fixed; inset: 0; }
-canvas { display: block; touch-action: none; }
+canvas { display: block; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
 .topbar { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; pointer-events: none; }
@@ -40,15 +40,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .toast { position: absolute; top: 64px; left: 50%; transform: translateX(-50%) translateY(-10px); background: var(--panel); padding: 8px 16px; border-radius: 10px; opacity: 0; transition: 0.25s; pointer-events: none; }
 .toast.show { opacity: 1; transform: translateX(-50%); }
 
-@media (max-width: 700px) {
-  .stats { font-size: 12px; gap: 8px; width: 100%; margin-right: 0; }
-  .meter { width: 28px; }
-  .btn { padding: 4px 7px; font-size: 12px; }
-  .tool { min-width: 54px; }
-  .tool .icon { font-size: 19px; }
-  .hint { display: none; }
-  .info { top: auto; bottom: 84px; left: 8px; right: 8px; width: auto; }
-}
 
 /* ---- Milestone 2: money + budget ---- */
 .stats .cash { font-weight: 700; color: #b9f3a8; }
@@ -72,4 +63,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .tax { display: grid; grid-template-columns: 110px 1fr 36px; align-items: center; gap: 8px; margin: 4px 0; }
 .tax input { width: 100%; accent-color: var(--accent); }
 .tax b { text-align: right; }
-@media (max-width: 700px) { .budget { left: 8px; right: 8px; width: auto; top: 150px; } }
+
+/* ---- PR 3: desktop only ---- */
+/* Covers the whole page on small / touch-only screens (see ui/desktopOnly.ts). */
+.desktop-only { display: none; position: fixed; inset: 0; z-index: 100; background: linear-gradient(160deg, #1d2a3a, #0e1620); align-items: center; justify-content: center; padding: 24px; }
+.desktop-only.show { display: flex; }
+.desktop-only .card { max-width: 420px; text-align: center; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 28px; }
+.desktop-only .big { font-size: 56px; }
+.desktop-only h2 { margin: 8px 0; }
+.desktop-only p { opacity: 0.85; line-height: 1.5; }

@@ -27,6 +27,7 @@ import { createScene } from './render/scene';
 import { Hud } from './ui/hud';
 import { attachInput } from './ui/input';
 import { shapeTiles, TOOLS } from './ui/tools';
+import { installDesktopNotice } from './ui/desktopOnly';
 
 const app = document.getElementById('app')!;
 const { renderer, scene, ground } = createScene(app);
@@ -39,6 +40,9 @@ let tool: ToolId = 'inspect';
 let dragFrom: [number, number] | null = null;
 let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
+/** Last mouse position in screen pixels (for the cost tooltip). */
+let mouse: [number, number] = [0, 0];
+void mouse; // read by the cost tooltip (stage 7)
 
 const hud = new Hud(app, {
   selectTool: (id) => setTool(id),
@@ -102,7 +106,8 @@ function updatePreview(): void {
 }
 
 attachInput(renderer.domElement, cam, ground, {
-  hover(t) {
+  hover(t, mx, my) {
+    mouse = [mx, my];
     hoverTile = t;
     updatePreview();
   },
@@ -136,7 +141,6 @@ attachInput(renderer.domElement, cam, ground, {
     dragFrom = null;
     updatePreview();
   },
-  touchPans: () => tool === 'inspect',
   key(k) {
     if (k === ' ') {
       setSpeed(sim.speed === 0 ? lastSpeed : 0);
@@ -160,8 +164,8 @@ function resize(): void {
 window.addEventListener('resize', resize);
 resize();
 
-// Start a bit more zoomed in on small (phone) screens.
-if (window.innerWidth < 700) cam.zoomBy(1.3);
+// Desktop only: small or touch-only screens see a "play on a computer" notice.
+installDesktopNotice(document.body);
 
 setTool('inspect');
 setSpeed(1);

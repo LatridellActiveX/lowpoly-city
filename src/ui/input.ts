@@ -1,10 +1,12 @@
 /**
- * ui/input.ts — mouse, touch and keyboard handling.
+ * ui/input.ts — mouse and keyboard handling (desktop only).
+ *
+ * Since PR 3 the game is a desktop game: there are no touch or pinch
+ * gestures any more. Phones and small screens get a "play on a computer"
+ * notice instead (see desktopOnly.ts).
  *
  * Controls
  *   Mouse: left-drag = use tool, right/middle-drag = pan, wheel = zoom.
- *   Touch: one finger = use tool (with Inspect selected, one finger pans),
- *          two fingers = pan + pinch-zoom.
  *   Keys:  WASD / arrows = pan, Q / E = rotate 90 degrees, + / - = zoom,
  *          tool hotkeys are listed in tools.ts, Space = pause.
  *
@@ -18,15 +20,13 @@ import { inBounds } from '../sim/grid';
 import { IsoCamera } from '../render/camera';
 
 export interface InputCallbacks {
-  /** Pointer moved over the map (tile or null if off-map). */
-  hover(tile: [number, number] | null): void;
+  /** Pointer moved over the map (tile or null if off-map). Also gives the raw mouse position for tooltips. */
+  hover(tile: [number, number] | null, clientX: number, clientY: number): void;
   /** Tool drag started / moved / finished at tiles. */
   dragStart(tile: [number, number]): void;
   dragMove(tile: [number, number]): void;
   dragEnd(tile: [number, number] | null): void;
   dragCancel(): void;
-  /** Whether a single-finger touch should pan instead of using the tool. */
-  touchPans(): boolean;
   key(key: string): boolean;
 }
 
@@ -46,29 +46,17 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     return inBounds(x, z) ? [x, z] : null;
   }
 
-  // Active pointers (for multi-touch).
-  const pointers = new Map<number, { x: number; y: number }>();
+  // 'tool' = left button held with a tool, 'pan' = right/middle button held.
   let mode: 'none' | 'tool' | 'pan' = 'none';
   let last = { x: 0, y: 0 };
-  let pinchDist = 0;
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
   canvas.addEventListener('pointerdown', (e) => {
+    if (mode !== 'none') return; // ignore a second button while one is held
     canvas.setPointerCapture(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     last = { x: e.clientX, y: e.clientY };
-    if (pointers.size === 2) {
-      // Second finger: abandon any tool drag and switch to pan/pinch.
-      if (mode === 'tool') cb.dragCancel();
-      mode = 'pan';
-      const [a, b] = [...pointers.values()];
-      pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
-      last = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      return;
-    }
-    const isTouch = e.pointerType === 'touch';
-    if (e.button === 1 || e.button === 2 || (isTouch && cb.touchPans())) {
+    if (e.button === 1 || e.button === 2) {
       mode = 'pan';
       return;
     }
@@ -80,42 +68,25 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
   });
 
   canvas.addEventListener('pointermove', (e) => {
-    if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (mode === 'pan') {
-      let cx = e.clientX, cy = e.clientY;
-      if (pointers.size === 2) {
-        const [a, b] = [...pointers.values()];
-        cx = (a.x + b.x) / 2;
-        cy = (a.y + b.y) / 2;
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (pinchDist > 0) cam.zoomBy(d / pinchDist);
-        pinchDist = d;
-      }
-      cam.panPixels(cx - last.x, cy - last.y, canvas.clientHeight);
-      last = { x: cx, y: cy };
+      cam.panPixels(e.clientX - last.x, e.clientY - last.y, canvas.clientHeight);
+      last = { x: e.clientX, y: e.clientY };
       return;
     }
     const t = pick(e.clientX, e.clientY);
-    cb.hover(t);
+    cb.hover(t, e.clientX, e.clientY);
     if (mode === 'tool' && t) cb.dragMove(t);
   });
 
-  const up = (e: PointerEvent) => {
-    pointers.delete(e.pointerId);
+  canvas.addEventListener('pointerup', (e) => {
     if (mode === 'tool') cb.dragEnd(pick(e.clientX, e.clientY));
-    if (pointers.size === 0) mode = 'none';
-    else if (pointers.size === 1) {
-      const [p] = [...pointers.values()];
-      last = { x: p.x, y: p.y };
-    }
-  };
-  canvas.addEventListener('pointerup', up);
-  canvas.addEventListener('pointercancel', (e) => {
-    pointers.delete(e.pointerId);
+    mode = 'none';
+  });
+  canvas.addEventListener('pointercancel', () => {
     if (mode === 'tool') cb.dragCancel();
     mode = 'none';
   });
-  canvas.addEventListener('pointerleave', () => mode === 'none' && cb.hover(null));
+  canvas.addEventListener('pointerleave', (e) => mode === 'none' && cb.hover(null, e.clientX, e.clientY));
 
   canvas.addEventListener(
     'wheel',

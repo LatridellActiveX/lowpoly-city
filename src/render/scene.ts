@@ -28,6 +28,10 @@ export function createScene(container: HTMLElement): SceneBundle {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Desktop-only (PR 3) lets us spend more GPU on looks: filmic tone mapping
+  // gives softer highlights, and the shadow map below is sharper.
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
@@ -41,7 +45,8 @@ export function createScene(container: HTMLElement): SceneBundle {
   sun.position.set(GRID_SIZE / 2 + 30, 60, GRID_SIZE / 2 + 15);
   sun.target.position.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(4096, 4096);
+  sun.shadow.mapSize.set(8192, 8192); // desktop GPUs handle 8k fine; crisper shadows
+  sun.shadow.normalBias = 0.02; // stops 'shadow acne' stripes on sloped roofs
   const s = GRID_SIZE * 0.75;
   Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 200 });
   sun.shadow.bias = -0.0005;

@@ -242,7 +242,7 @@ export class Hud {
     // The top bar can wrap onto two rows on narrower screens, so place the
     // floating panels just below wherever it currently ends.
     const below = `${Math.round(this.stats.parentElement!.getBoundingClientRect().bottom + 8)}px`;
-    if (window.innerWidth > 700) this.info.style.top = below;
+    this.info.style.top = below;
     this.budget.style.top = below;
     const s = sim.stats();
     const bar = (used: number, cap: number) => {
