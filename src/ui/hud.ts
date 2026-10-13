@@ -106,7 +106,11 @@ export class Hud {
         ['resources', '🗺 Resources'],
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
-      const b = el('button', 'btn', label) as HTMLButtonElement;
+      // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
+      // screens, leaving just the icon (full name stays in the tooltip).
+      const sp = label.indexOf(' ');
+      const b = el('button', 'btn', sp > 0 ? `${label.slice(0, sp)}<span class="lbl">${label.slice(sp)}</span>` : label) as HTMLButtonElement;
+      if (!b.title) b.title = label;
       b.onclick = () => actions.setOverlay(mode);
       this.overlayButtons.set(mode, b);
       overlays.append(b);
@@ -124,13 +128,15 @@ export class Hud {
     mk('＋', 'Zoom in', () => actions.zoom(1.25));
     mk('－', 'Zoom out', () => actions.zoom(0.8));
 
-    const budgetBtn = el('button', 'btn', '💰 Budget') as HTMLButtonElement;
+    const budgetBtn = el('button', 'btn', '💰<span class="lbl"> Budget</span>') as HTMLButtonElement;
+    budgetBtn.title = 'Budget';
     budgetBtn.onclick = () => {
       const open = this.budget.classList.toggle('hidden') === false;
       budgetBtn.classList.toggle('active', open);
       if (open) this.refreshBudget(this.lastSim!);
     };
-    const graphsBtn = el('button', 'btn', '📈 Graphs') as HTMLButtonElement;
+    const graphsBtn = el('button', 'btn', '📈<span class="lbl"> Graphs</span>') as HTMLButtonElement;
+    graphsBtn.title = 'Graphs';
     graphsBtn.onclick = () => {
       const open = this.graphs.toggle();
       if (open && this.lastSim) this.graphs.update(this.lastSim);

@@ -148,3 +148,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .fly-item.locked { opacity: 0.45; }
 .fly-item.locked .icon::after { content: none; }
 .fly-item.unaffordable .price { color: #ff7a7a; }
+
+/* ---- PR 5: keep the top bar on ONE row on 1366-px-wide screens ----
+   Below 1500 px we tighten spacing and type a little and stop wrapping;
+   the stats block may shrink (its items wrap internally only as a last resort). */
+@media (max-width: 1500px) {
+  .topbar { flex-wrap: nowrap; gap: 3px; }
+  .stats { overflow: hidden; text-overflow: ellipsis; }
+  .stats { gap: 5px; padding: 5px 7px; font-size: 12px; min-width: 0; flex-wrap: nowrap; white-space: nowrap; }
+  .stats .meter { margin: 0 3px 1px 2px; }
+  .stats .meter { width: 24px; }
+  .btn { padding: 3px 5px; font-size: 11px; }
+  .group { padding: 2px; }
+  .topbar .btn .lbl { display: none; }
+}
