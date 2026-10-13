@@ -141,3 +141,41 @@ export const MODELS = {
   /** Flat square used for previews, overlays and hover. */
   tilePlane: () => new THREE.PlaneGeometry(0.96, 0.96).rotateX(-Math.PI / 2),
 };
+
+/**
+ * PR 4 construction site pieces. All are built at UNIT size and scaled per
+ * building by the renderer:
+ *  - scaffold: a frame filling the box x,z ∈ [−0.5, 0.5], y ∈ [0, 1]
+ *    (corner posts, two levels of rails, a diagonal brace) — scaled to the
+ *    footprint and height of the building being built.
+ *  - craneMast: a lattice-ish tower 1 unit tall with a concrete foot; scaled in y.
+ *  - craneJib: the horizontal arm + counterweight + cab, pivoting at the
+ *    origin; the renderer puts it on top of the mast and spins it slowly.
+ */
+export const SITE = {
+  scaffold: () => {
+    const Y = 0xf0b43c; // safety yellow
+    const parts: THREE.BufferGeometry[] = [];
+    for (const [x, z] of [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]]) parts.push(part(box(0.035, 1, 0.035), Y, [x, 0, z]));
+    for (const y of [0.33, 0.66, 0.98]) {
+      parts.push(part(box(1, 0.025, 0.025), Y, [0, y, -0.5]), part(box(1, 0.025, 0.025), Y, [0, y, 0.5]));
+      parts.push(part(box(0.025, 0.025, 1), Y, [-0.5, y, 0]), part(box(0.025, 0.025, 1), Y, [0.5, y, 0]));
+    }
+    parts.push(part(box(0.02, 1.35, 0.02), 0xd9d2c3, [0, 0, 0.5], [0, 0, 0.78])); // diagonal brace on the front
+    parts.push(part(box(1.04, 0.02, 1.04), 0xb7a58a)); // foundation slab
+    return merge(parts);
+  },
+  craneMast: () =>
+    merge([
+      part(box(0.16, 0.05, 0.16), 0x9a9a9a),
+      part(box(0.06, 1, 0.06), 0xf2a81d, [0, 0.05, 0]),
+    ]),
+  craneJib: () =>
+    merge([
+      part(box(0.75, 0.04, 0.045), 0xf2a81d, [0.27, 0, 0]),
+      part(box(0.12, 0.07, 0.08), 0x7b7f86, [-0.14, -0.02, 0]), // counterweight
+      part(box(0.07, 0.06, 0.07), 0xe8e8e8, [0.03, -0.06, 0.06]), // operator cab
+      part(box(0.006, 0.3, 0.006), 0x333333, [0.55, -0.3, 0]), // hook cable
+      part(box(0.04, 0.03, 0.04), 0x333333, [0.55, -0.33, 0]), // hook block
+    ]),
+};

@@ -20,7 +20,8 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
-import { MODELS } from './models';
+import { MODELS, SITE } from './models';
+import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, NATURE } from './nature';
@@ -75,6 +76,8 @@ export class CityRenderer {
   private readonly pools: Record<string, InstancePool> = {};
   private lastVersion = -1;
   private lastOverlay: OverlayMode = 'none';
+  /** PR 4: crane tops (position + phase) for the spinning jibs. */
+  private cranes: Array<{ pos: THREE.Vector3; phase: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
   private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
@@ -141,6 +144,10 @@ export class CityRenderer {
         }),
       );
     }
+    // PR 4 construction sites.
+    add('scaffold', SITE.scaffold(), solid, 64);
+    add('craneMast', SITE.craneMast(), solid, 64);
+    add('craneJib', SITE.craneJib(), solid, 64);
     add('pine', NATURE.pine(), solid, 512);
     add('oak', NATURE.oak(), solid, 512);
     add('birch', NATURE.birch(), solid, 512);
@@ -204,6 +211,7 @@ export class CityRenderer {
     this.turbines = [];
     this.markers = [];
     this.lamps = [];
+    this.cranes = [];
     const tiles = sim.world.tiles;
     const has = (x: number, z: number, f: (t: Tile) => boolean) => inBounds(x, z) && f(tiles[idx(x, z)]);
 
@@ -292,7 +300,9 @@ export class CityRenderer {
 
       if (t.zone) {
         P.lot.add(this.place(center), this.c.setHex(ZONE_COLORS[t.zone]));
-        if (t.level > 0) {
+        if (t.construct > 0) {
+          this.addConstruction(t, i, x, z, center, seed, has);
+        } else if (t.level > 0) {
           const st = sim.status(i);
           // Non-operating buildings are drawn dimmed grey so problems stand out.
           const lv = t.level;
@@ -412,6 +422,37 @@ export class CityRenderer {
     }
   }
 
+  /**
+   * PR 4 construction site. The building being built is the NEXT level's
+   * design, drawn "rising": its height is scaled by the work done so far
+   * (progress 0..1) and its colours are washed out like raw concrete. Around
+   * it stands a scaffold sized to the finished building, and a tower crane
+   * in the back corner whose jib slowly turns (animate()).
+   * The old building (if this is an upgrade) is replaced by the site.
+   */
+  private addConstruction(t: Tile, i: number, x: number, z: number, center: THREE.Vector3, seed: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
+    const P = this.pools;
+    const zone = t.zone!;
+    const lv = Math.min(3, t.level + 1);
+    const progress = 1 - t.construct / CONSTRUCT_TICKS;
+    const look = pickLook(zone, x, z, seed);
+    const face = this.roadFacing(x, z, has) ?? 0;
+    const key = `${zone}.${look.design}.${lv}`;
+    const m = this.place(center, face, 1, Math.max(0.06, progress), 1);
+    const raw = 0.75; // washed-out "unfinished" tint
+    P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw));
+    P[`${key}.accent`].add(m, this.c.setHex(look.accent).lerp(TMP.setHex(0xcfc8bb), raw));
+    P[`${key}.fixed`].add(m, this.c.setScalar(0.85));
+    const { w, d, h } = roofBox(zone, lv);
+    P.scaffold.add(this.place(center, face, w + 0.06, h + 0.05, d + 0.06));
+    // Crane in the back-left corner (local −x, −z), a bit taller than the building.
+    const back = new THREE.Vector3(-0.38, 0, -0.38).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
+    const mastH = h + 0.45;
+    P.craneMast.add(this.place(back, 0, 1, mastH, 1));
+    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28 });
+    void i;
+  }
+
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
   private edgeOutward(x: number, z: number): number {
     if (x === 0) return Math.PI / 2;
@@ -505,6 +546,15 @@ export class CityRenderer {
       blades.add(this.m.compose(hub, spin, this.s.set(1, 1, 1)));
     }
     blades.end();
+
+    // PR 4: crane jibs swing slowly back and forth over their sites.
+    const jib = this.pools.craneJib;
+    jib.begin();
+    for (const { pos, phase } of this.cranes) {
+      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, phase + Math.sin(time * 0.35 + phase) * 1.4);
+      jib.add(this.m.compose(pos, this.q, this.s.set(1, 1, 1)));
+    }
+    jib.end();
 
     const mk = this.pools.marker;
     const ip = this.pools.iconPower, iw = this.pools.iconWater;

@@ -27,8 +27,8 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND } from './rules';
-import { Tile, ToolId } from './types';
+import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, RESIDENTS_PER_LEVEL, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
+import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { computeEnvironment, Environment } from './environment';
@@ -90,6 +90,8 @@ export class Simulation {
   env: Environment;
   /** 0 = paused, 1/2/3 = speed multiplier. */
   speed = 1;
+  /** Tiles that finished a construction stage this tick (read by traffic for move-in cars). */
+  completed: number[] = [];
   /** Increments whenever anything visible changes; the renderer compares it. */
   version = 0;
   private acc = 0;
@@ -128,10 +130,27 @@ export class Simulation {
     const sparePower = this.net.power.map((n) => n.capacity - n.supplied);
     const spareWater = this.net.water.map((n) => n.capacity - n.supplied);
 
+    this.completed = [];
     w.tiles.forEach((t, i) => {
       if (t.zone === null) return;
       const s = this.net.service[i];
       const ok = s.roadAccess && s.powered && s.watered;
+      // ---- PR 4 construction ----
+      // A lot that has started building shows frames + a crane (renderer).
+      // Work only progresses on ticks where road, power AND water are all
+      // present; otherwise the site just waits (it doesn't reset).
+      if (t.construct > 0) {
+        if (ok) {
+          t.construct--;
+          if (t.construct === 0) {
+            t.level++;
+            t.structure = 'building';
+            t.happyTicks = 0;
+            this.completed.push(i); // traffic.ts sends new residents' cars here
+          }
+        }
+        return;
+      }
       if (!ok) {
         t.happyTicks = 0;
         return;
@@ -142,17 +161,19 @@ export class Simulation {
       const need = t.zone === 'residential' && this.env.desirability[i] >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
       if (t.happyTicks < need || t.level >= cap) return;
       // Small random delay so a freshly zoned block doesn't pop up all at once.
-      // Higher taxes make the chance smaller (economy.ts growthFactor).
+      // Higher taxes make the chance smaller (economy.ts growthFactor), and
+      // PR 4 zone demand (demand.ts) scales it too: 0 demand = no growth.
       // SEEDED (PR 3): the "dice roll" is a hash of (tile, tick, city seed), so
       // the same city with the same actions grows exactly the same way every
       // time — handy for testing and for sharing seeds later.
-      if (hash2(i, w.tick, w.seed + 777) > 0.35 * growthFactor(w.taxRates[t.zone])) return;
+      if (hash2(i, w.tick, w.seed + 777) > 0.35 * growthFactor(w.taxRates[t.zone]) * this.demandFactor(t.zone)) return;
       const extra = DEMAND[t.zone];
       if (sparePower[s.powerNet] < extra.power || spareWater[s.waterNet] < extra.water) return;
       sparePower[s.powerNet] -= extra.power;
       spareWater[s.waterNet] -= extra.water;
-      t.level++;
-      t.structure = 'building';
+      // PR 4: instead of popping up instantly, the next level is BUILT over
+      // CONSTRUCT_TICKS serviced ticks. The capacity is reserved now.
+      t.construct = CONSTRUCT_TICKS;
       t.happyTicks = 0;
     });
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
@@ -263,6 +284,11 @@ export class Simulation {
    * desirability: too polluted = can't even build (0), a bit polluted = small
    * houses only (1). Everything else can reach MAX_LEVEL.
    */
+  /** Growth multiplier from zone demand (replaced by demand.ts in the RCI stage). */
+  demandFactor(_zone: ZoneType): number {
+    return 1;
+  }
+
   maxLevel(i: number): number {
     const t = this.world.tiles[i];
     if (t.zone !== 'residential') return MAX_LEVEL;
