@@ -31,6 +31,7 @@ export function emptyTile(): Tile {
     roadType: 0,
     construct: 0,
     stock: 0,
+    part: 0,
   };
 }
 

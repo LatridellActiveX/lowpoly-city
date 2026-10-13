@@ -98,3 +98,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rci-track { position: relative; width: 14px; height: 60px; background: rgba(255,255,255,0.1); border-radius: 4px; overflow: hidden; }
 .rci-track i { position: absolute; left: 0; right: 0; transition: height 0.4s, bottom 0.4s; }
 .rci-mid { position: absolute; left: 0; right: 0; bottom: 30px; height: 1px; background: rgba(255,255,255,0.5); }
+
+/* ---- PR 4: tiers + locks ---- */
+.tool.locked, .btn.locked { opacity: 0.35; filter: grayscale(1); }
+.tool.locked .icon::after { content: '🔒'; font-size: 11px; position: relative; left: -4px; top: -10px; }
+.stats .tier { font-weight: 600; }
+.meter.tiermeter i { background: #c59cff; }

@@ -33,6 +33,7 @@ import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo } from './traffic';
 import { Shipping } from './goods';
+import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
@@ -45,6 +46,8 @@ export interface ApplyResult {
   refunded: number;
   /** True if we stopped early because the money ran out. */
   broke: boolean;
+  /** PR 4: true if the tool isn't unlocked yet. */
+  locked?: boolean;
 }
 
 export interface CityStats {
@@ -104,6 +107,8 @@ export class Simulation {
   settings: Settings = loadSettings();
   /** 0 = paused, 1/2/3 = speed multiplier. */
   speed = 1;
+  /** PR 4: messages for the UI (tier unlocks etc.); the HUD empties this list. */
+  events: string[] = [];
   /** Tiles that finished a construction stage this tick (read by traffic for move-in cars). */
   completed: number[] = [];
   /** Increments whenever anything visible changes; the renderer compares it. */
@@ -209,6 +214,8 @@ export class Simulation {
     });
     this.spawnTraffic();
     this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
+    // PR 4 progression: announce new tiers (UI drains `events`).
+    this.events.push(...updateTier(w, this.stats().population));
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
     if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
     this.version++;
@@ -225,7 +232,7 @@ export class Simulation {
     l.taxes = m.taxes;
     l.upkeep = m.upkeep;
     const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park;
+    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation;
     w.cash += Math.round(income - upkeep);
     w.lastLedger = l;
     w.ledger = emptyLedger();
@@ -252,15 +259,55 @@ export class Simulation {
     const l = emptyLedger();
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
-      if (isUpkeepKind(t.structure)) l.upkeep[t.structure] += UPKEEP[t.structure];
+      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round(UPKEEP[t.structure] * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     return l;
   }
 
+  /** Add the rest of every 2×2 footprint touched by `tiles` (for bulldozing). */
+  private expandFootprints(tiles: Array<[number, number]>): Array<[number, number]> {
+    const seen = new Set(tiles.map(([x, z]) => z * 64 + x));
+    const out = [...tiles];
+    for (const [x, z] of tiles) {
+      const t = this.world.at(x, z);
+      if (t.structure !== 'nuclearPlant') continue;
+      const a = t.part ? t.part - 1 : z * 64 + x;
+      const ax = a % 64, az = Math.floor(a / 64);
+      for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const k = (az + dz) * 64 + ax + dx;
+        if (!seen.has(k)) { seen.add(k); out.push([ax + dx, az + dz]); }
+      }
+    }
+    return out;
+  }
+
+  /** Place a 2×2 building whose top-left tile is the first of `tiles`. */
+  private applyBig(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
+    const w = this.world;
+    if (tiles.length !== 4 || !tiles.every(([x, z]) => canPlace(tool, w.at(x, z)))) return res;
+    // The building's price once, plus clearing fees for trees on any of its tiles.
+    const cost = placementCost(tool, w.at(tiles[0][0], tiles[0][1])) + tiles.slice(1).reduce((a, [x, z]) => a + (w.at(x, z).deco ? 3 : 0), 0);
+    if (cost > w.cash) return { ...res, broke: true };
+    w.cash -= cost;
+    w.ledger.construction += cost;
+    const anchor = tiles[0][1] * 64 + tiles[0][0];
+    tiles.forEach(([x, z], k) => {
+      const t = w.at(x, z);
+      applyTool(tool, t);
+      t.part = k === 0 ? 0 : anchor + 1;
+    });
+    this.net = computeNetworks(w);
+    this.env = computeEnvironment(w);
+    this.version++;
+    return { ...res, changed: 4, spent: cost };
+  }
+
   /** Total cost to apply `tool` to these tiles (only tiles where it's valid). */
   quote(tool: ToolId, tiles: Array<[number, number]>): number {
     let cost = 0;
+    // 2×2 plant: one price for the whole footprint.
+    if (tool === 'nuclearPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
       if (canPlace(tool, t)) cost += placementCost(tool, t);
@@ -280,8 +327,15 @@ export class Simulation {
    * can only half afford gets built halfway rather than not at all.
    */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
+    // (tiles is reassigned for bulldozing 2×2 footprints)
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
+    // PR 4: tools above the city's tier are locked (progression.ts).
+    if (!isUnlocked(tool, w.tier)) return { ...res, locked: true };
+    // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
+    if (tool === 'nuclearPlant') return this.applyBig(tool, tiles, res);
+    // Bulldozing any tile of a 2×2 building removes the whole footprint.
+    if (tool === 'bulldoze') tiles = this.expandFootprints(tiles);
     for (const [x, z] of tiles) {
       const t = w.at(x, z);
       if (!canPlace(tool, t)) continue;
@@ -378,7 +432,7 @@ export class Simulation {
   status(i: number): TileStatus {
     const s = this.net.service[i];
     const t = this.world.tiles[i];
-    const needsPower = t.zone !== null || t.structure === 'waterTower';
+    const needsPower = t.zone !== null || t.structure === 'waterTower' || t.structure === 'pumpStation';
     const needsWater = t.zone !== null;
     const needsRoad = t.zone !== null;
     const missing: string[] = [];

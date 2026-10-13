@@ -111,8 +111,17 @@ function updatePreview(): void {
     // Hovering a building with a warning icon explains it: "No power", "No water".
     const ti = sim.world.at(hoverTile[0], hoverTile[1]);
     const st = sim.status(idx(hoverTile[0], hoverTile[1]));
-    const probs = ti.zone || ti.structure === 'waterTower' ? st.missing.map((m) => (m.startsWith('power') ? '⚡ No power' : m.startsWith('water') ? '💧 No water' : '🛣 No road access')) : [];
-    hud.showTip(ti.level > 0 || ti.structure === 'waterTower' ? (probs.length ? `<span class="bad">${[...new Set(probs)].join(' · ')}</span>` : null) : null, mouse[0], mouse[1]);
+    // PR 4 fix: explain WHY (not connected vs. city-wide shortage), and also
+    // for empty lots / construction sites, not just finished buildings.
+    const why = (m: string) =>
+      m === 'power connection' ? '⚡ No power — not connected to the grid (needs a road or power line next to it)'
+      : m.startsWith('power') ? '⚡ No power — demand exceeds supply (build more power)'
+      : m === 'water connection' ? '💧 No water — not near a pipe (or a water tower)'
+      : m.startsWith('water') ? '💧 No water — demand exceeds supply (build more water towers)'
+      : '🛣 No road access';
+    const needsUtil = ti.zone || ti.structure === 'waterTower' || ti.structure === 'pumpStation';
+    const probs = needsUtil ? st.missing.map(why) : [];
+    hud.showTip(probs.length ? `<span class="bad">${[...new Set(probs)].join('<br>')}</span>` : null, mouse[0], mouse[1]);
     return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
   }
   const from = dragFrom ?? hoverTile;
@@ -170,7 +179,8 @@ attachInput(renderer.domElement, cam, ground, {
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
-        if (r.broke && r.changed === 0) hud.flash('Not enough money');
+        if (r.locked) hud.flash('🔒 Locked — grow your population to unlock this (see the tier bar)');
+        else if (r.broke && r.changed === 0) hud.flash('Not enough money');
         else if (r.broke) hud.flash(`Ran out of money after ${r.changed} tiles (-$${r.spent.toLocaleString()})`);
         else if (r.changed === 0) hud.flash("Can't build there");
         else if (tool === 'bulldoze') hud.flash(`Bulldozed — refund $${r.refunded.toLocaleString()}${r.spent ? `, clearing $${r.spent}` : ''}`);

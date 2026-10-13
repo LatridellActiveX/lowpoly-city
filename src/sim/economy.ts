@@ -36,6 +36,14 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   commercial: 25,
   industrial: 30,
   powerPlant: 4000,
+  // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
+  //   coal plant 120 power for $4,000 + $250/mo  →  nuclear 600 power (5×) = $20,000 + $1,250/mo
+  //   water tower 800 water for $1,500 + $80/mo →  pump station 4,000 water (5×) = $7,500 + $400/mo
+  //   (tower capacity raised 80 → 800 in PR 4 so one tower serves ~1,000 people at ~75% load)
+  // (Same price per unit; you're paying for density: nuclear is 2×2 tiles but
+  // makes no pollution and needs no fuel trucks; the pump station is 1 tile.)
+  nuclearPlant: 20000,
+  pumpStation: 7500,
   windTurbine: 600,
   waterTower: 1500,
   park: 150,
@@ -51,7 +59,7 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 80, park: 10 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 80, park: 10, nuclearPlant: 1250, pumpStation: 400 } as const;
 /** Structures that cost upkeep every month. */
 export type UpkeepKind = keyof typeof UPKEEP;
 export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
@@ -94,7 +102,7 @@ export interface Ledger {
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
-  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0 },
+  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0 },
   construction: 0,
   refunds: 0,
   trade: { exports: 0, fuel: 0 },
@@ -103,7 +111,7 @@ export const emptyLedger = (): Ledger => ({
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park;
+  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation;
   return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
 }
 
@@ -123,7 +131,7 @@ export function bulldozeRefund(t: Tile): number {
   if (t.powerLine) value += BUILD_COST.powerLine;
   if (t.waterPipe) value += BUILD_COST.waterPipe;
   if (t.zone) value += BUILD_COST[t.zone];
-  if (isUpkeepKind(t.structure)) value += BUILD_COST[t.structure];
+  if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure];
   return Math.round(value * REFUND_RATE);
 }
 

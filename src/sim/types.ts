@@ -26,7 +26,7 @@ export type ZoneType = 'residential' | 'commercial' | 'industrial';
  * 'building' means a zone lot that has grown a house/shop/factory.
  */
 /** 'park' (PR 3) is a small green space that makes nearby homes more desirable. */
-export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park';
+export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation';
 
 /** One tile of the map. Kept as a plain object so it serialises to JSON trivially. */
 export interface Tile {
@@ -80,6 +80,13 @@ export interface Tile {
    * a truck. Shops: units on the shelves. Power plants: fuel. See goods.ts.
    */
   stock: number;
+  /**
+   * PR 4 multi-tile buildings (the 2×2 nuclear plant). 0 = a normal tile or
+   * the ANCHOR (top-left) tile of a big building. For the other tiles of the
+   * footprint it's anchorIndex + 1, so they know which tile "owns" them.
+   * Only the anchor produces power, pays upkeep and gets drawn.
+   */
+  part: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
@@ -91,9 +98,11 @@ export type ToolId =
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'nuclearPlant'
   | 'windTurbine'
   | 'powerLine'
   | 'waterTower'
+  | 'pumpStation'
   | 'waterPipe'
   | 'park'
   | 'bulldoze';

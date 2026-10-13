@@ -27,9 +27,11 @@ export const TOOLS: ToolDef[] = [
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial.' },
   { id: 'powerPlant', label: 'Power Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'High output (120). Connect with power lines.' },
+  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Huge clean output (600), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.' },
+  { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $7,500 + $400/month. Unlocks at 10,000 people.' },
   { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: 'Up to 15 power, depending on the wind. Connect with power lines.' },
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).' },
-  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 80 water. Needs power to pump.' },
+  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump.' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   { id: 'bulldoze', label: 'Bulldoze', icon: '🧨', key: 'x', shape: 'area', hint: 'Drag to clear everything in the box.' },
@@ -43,6 +45,8 @@ export function toolDef(id: ToolId): ToolDef {
 export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: number): Array<[number, number]> {
   const shape = toolDef(id).shape;
   const out: Array<[number, number]> = [];
+  // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
+  if (id === 'nuclearPlant') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

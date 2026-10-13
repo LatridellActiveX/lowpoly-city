@@ -20,7 +20,8 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
-import { MODELS, SITE } from './models';
+import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
+import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
 import { buildDesigns, pickLook } from './buildings';
@@ -38,31 +39,50 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
   industrial: 0xeac55c,
 };
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
-/** A round badge with an emoji on it, drawn once into a canvas texture. */
-function iconMaterial(emoji: string, ring: string): THREE.MeshBasicMaterial {
+/**
+ * A round warning badge drawn with canvas PATHS (PR 4 fix: PR 3 drew the ⚡ and
+ * 💧 with emoji fonts, which some browsers/GPUs render blank or tiny, so the
+ * icons could be invisible). Now the bolt and droplet are vector shapes, the
+ * badge is bigger, and it's drawn on top (depthTest off) so tall buildings
+ * can't hide it.
+ */
+function iconMaterial(kind: 'power' | 'water'): THREE.MeshBasicMaterial {
   const cv = document.createElement('canvas');
-  cv.width = cv.height = 64;
+  cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  g.fillStyle = 'rgba(20,28,40,0.88)';
-  g.beginPath(); g.arc(32, 32, 29, 0, Math.PI * 2); g.fill();
-  g.lineWidth = 5; g.strokeStyle = ring; g.stroke();
-  g.font = '34px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.fillText(emoji, 32, 35);
+  const ring = kind === 'power' ? '#ffd21f' : '#29a3ff';
+  g.fillStyle = 'rgba(20,28,40,0.92)';
+  g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2); g.fill();
+  g.lineWidth = 10; g.strokeStyle = ring; g.stroke();
+  g.fillStyle = ring;
+  g.beginPath();
+  if (kind === 'power') {
+    // Lightning bolt: a zig-zag polygon.
+    for (const [px, py] of [[72, 22], [40, 70], [60, 70], [52, 106], [88, 54], [67, 54], [78, 22]]) g.lineTo(px, py);
+  } else {
+    // Droplet: a point at the top curving into a round bottom.
+    g.moveTo(64, 22);
+    g.bezierCurveTo(64, 22, 34, 62, 34, 78);
+    g.arc(64, 78, 30, Math.PI, 0, true);
+    g.bezierCurveTo(94, 62, 64, 22, 64, 22);
+  }
+  g.closePath(); g.fill();
+  // Red "no" slash so it reads as MISSING power/water at a glance.
+  g.strokeStyle = '#ff4a3d'; g.lineWidth = 9;
+  g.beginPath(); g.moveTo(30, 98); g.lineTo(98, 30); g.stroke();
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
-  // depthTest off + high renderOrder would hide nothing behind; we keep depth
-  // testing so icons tuck behind tall buildings, like real objects.
-  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false });
+  return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
 }
 
 /**
  * Roof box of a zoned building: footprint (w × d) and roof height h.
  * Mirrors the formulas at the top of each zone function in buildings.ts
- * (FLOOR = 0.26 per storey); used to hang drop wires on the roof corner.
+ * (FLOOR = 0.26 per storey); used for roof-corner drop wires, scaffolds and icons.
  */
 function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: number } {
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
@@ -206,6 +226,8 @@ export class CityRenderer {
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
+    add('nuclearPlant', nuclearPlantModel(), solid, 16);
+    add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
     add('waterTower', MODELS.waterTower(), solid, 32);
@@ -224,8 +246,10 @@ export class CityRenderer {
     // Warning icons (PR 3): ⚡ for no power, 💧 for no water. Each is ONE
     // instanced textured square, turned to face the camera every frame, so a
     // city with hundreds of problems still costs two draw calls.
-    add('iconPower', new THREE.PlaneGeometry(0.34, 0.34), iconMaterial('⚡', '#ffd21f'), 128, false);
-    add('iconWater', new THREE.PlaneGeometry(0.34, 0.34), iconMaterial('💧', '#29a3ff'), 128, false);
+    add('iconPower', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('power'), 256, false);
+    add('iconWater', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('water'), 256, false);
+    this.pools.iconPower.mesh.renderOrder = 20;
+    this.pools.iconWater.mesh.renderOrder = 20;
     add('marker', MODELS.marker(), new THREE.MeshBasicMaterial({ vertexColors: true }), 128, false);
     // Overlay squares are transparent and drawn on top of the ground.
     const overlayMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, vertexColors: false });
@@ -357,13 +381,23 @@ export class CityRenderer {
         // are conduits); here we draw the short pipe into the tower's base so
         // the connection is visible. rotateY(a) sends the +x pipe to (cos a, −sin a).
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          if (!has(x + dx, z + dz, (n) => n.structure === 'waterTower')) continue;
+          if (!has(x + dx, z + dz, (n) => n.structure === 'waterTower' || n.structure === 'pumpStation')) continue;
           P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
         }
       }
 
       if (t.zone) {
         P.lot.add(this.place(center), this.c.setHex(ZONE_COLORS[t.zone]));
+        // PR 4 fix: EMPTY lots and construction sites also show missing
+        // power/water (PR 3 only flagged finished buildings, so a freshly
+        // zoned block with no pipe showed nothing at all).
+        if (t.level === 0 || t.construct > 0) {
+          const st0 = sim.status(i);
+          const both = !st0.powered && !st0.watered;
+          const pos = center.clone().setY(t.construct > 0 ? 0.9 : 0.45);
+          if (!st0.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
+          if (!st0.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1.3 : 0 });
+        }
         if (t.construct > 0) {
           this.addConstruction(t, i, x, z, center, seed, has);
         } else if (t.level > 0) {
@@ -407,15 +441,16 @@ export class CityRenderer {
           } else if (t.zone === 'industrial' && hash2(x, z, seed + 808) < 0.5) {
             P.loadingDock.add(this.place(local(0.2, 0.38).setY(0.002), face));
           }
-          const h = 0.35 + lv * 0.3;
+          const h = roofBox(t.zone, lv).h + 0.15;
           if (!st.operating) {
             // Floating warnings: grey gem = no road, ⚡ = no power, 💧 = no water.
             // With both power and water missing, the two icons sit side by side.
             const pos = center.clone().setY(h * 0.6 + 0.4);
             const both = !st.powered && !st.watered;
+            pos.y = Math.max(pos.y, h + 0.25); // float above the roof
             if (!st.roadAccess) this.markers.push({ pos, color: new THREE.Color(0xbbbbbb), kind: 'gem', slot: 0 });
-            if (!st.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1 : 0 });
-            if (!st.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1 : 0 });
+            if (!st.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
+            if (!st.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1.3 : 0 });
           }
         }
       }
@@ -427,7 +462,17 @@ export class CityRenderer {
         // Plants connect to the street grid with a wire from their corner.
         this.addGridTie(tiles, x, z, has, false);
       }
+      if (t.structure === 'nuclearPlant' && !t.part) {
+        // 2×2: drawn once from the anchor, centred on the footprint and scaled ×2.
+        P.nuclearPlant.add(this.place(center.clone().add(new THREE.Vector3(0.5, 0, 0.5)), 0, 2, 1.6, 2));
+        this.addGridTie(tiles, x, z, has, false);
+      }
       if (t.structure === 'park') P.park.add(this.place(center, turn));
+      if (t.structure === 'pumpStation') {
+        const st = sim.status(i);
+        P.pumpStation.add(this.place(center, turn), st.powered ? undefined : this.c.setHex(0x8a8a8a));
+        if (!st.powered) this.markers.push({ pos: center.clone().setY(1.0), color: new THREE.Color(1, 1, 1), kind: 'power', slot: 0 });
+      }
       if (t.structure === 'waterTower') {
         const st = sim.status(i);
         P.waterTower.add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
@@ -442,7 +487,12 @@ export class CityRenderer {
 
       // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
       // Tiles helped by a park (and not polluted) get a soft green instead.
-      if (this.overlay === 'pollution') {
+      if (this.overlay === 'resources') {
+        // PR 4 Resources view (unlocks at 2,000 people): seeded patches.
+        const r = sim.world.resourceAt(i);
+        const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24 }[r as 1];
+        if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
+      } else if (this.overlay === 'pollution') {
         const p = sim.env.pollution[i];
         if (p > 0.15) {
           const k = Math.min(1, p / 5);

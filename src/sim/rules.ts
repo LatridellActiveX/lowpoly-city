@@ -10,13 +10,22 @@ import { StructureType, Tile, ToolId, ZoneType } from './types';
 export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
   powerPlant: 120, // high output, the backbone of the grid
   windTurbine: 15, // low output, cheap and clean
+  nuclearPlant: 600, // PR 4 high tier (10,000 people): huge, clean, no fuel trucks, 2×2 tiles
 };
 
 /** PR 4: a power plant out of fuel still makes this much (backup generators). */
 export const UNFUELLED_OUTPUT = 30;
 
-/** How many water units each water tower supplies per tick. */
-export const WATER_OUTPUT = 80;
+/**
+ * How many water units each water tower supplies per tick.
+ * PR 4 rebalance (was 80): ONE tower should comfortably serve a 1,000-person
+ * town. Such a town has ~200 home levels (5 residents each) × 2 water = 400,
+ * plus the shops and factories it supports: ~55 shop levels × 1 + ~41 factory
+ * levels × 3 ≈ 180. Total ≈ 580, i.e. ~73% of 800 — leaving ~25% headroom.
+ */
+export const WATER_OUTPUT = 800;
+/** PR 4 high-capacity pump station (10,000 people): 5× a tower = 4,000 water (enough for ~7,000 people). */
+export const PUMP_STATION_OUTPUT = 4000;
 
 /**
  * Consumption per building LEVEL. A level-2 house uses twice what a level-1
@@ -107,8 +116,10 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
       if (t.zone !== null) return t.zone !== tool && t.level === 0 && t.construct === 0; // re-zone an empty lot
       return isBare(t);
     case 'powerPlant':
+    case 'nuclearPlant':
     case 'windTurbine':
     case 'waterTower':
+    case 'pumpStation':
     case 'park':
       return isBare(t);
     case 'bulldoze':
@@ -150,8 +161,10 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.stock = 0;
       break;
     case 'powerPlant':
+    case 'nuclearPlant':
     case 'windTurbine':
     case 'waterTower':
+    case 'pumpStation':
     case 'park':
       t.structure = tool;
       // New power plants arrive with a full fuel bunker (goods.ts).
@@ -167,6 +180,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.happyTicks = 0;
       t.construct = 0;
       t.stock = 0;
+      t.part = 0;
       break;
     case 'inspect':
       break;

@@ -31,15 +31,15 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, POWER_OUTPUT, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, POWER_OUTPUT, PUMP_STATION_OUTPUT, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
 
 function isSource(t: Tile, kind: Kind): boolean {
   return kind === 'power'
-    ? t.structure === 'powerPlant' || t.structure === 'windTurbine'
-    : t.structure === 'waterTower';
+    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant'
+    : t.structure === 'waterTower' || t.structure === 'pumpStation';
 }
 
 function isConduit(t: Tile, kind: Kind): boolean {
@@ -53,7 +53,8 @@ function isConduit(t: Tile, kind: Kind): boolean {
  * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
  */
 export function output(t: Tile, kind: Kind, wind: number): number {
-  if (kind === 'water') return WATER_OUTPUT;
+  if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : WATER_OUTPUT;
+  if (t.part) return 0; // non-anchor tile of a 2×2 plant: the anchor counts the output
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
   // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
   if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;
@@ -69,7 +70,7 @@ export function demandOf(t: Tile, kind: Kind): number {
 /** A consumer is anything zoned, plus water towers (they need power to pump). */
 function isConsumer(t: Tile, kind: Kind): boolean {
   if (t.zone !== null) return true;
-  return kind === 'power' && t.structure === 'waterTower';
+  return kind === 'power' && (t.structure === 'waterTower' || t.structure === 'pumpStation');
 }
 
 /** Water towers draw a small, fixed amount of power to run their pumps. */
@@ -142,7 +143,7 @@ function solve(
     let remaining = net.capacity;
     for (const c of consumers) {
       const t = tiles[c];
-      const want = kind === 'power' && t.structure === 'waterTower' ? TOWER_PUMP_POWER : demandOf(t, kind);
+      const want = kind === 'power' && t.structure === 'waterTower' ? TOWER_PUMP_POWER : kind === 'power' && t.structure === 'pumpStation' ? TOWER_PUMP_POWER * 5 : demandOf(t, kind);
       net.demand += want;
       if (want <= remaining) {
         remaining -= want;

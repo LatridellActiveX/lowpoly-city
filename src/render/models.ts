@@ -179,3 +179,39 @@ export const SITE = {
       part(box(0.04, 0.03, 0.04), 0x333333, [0.55, -0.33, 0]), // hook block
     ]),
 };
+
+/**
+ * PR 4 nuclear power plant (tier 3): a big curved cooling tower (a LATHE —
+ * a 2D outline spun around the y axis; the outline pinches in at the waist
+ * like a real hyperboloid tower), a domed reactor building and a turbine hall.
+ */
+export function nuclearPlantModel(): THREE.BufferGeometry {
+  const outline = [
+    new THREE.Vector2(0.3, 0), new THREE.Vector2(0.24, 0.3), new THREE.Vector2(0.2, 0.62),
+    new THREE.Vector2(0.21, 0.82), new THREE.Vector2(0.24, 0.95),
+  ];
+  return merge([
+    part(box(0.96, 0.08, 0.96), 0xa3a7ab),
+    part(new THREE.LatheGeometry(outline, 14).translate(0, 0.08, 0), 0xe3e1dc, [-0.18, 0, -0.16]),
+    part(new THREE.CylinderGeometry(0.235, 0.235, 0.04, 14, 1, true).translate(0, 1.01, 0), 0xc23b2f, [-0.18, 0, -0.16]), // red band
+    part(new THREE.CylinderGeometry(0.17, 0.17, 0.26, 12).translate(0, 0.21, 0), 0xd4d8dc, [0.24, 0, 0.18]),
+    part(new THREE.SphereGeometry(0.17, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2).translate(0, 0.34, 0), 0xd4d8dc, [0.24, 0, 0.18]), // dome
+    part(box(0.3, 0.22, 0.2), 0x5e7f9e, [0.22, 0.08, -0.25]), // turbine hall
+    part(box(0.32, 0.03, 0.22), 0x3d556b, [0.22, 0.3, -0.25]),
+  ]);
+}
+
+/**
+ * PR 4 high-capacity pump station (tier 3, 1 tile): a big squat storage
+ * tank on a concrete base, a pump house and blue pipework.
+ */
+export function pumpStationModel(): THREE.BufferGeometry {
+  return merge([
+    part(box(0.94, 0.06, 0.94), 0xa3a7ab),
+    part(new THREE.CylinderGeometry(0.3, 0.32, 0.5, 14).translate(0, 0.25, 0), 0x5fa8d3, [-0.12, 0.06, -0.1]),
+    part(new THREE.CylinderGeometry(0.31, 0.31, 0.04, 14).translate(0, 0.02, 0), 0x3f7fa8, [-0.12, 0.56, -0.1]),
+    part(box(0.26, 0.24, 0.22), 0xd9d3c7, [0.26, 0.06, 0.26]),
+    part(box(0.28, 0.03, 0.24), 0x6d6158, [0.26, 0.3, 0.26]),
+    part(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8).rotateZ(Math.PI / 2), 0x2f7fbf, [0.05, 0.12, 0.32]),
+  ]);
+}

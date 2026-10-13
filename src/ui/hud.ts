@@ -20,6 +20,10 @@ import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
 import { windLabel } from '../sim/wind';
+import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
+import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
+import { RESOURCE_NAMES } from '../sim/resources';
+import { CONSTRUCT_TICKS, FUEL_MAX } from '../sim/rules';
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number): string {
@@ -92,6 +96,7 @@ export class Hud {
         ['power', '⚡ Power'],
         ['water', '💧 Water'],
         ['pollution', '☁️ Pollution'],
+        ['resources', '🗺 Resources'],
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       const b = el('button', 'btn', label) as HTMLButtonElement;
@@ -167,7 +172,9 @@ export class Hud {
           <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
           ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
-          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}
+          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}
+          <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
+          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -208,7 +215,12 @@ export class Hud {
       const inp = this.budget.querySelector<HTMLInputElement>(`input[data-zone="${z}"]`)!;
       if (document.activeElement !== inp) inp.value = String(Math.round(rate * 100));
     }
-    for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park'] as const) {
+    this.setCell('trade.exports.now', fmt(w.ledger.trade.exports));
+    this.setCell('trade.exports.last', fmt(last?.trade?.exports));
+    this.setCell('trade.fuel.now', fmt(w.ledger.trade.fuel, true));
+    this.setCell('trade.fuel.last', fmt(last?.trade?.fuel, true));
+    now.trade = w.ledger.trade;
+    for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
       this.setCell(`up.${u}.last`, fmt(last?.upkeep[u], true));
     }
@@ -299,6 +311,7 @@ export class Hud {
       `<span class="cash ${cash < 0 ? 'bad' : ''}" title="Cash">💵 ${this.money(cash)}</span>` +
       `<span title="Residents">👥 ${s.population}</span>` +
       `<span title="Jobs">💼 ${s.jobs}</span>` +
+      this.tierBadge(sim, s.population) +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
       `<span title="Wind: turbines make 15 × wind power (now ${Math.round(15 * sim.world.wind)} each)">🌬️ ${windGauge(sim.world.wind)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
@@ -311,8 +324,23 @@ export class Hud {
       if (t.id === 'inspect' || t.id === 'bulldoze') continue;
       const price = BUILD_COST[t.id];
       const poor = cash < price;
-      b.classList.toggle('unaffordable', poor);
-      b.title = `${t.label} (${t.key.toUpperCase()}) — ${this.money(price)}${t.shape === 'point' ? '' : ' per tile'}${poor ? ' — NOT ENOUGH MONEY' : ''}\n${t.hint}`;
+      // PR 4: tools above the city's tier show a padlock and the population needed.
+      const locked = !isUnlocked(t.id, sim.world.tier);
+      b.classList.toggle('locked', locked);
+      b.classList.toggle('unaffordable', poor && !locked);
+      const need = TIERS[TOOL_TIER[t.id] ?? 0];
+      b.title = locked
+        ? `🔒 ${t.label} — unlocks at ${need.pop.toLocaleString()} people (${need.name})`
+        : `${t.label} (${t.key.toUpperCase()}) — ${this.money(price)}${t.shape === 'point' ? '' : ' per tile'}${poor ? ' — NOT ENOUGH MONEY' : ''}\n${t.hint}`;
+    }
+    // Resources overlay is locked until the Town tier.
+    const resBtn = this.overlayButtons.get('resources')!;
+    const resLocked = sim.world.tier < RESOURCES_TIER;
+    resBtn.classList.toggle('locked', resLocked);
+    resBtn.title = resLocked ? `🔒 Unlocks at ${TIERS[RESOURCES_TIER].pop.toLocaleString()} people` : 'Resource patches: farmland (yellow), logging (green), quarry (grey), oil (black)';
+    // Tier unlock messages from the sim become notifications.
+    for (const msg of sim.events.splice(0)) this.notices.push(msg, 'good');
+    {
     }
     if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
     this.graphs.update(sim);
@@ -321,6 +349,16 @@ export class Hud {
     void this.currentTool;
 
     if (this.infoTile !== null) this.renderInfo(sim, this.infoTile);
+  }
+
+  /** PR 4: "🏘 Village · 612 / 2,000" progress toward the next tier. */
+  private tierBadge(sim: Simulation, pop: number): string {
+    const tier = sim.world.tier;
+    const t = TIERS[tier];
+    const next = TIERS[tier + 1];
+    const pct = next ? Math.min(100, ((pop - t.pop) / (next.pop - t.pop)) * 100) : 100;
+    const title = next ? `Next tier: ${next.name} at ${next.pop.toLocaleString()} — unlocks ${next.unlocks}` : 'Highest tier reached';
+    return `<span class="tier" title="${title}">🏘 ${t.name}${next ? ` <span class="meter tiermeter"><i style="width:${pct}%"></i></span>` : ''}</span>`;
   }
 
   private renderInfo(sim: Simulation, i: number): void {
@@ -332,6 +370,8 @@ export class Hud {
       windTurbine: 'Wind Turbine',
       waterTower: 'Water Tower',
       park: 'Park',
+      nuclearPlant: 'Nuclear Power Plant (2×2)',
+      pumpStation: 'Pump Station',
       residential: 'House',
       commercial: 'Shop',
       industrial: 'Factory',
@@ -342,7 +382,20 @@ export class Hud {
     else if (t.road || t.powerLine || t.waterPipe)
       title = [t.road && 'Road', t.powerLine && 'Power line', t.waterPipe && 'Water pipe'].filter(Boolean).join(' + ');
 
-    const rows: string[] = [`<div class="row muted">Tile ${x}, ${z}</div>`];
+    if (t.edge) title = 'Highway connection';
+    else if (t.road && t.water) title = t.roadType === 1 ? 'Avenue bridge' : 'Bridge';
+    else if (t.road && t.roadType === 1 && !t.powerLine && !t.waterPipe) title = 'Avenue';
+    else if (t.water) title = 'Water';
+    const rows: string[] = [`<div class="row muted">Tile ${x}, ${z}${sim.world.tier >= RESOURCES_TIER && sim.world.resourceAt(i) ? ` · ${RESOURCE_NAMES[sim.world.resourceAt(i)]} patch` : ''}</div>`];
+    // ---- PR 4 rows: construction, goods, fuel, highway ----
+    if (t.construct > 0) {
+      const pct = Math.round((1 - t.construct / CONSTRUCT_TICKS) * 100);
+      rows.push(`<div class="row">🏗 Under construction: <b>${pct}%</b> (to level ${t.level + 1})${sim.status(i).operating ? '' : ' <span class="bad">— paused, needs road, power and water</span>'}</div>`);
+    }
+    if (t.zone === 'industrial' && t.level > 0) rows.push(`<div class="row">Makes: <b>${GOOD_NAMES[factoryGood(sim.world, i)]}</b> · in stock ${t.stock.toFixed(1)}</div>`);
+    if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
+    if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);
+    if (t.edge) rows.push('<div class="row">Cars and trucks enter and leave the city here. Exports and imports use this road.</div>');
     const yes = (b: boolean) => (b ? '<b class="ok">yes</b>' : '<b class="bad">no</b>');
     const netLine = (kind: 'power' | 'water') => {
       const id = kind === 'power' ? svc.powerNet : svc.waterNet;
@@ -350,7 +403,7 @@ export class Hud {
       const n = (kind === 'power' ? sim.net.power : sim.net.water)[id];
       return `network #${id + 1}: ${n.demand}/${n.capacity} used${n.outages ? `, <b class="bad">${n.outages} in outage</b>` : ''}`;
     };
-    if (t.zone || t.structure === 'waterTower') {
+    if (t.zone || t.structure === 'waterTower' || t.structure === 'pumpStation') {
       const st = sim.status(i);
       rows.push(`<div class="row">Operating: ${yes(st.operating)}</div>`);
       if (t.zone) rows.push(`<div class="row">Road access: ${yes(st.roadAccess)}</div>`);
@@ -369,11 +422,12 @@ export class Hud {
         rows.push(`<div class="row muted">Pollution here: ${sim.env.pollution[i].toFixed(1)}</div>`);
       }
       if (t.zone && t.level === 0 && st.operating && sim.maxLevel(i) > 0) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
-    } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine') {
+    } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
       rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 15, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
+      if (t.part) rows.push('<div class="row muted">Part of a 2×2 nuclear plant (output is counted on its top-left tile).</div>');
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
     } else if (t.structure === 'park') {
       rows.push(`<div class="row">Raises desirability within 3 tiles.</div>`);
