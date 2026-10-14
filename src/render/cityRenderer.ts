@@ -21,6 +21,8 @@ import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
+import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
+import { CREW_PURPOSE, isFarmLot, isFoodPlant } from '../sim/industry';
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
@@ -50,16 +52,25 @@ const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the o
  * badge is bigger, and it's drawn on top (depthTest off) so tall buildings
  * can't hide it.
  */
-function iconMaterial(kind: 'power' | 'water'): THREE.MeshBasicMaterial {
+function iconMaterial(kind: 'power' | 'water' | 'crew'): THREE.MeshBasicMaterial {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  const ring = kind === 'power' ? '#ffd21f' : '#29a3ff';
+  const ring = kind === 'power' ? '#ffd21f' : kind === 'crew' ? '#f28c1d' : '#29a3ff';
   g.fillStyle = 'rgba(20,28,40,0.92)';
   g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2); g.fill();
   g.lineWidth = 10; g.strokeStyle = ring; g.stroke();
   g.fillStyle = ring;
   g.beginPath();
+  if (kind === 'crew') {
+    // PR 5 "Waiting for construction crew": an orange traffic cone, no slash.
+    g.moveTo(64, 24); g.lineTo(88, 96); g.lineTo(40, 96); g.closePath(); g.fill();
+    g.fillStyle = '#ffffff'; g.fillRect(50, 56, 28, 9); g.fillRect(45, 74, 38, 9);
+    g.fillStyle = ring; g.fillRect(32, 96, 64, 8);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+  }
   if (kind === 'power') {
     // Lightning bolt: a zig-zag polygon.
     for (const [px, py] of [[72, 22], [40, 70], [60, 70], [52, 106], [88, 54], [67, 54], [78, 22]]) g.lineTo(px, py);
@@ -136,17 +147,21 @@ export class CityRenderer {
   /** PR 4: smokestack tops of fuelled power plants. */
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
-  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number }> = [];
+  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number; axis: 'ns' | 'ew' }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
-  private cranes: Array<{ pos: THREE.Vector3; phase: number }> = [];
+  private cranes: Array<{ pos: THREE.Vector3; phase: number; aim: number; reach: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
   private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
-  private turbines: THREE.Vector3[] = [];
+  private turbines: Array<{ i: number; top: THREE.Vector3 }> = [];
+  /** PR 5: current (eased) yaw of each turbine's nacelle, by tile index. */
+  private turbineYaw = new Map<number, number>();
+  /** PR 5: wind heading (radians, see sim/wind.ts) — set every frame by frame(). */
+  windDir = 0;
   /** Positions + colours of warning markers (for bobbing animation). */
-  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water'; slot: number }> = [];
+  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water' | 'crew'; slot: number }> = [];
   /** Camera rotation, set by main.ts each frame, so icon sprites can face the camera ("billboarding"). */
   cameraQuat = new THREE.Quaternion();
   /** Water pipes are only drawn while the pipe tool or the water overlay is active (PR 3). */
@@ -226,8 +241,11 @@ export class CityRenderer {
     add('stopLine', ROADS.stopLine(), solid, 1024, false);
     add('manhole', ROADS.manhole(), solid, 512, false);
     add('drain', ROADS.drain(), solid, 512, false);
-    add('bridge', ROADS.bridgeDeck(), solid, 128);
-    add('railing', ROADS.railing(), solid, 256);
+    // PR 5 rebuilt bridges (see the BRIDGES block in roads.ts).
+    add('bridgeSlab', ROADS.bridgeSlab(), solid, 256);
+    add('bridgeEdge', ROADS.bridgeEdge(), solid, 512);
+    add('bridgePier', ROADS.bridgePier(), solid, 256);
+    add('bridgeRamp', ROADS.bridgeRamp(), solid, 128);
     add('highway', ROADS.highway(), solid, 4);
     add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
@@ -259,7 +277,7 @@ export class CityRenderer {
     add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
-    add('lightPole', VEHICLES.lightPole(), solid, 128);
+    add('lightPole', VEHICLES.lightPole(), solid, 512);
     add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
     // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
     add('signalGlow', new THREE.PlaneGeometry(0.11, 0.11), this.signalGlowMat, 512, false);
@@ -282,6 +300,16 @@ export class CityRenderer {
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
+    // PR 5 industry + wind (industryModels.ts).
+    add('nacelle', nacelleModel(), solid, 64);
+    add('farm', farmModel(), solid, 128);
+    add('fieldSoil', fieldSoil(), solid, 1024, false);
+    add('fieldCrops', fieldCrops(), solid, 1024);
+    add('fieldFence', fieldFence(), solid, 2048);
+    for (const k of [0, 1, 2]) add(`foodPlant${k}`, foodPlantModel(k), solid, 128);
+    add('constructionYard', constructionYardModel(), solid, 32);
+    add('crewLoad', crewLoadModel(), solid, 64);
+    add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
     add('waterTower', MODELS.waterTower(), solid, 32);
     add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
@@ -396,16 +424,25 @@ export class CityRenderer {
       if (t.road) {
         this.addRoad(t, x, z, center, has);
         if (isIntersection(tiles, i)) {
-          // PR 5: two signal poles on opposite corners (north-west and
-          // south-east). Each has a mast-arm head over the road for the
-          // north-south traffic and a pole-mounted head for east-west.
-          // NW pole: yaw 0 (arm → east, arm head faces north).
-          // SE pole: yaw π (arm → west, arm head faces south).
+          // PR 5 fix: ONE signal pole PER APPROACH (3 at a T, 4 at a
+          // crossroads), on the near-right corner for traffic entering
+          // from that side, its arm reaching over that approach's lane and
+          // its head facing the oncoming drivers.
+          // Model frame (vehicles.ts lightPole): traffic arrives from local
+          // NORTH (−z) driving +z; its right is −x, so the near-right corner
+          // is (−0.44, −0.44), the arm runs +x over the lane at x ≈ −0.18
+          // and the head faces −z. rotateY(a) sends local north (0, −1) to
+          // (−sin a, −cos a), so the approach from neighbour (dx, dz) uses:
+          //   north (0,−1) → 0,  east (1,0) → −π/2,  south (0,1) → π,  west (−1,0) → π/2.
+          // Approaches from north/south run on the 'ns' phase, east/west on 'ew'
+          // (same axis test as traffic.ts uses to stop cars at red).
           const y = t.water ? BRIDGE_Y : 0.04;
-          for (const [ox, oz, yaw] of [[-0.44, -0.44, 0], [0.44, 0.44, Math.PI]] as const) {
-            const pos = center.clone().add(new THREE.Vector3(ox, y, oz));
+          for (const [dx, dz, yaw] of [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]] as const) {
+            if (!has(x + dx, z + dz, (q) => q.road)) continue;
+            const pos = new THREE.Vector3(-0.44, 0, -0.44).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(center).setY(y);
             P.lightPole.add(this.place(pos, yaw));
-            this.junctions.push({ i, pos, yaw });
+            const axis: 'ns' | 'ew' = dx === 0 ? 'ns' : 'ew';
+            this.junctions.push({ i, pos, yaw, axis });
           }
         }
       }
@@ -468,6 +505,8 @@ export class CityRenderer {
         }
         if (t.construct > 0) {
           this.addConstruction(t, i, x, z, center, seed, has);
+          // PR 5: no crew yet → orange cone icon ("Waiting for construction crew", see Inspect).
+          if (!t.crew && st0.operating) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
         } else if (t.level > 0) {
           const st = sim.status(i);
           // Non-operating buildings are drawn dimmed grey so problems stand out.
@@ -479,9 +518,20 @@ export class CityRenderer {
           const key = `${this.lod === 'low' ? 'lo:' : ''}${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
+          // PR 5: farms and food plants have their own models (industryModels.ts),
+          // scaled a little with level; ordinary lots use the zone designs.
+          const farmLot = t.zone === 'industrial' && isFarmLot(sim.world, i);
+          const foodLot = t.zone === 'industrial' && isFoodPlant(t);
+          const special = farmLot || foodLot;
+          if (special) {
+            const sc = 0.84 + 0.08 * Math.min(3, lv);
+            const pool = farmLot ? P.farm : P[`foodPlant${Math.floor(hash2(x, z, seed + 61) * 3)}`];
+            pool.add(this.place(center, face, sc, sc, sc), this.c.setScalar(dim));
+          } else {
           P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
           P[`${key}.accent`].add(m, this.c.setHex(look.accent).multiplyScalar(dim));
           P[`${key}.fixed`].add(m, this.c.setScalar(dim));
+          }
           // Night windows: most homes have a light on, some don't; offices and
           // factories are mostly lit. Dark (non-operating) buildings stay dark.
           // PR 4: each building has its own "bedtime" and light colour.
@@ -496,7 +546,7 @@ export class CityRenderer {
           const on = st.operating && lit < 0.92 && lateNight < bedtime;
           const hue = hash2(x, z, seed + 405);
           const tintHex = hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff;
-          P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+          if (!special) P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
           // PR 4 driveways: every home gets a strip from the street to the
           // side of the house (plus a garage on small level-1 houses);
           // about half of the factories get a loading apron.
@@ -506,7 +556,7 @@ export class CityRenderer {
             const z0 = lv === 1 ? 0.2 : Math.max(0.2, d / 2); // don't drive through the house
             P.driveway.add(this.place(local(0.36, (z0 + 0.5) / 2).setY(0.002), face, 1, 1, 0.5 - z0));
             if (lv === 1) P.garage.add(this.place(local(0.36, 0.11), face));
-          } else if (t.zone === 'industrial' && hash2(x, z, seed + 808) < 0.5) {
+          } else if (t.zone === 'industrial' && !special && hash2(x, z, seed + 808) < 0.5) {
             P.loadingDock.add(this.place(local(0.2, 0.38).setY(0.002), face));
           }
           const h = roofBox(t.zone, lv).h + 0.15;
@@ -550,7 +600,29 @@ export class CityRenderer {
         P.windTower.add(this.place(center));
         // Turbines get a substation beside them, wired to the road's pole line.
         this.addGridTie(tiles, x, z, has, true);
-        this.turbines.push(center.clone().setY(1.26).add(new THREE.Vector3(0, 0, 0.12)));
+        // PR 5: the nacelle + rotor yaw into the wind (animate()); keyed by tile.
+        this.turbines.push({ i, top: center.clone().setY(1.26) });
+      }
+      if (t.structure === 'constructionYard') {
+        P.constructionYard.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
+      }
+      if (t.farm > 0) {
+        // PR 5 crop field: tilled soil + crop rows tinted by SEASON and crop.
+        // Month 1..12: spring green → deep summer green → autumn gold →
+        // winter stubble. Each field has its own crop hue and ripeness offset.
+        const month = sim.world.month;
+        const crop = hash2(x, z, seed + 71);
+        const k = (((month - 1 + crop * 1.5) % 12) + 12) % 12; // 0..12 season clock
+        const cols = [0x8a7a58, 0x9bbf5a, 0x6fb041, 0x4f9a35, 0x5f9c34, 0xb9b94a, 0xd9b44a, 0xd29a3c, 0xa98a54, 0x8a7a58, 0x8a7a58, 0x8a7a58];
+        this.c.setHex(cols[Math.floor(k)]).lerp(TMP.setHex(cols[(Math.floor(k) + 1) % 12]), k % 1);
+        const rowYaw = (hash2(t.farm, 3, seed) > 0.5 ? 0 : Math.PI / 2); // all fields of a farm share a row direction
+        P.fieldSoil.add(this.place(center, rowYaw));
+        if (this.c.r + this.c.g + this.c.b > 0) P.fieldCrops.add(this.place(center, rowYaw, 1, 0.7 + crop * 0.6, 1), this.c);
+        // Fence on every edge not shared with the same farm's field or its farmyard.
+        const owner = t.farm - 1;
+        ([[0, -1, 0], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [1, 0, (3 * Math.PI) / 2]] as const).forEach(([dx, dz, yaw]) => {
+          if (!has(x + dx, z + dz, (q) => q.farm === t.farm) && idx(x + dx, z + dz) !== owner) P.fieldFence.add(this.place(center, yaw));
+        });
       }
 
       // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
@@ -594,9 +666,25 @@ export class CityRenderer {
     const n = has(x, z - 1, isRoad), e = has(x + 1, z, isRoad), s = has(x, z + 1, isRoad), w = has(x - 1, z, isRoad);
     const tint = t.roadType === 1 ? this.c.setRGB(0.78, 0.78, 0.8) : this.c.setRGB(1, 1, 1);
     if (t.water) {
-      // Bridge: lifted deck + pier, railings on every side without a road.
-      P.bridge.add(this.place(center), tint);
-      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.railing.add(this.place(center, yaw as number)));
+      // PR 5 bridge tile: deck slab, an edge (sidewalk + parapet) on every
+      // side without a road beyond it, and a pier on every other tile of a
+      // straight span (always under turns/junctions, which carry more load
+      // and would otherwise look unsupported). Yaw per side: N=0, W=π/2,
+      // S=π, E=3π/2 (rotateY sends the model's north edge there).
+      P.bridgeSlab.add(this.place(center), tint);
+      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.bridgeEdge.add(this.place(center, yaw as number)));
+      const straightEW = (e || w) && !n && !s, straightNS = (n || s) && !e && !w;
+      const along = straightEW ? x : straightNS ? z : 0;
+      if (!(straightEW || straightNS) || along % 2 === 0) P.bridgePier.add(this.place(center, straightNS ? Math.PI / 2 : 0));
+    } else if (this.bridgeSide(x, z, has) !== null) {
+      // PR 5 approach ramp: a land road tile touching a bridge end. The ramp
+      // model rises along +x; rotateY(a) sends +x to (cos a, −sin a), so a
+      // bridge to the east → 0, north → π/2, west → π, south → 3π/2. The
+      // ramp REPLACES the flat road square, sidewalks and paint on this tile
+      // (they would poke through the slope). A junction right at a bridge end
+      // still gets the ramp; see the wiki note on bridge ends.
+      P.bridgeRamp.add(this.place(center, this.bridgeSide(x, z, has)!), tint);
+      return;
     } else {
       const curve = curveYaw(n, e, s, w);
       if (curve !== null) {
@@ -633,7 +721,9 @@ export class CityRenderer {
     const ew = e || w, ns = n || s;
     if (ew !== ns) {
       const yaw = ns ? Math.PI / 2 : 0;
-      const pos = t.water ? center.clone().setY(BRIDGE_Y - 0.035) : center;
+      // Bridge paint: the marking models sit on y = 0.04, so lift them by
+      // (BRIDGE_Y − 0.04) plus 0.004 to clear the deck asphalt (no z-fight).
+      const pos = t.water ? center.clone().setY(BRIDGE_Y - 0.04 + 0.004) : center;
       if (t.roadType === 1) P.avenueMarks.add(this.place(pos, yaw));
       else P.roadDash.add(this.place(pos, yaw));
     }
@@ -670,11 +760,22 @@ export class CityRenderer {
     P[`${key}.fixed`].add(m, this.c.setScalar(0.85));
     const { w, d, h } = roofBox(zone, lv);
     P.scaffold.add(this.place(center, face, w + 0.06, h + 0.05, d + 0.06));
-    // Crane in the back-left corner (local −x, −z), a bit taller than the building.
-    const back = new THREE.Vector3(-0.38, 0, -0.38).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
+    // Crane placement (PR 5 fix). The site faces its road with local +z
+    // (roadFacing → yaw = atan2(dx, dz), and rotateY(yaw) sends local +z to
+    // (dx, dz)), so local −z is the BACK of the lot, away from the street.
+    // The mast stands in the back-left corner, kept 0.12 inside the tile edge
+    // so its 0.16-wide foot never pokes into a neighbouring lot or road.
+    // Zoned lots are always 1×1; multi-tile structures (2×2 nuclear) are
+    // placed finished and never get a construction site.
+    const back = new THREE.Vector3(-0.36, 0, -0.36).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
     const mastH = h + 0.45;
     P.craneMast.add(this.place(back, 0, 1, mastH, 1));
-    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28 });
+    // Aim: the jib model points along local +x and rotateY(a) maps +x to
+    // (cos a, −sin a), so the yaw that points from the mast to the centre of
+    // the construction frame is atan2(−dz, dx). `reach` stretches the jib so
+    // the hook (at 0.55 in model space) hangs exactly over that centre.
+    const dx = center.x - back.x, dz = center.z - back.z;
+    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28, aim: Math.atan2(-dz, dx), reach: Math.hypot(dx, dz) / 0.55 });
     void i;
   }
 
@@ -686,7 +787,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -714,6 +815,8 @@ export class CityRenderer {
         else {
           P.truckCab.add(m);
           P.truckBox.add(m, this.c.setHex(v.color));
+          // PR 5: construction trucks (orange) carry bricks + pipes on top.
+          if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
         }
         // Wheels: distance-based spin, stored per vehicle on the render side.
         const spin = ((this.wheelSpin.get(v.id) ?? 0) + (v.v * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
@@ -741,12 +844,11 @@ export class CityRenderer {
       // of each head is lit (full colour; the material is unlit so it reads
       // as glowing, and at night a soft coloured halo is added on top);
       // the other two lamps are drawn very dark, like real unlit lenses.
-      // The arm head serves north-south traffic, the pole head east-west.
+      // Each pole's single head shows its own approach's phase (axis).
       const glowOn = this.pools.signalGlow.mesh.visible;
-      for (const { i, pos: p, yaw } of this.junctions) {
+      for (const { i, pos: p, yaw, axis } of this.junctions) {
         const st = lightState(i, sim.world.clock);
         for (const lamp of SIGNAL_LAMPS) {
-          const axis = lamp.head === 'arm' ? 'ns' : 'ew';
           const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
           const lit = lamp.slot === active;
           const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(p);
@@ -757,7 +859,7 @@ export class CityRenderer {
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
@@ -773,6 +875,19 @@ export class CityRenderer {
    * rotateY(a) maps +z to (sin a, 0, cos a), so to face direction (dx, dz)
    * we need a = atan2(dx, dz). Prefers south, east, north, west in that order.
    */
+  /**
+   * PR 5: if this land road tile touches a BRIDGE (water road tile), the yaw
+   * that points the ramp model's +x at it; null otherwise. Prefers E, N, W, S.
+   */
+  private bridgeSide(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
+    const b = (q: Tile) => q.road && q.water;
+    if (has(x + 1, z, b)) return 0;
+    if (has(x, z - 1, b)) return Math.PI / 2;
+    if (has(x - 1, z, b)) return Math.PI;
+    if (has(x, z + 1, b)) return (3 * Math.PI) / 2;
+    return null;
+  }
+
   private roadFacing(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
     // First choice: a road that also carries a power line, so the pole and
     // its drop wire end up in FRONT of the building (PR 3).
@@ -847,12 +962,31 @@ export class CityRenderer {
     const blades = this.pools.windBlades;
     blades.begin();
     const spin = new THREE.Quaternion();
-    for (const [k, hub] of this.turbines.entries()) {
-      // Each turbine gets a slightly different phase so they don't spin in lockstep.
+    const nac = this.pools.nacelle;
+    nac.begin();
+    const yawQ = new THREE.Quaternion(), hub = new THREE.Vector3();
+    for (const [k, { i, top }] of this.turbines.entries()) {
+      // PR 5 YAW: the rotor faces INTO the wind. The rotor sits on the
+      // nacelle's local +z, and rotateY(a) sends +z to (sin a, cos a) — the
+      // same convention as world.windDir (the direction the wind comes
+      // FROM), so the target yaw is simply windDir. Each turbine turns at
+      // most ~0.6–1°/s real time (per-turbine rate from a hash, so they
+      // don't move in perfect unison) along the shortest way round.
+      const rate = (0.6 + hash2(i, 7, 99) * 0.4) * (Math.PI / 180) * this.frameDt;
+      let cur = this.turbineYaw.get(i);
+      if (cur === undefined) cur = this.windDir + (hash2(i, 8, 99) - 0.5) * 0.3; // start near the wind
+      const d = Math.atan2(Math.sin(this.windDir - cur), Math.cos(this.windDir - cur));
+      cur += Math.max(-rate, Math.min(rate, d));
+      this.turbineYaw.set(i, cur);
+      yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, cur);
+      nac.add(this.m.compose(top, yawQ, this.s.set(1, 1, 1)));
+      // Blades: spin about the rotor axis (local z) after yawing; each turbine gets its own phase.
       spin.setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.bladeAngle + k * 1.7);
-      blades.add(this.m.compose(hub, spin, this.s.set(1, 1, 1)));
+      hub.set(0, 0, 0.12).applyQuaternion(yawQ).add(top);
+      blades.add(this.m.compose(hub, yawQ.clone().multiply(spin), this.s.set(1, 1, 1)));
     }
     blades.end();
+    nac.end();
 
     this.animateTraffic();
     // Lamp halos face the camera (billboards), like the warning icons.
@@ -877,18 +1011,20 @@ export class CityRenderer {
       }
     });
     smoke.end();
-    // PR 4: crane jibs swing slowly back and forth over their sites.
+    // Crane jibs (PR 5 fix): each points at its own construction frame and
+    // only sways a little (±0.15 rad ≈ the hook stays inside the scaffold).
+    // The old ±1.4 rad swing from a random phase left hooks over neighbours.
     const jib = this.pools.craneJib;
     jib.begin();
-    for (const { pos, phase } of this.cranes) {
-      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, phase + Math.sin(time * 0.35 + phase) * 1.4);
-      jib.add(this.m.compose(pos, this.q, this.s.set(1, 1, 1)));
+    for (const { pos, phase, aim, reach } of this.cranes) {
+      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, aim + Math.sin(time * 0.35 + phase) * 0.15);
+      jib.add(this.m.compose(pos, this.q, this.s.set(reach, 1, 1)));
     }
     jib.end();
 
     const mk = this.pools.marker;
-    const ip = this.pools.iconPower, iw = this.pools.iconWater;
-    mk.begin(); ip.begin(); iw.begin();
+    const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew;
+    mk.begin(); ip.begin(); iw.begin(); ic.begin();
     // Camera's "right" direction, to put paired icons side by side on screen.
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraQuat);
     for (const { pos, color, kind, slot } of this.markers) {
@@ -898,10 +1034,10 @@ export class CityRenderer {
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, time * 1.5);
         mk.add(this.m.compose(p, this.q, this.s.set(1, 1.4, 1)), color);
       } else {
-        (kind === 'power' ? ip : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
+        (kind === 'power' ? ip : kind === 'crew' ? ic : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
       }
     }
-    mk.end(); ip.end(); iw.end();
+    mk.end(); ip.end(); iw.end(); ic.end();
   }
 }
 

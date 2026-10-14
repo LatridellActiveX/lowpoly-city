@@ -27,6 +27,7 @@
 import { World } from './grid';
 import { DEFAULT_TAX } from './economy';
 import { JOBS_PER_LEVEL, residentsOf } from './rules';
+import { jobsOf } from './industry';
 import { ZoneType } from './types';
 
 export const WORK_SHARE = 0.55;
@@ -52,7 +53,7 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
       shopJobs += JOBS_PER_LEVEL.commercial * t.level;
       shops++;
       if (t.stock <= 0) emptyShops++;
-    } else factoryJobs += JOBS_PER_LEVEL.industrial * t.level;
+    } else factoryJobs += jobsOf(world, i); // PR 5: farms 3/level, plants 8
   });
   const jobs = shopJobs + factoryJobs;
   const workers = pop * WORK_SHARE;

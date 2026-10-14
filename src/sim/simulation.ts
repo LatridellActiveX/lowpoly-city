@@ -27,17 +27,28 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, JOBS_PER_LEVEL, MAX_LEVEL, MEDIUM_DENSITY, residentsOf, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
+import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, MAX_LEVEL, MEDIUM_DENSITY, residentsOf, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
 import { Tile, ToolId, ZoneType } from './types';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Shipping } from './goods';
+import { Crews, FARM_FIELDS, fieldCandidates, isFarmLot, isFoodPlant, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
 import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+
+/** PR 5: one "Next level" requirement row (Simulation.requirements). */
+export interface Requirement {
+  label: string;
+  current: number;
+  target: number;
+  met: boolean;
+  /** What to do when it isn't met (shown on the main blocker). */
+  hint: string;
+}
 
 /** Result of trying to apply a tool, so the UI can explain what happened. */
 export interface ApplyResult {
@@ -104,6 +115,8 @@ export class Simulation {
   demand: Demand;
   /** PR 4: goods production, deliveries, exports and plant fuel (goods.ts). */
   shipping = new Shipping();
+  /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
+  crews = new Crews();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
   settings: Settings = loadSettings();
   /** 0 = paused, 1/2/3 = speed multiplier. */
@@ -175,10 +188,12 @@ export class Simulation {
       // A lot that has started building shows frames + a crane (renderer).
       // Work only progresses on ticks where road, power AND water are all
       // present; otherwise the site just waits (it doesn't reset).
+      // PR 5: and only once a construction crew has arrived (industry.ts).
       if (t.construct > 0) {
-        if (ok) {
+        if (ok && t.crew) {
           t.construct--;
           if (t.construct === 0) {
+            t.crew = false; // the crew goes home; the next stage needs a new visit
             t.level++;
             t.structure = 'building';
             t.happyTicks = 0;
@@ -211,9 +226,16 @@ export class Simulation {
       // PR 4: instead of popping up instantly, the next level is BUILT over
       // CONSTRUCT_TICKS serviced ticks. The capacity is reserved now.
       t.construct = CONSTRUCT_TICKS;
+      t.crew = false; // waits for a construction truck (Crews.tick)
       t.happyTicks = 0;
     });
     this.spawnTraffic();
+    // PR 5: farms claim/free their fields, then crews are dispatched.
+    updateFarms(w);
+    this.crews.tick(w, this.traffic, (i) => this.status(i).operating);
+    // New-game hint: nothing grows without a Construction Yard.
+    if ((w.tick === 3 || w.tick % 240 === 0) && !w.tiles.some((t) => t.structure === 'constructionYard') && w.tiles.some((t) => t.zone !== null))
+      this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
     this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
     // PR 4 progression: announce new tiers (UI drains `events`).
     this.events.push(...updateTier(w, this.stats().population));
@@ -233,7 +255,7 @@ export class Simulation {
     l.taxes = m.taxes;
     l.upkeep = m.upkeep;
     const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation;
+    const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
     w.cash += Math.round(income - upkeep);
     w.lastLedger = l;
     w.ledger = emptyLedger();
@@ -425,6 +447,66 @@ export class Simulation {
   }
 
   /** Growth multiplier from RCI zone demand (demand.ts): 0 at demand ≤ −0.6, up to 1.6 at +1. */
+  /**
+   * PR 5 "Next level" requirements for the Inspect panel. SINGLE SOURCE OF
+   * TRUTH: every row mirrors a check in step()/maxLevel()/industry.ts, so the
+   * bars can't drift from the real growth rules. Rows marked `hint` explain
+   * what to do; the first unmet row is the "main blocker" (UI highlights it).
+   * Returns null at max level (or for tiles that don't grow).
+   */
+  requirements(i: number): Requirement[] | null {
+    const w = this.world, t = w.tiles[i];
+    if (!t.zone || t.part) return null;
+    const lvMax = t.zone === 'residential' ? 5 : MAX_LEVEL;
+    if (t.level >= lvMax && t.construct === 0) return null;
+    const next = t.level + 1;
+    const rows: Requirement[] = [];
+    const add = (label: string, current: number, target: number, hint: string) => rows.push({ label, current, target, met: current >= target, hint });
+    const st = this.status(i);
+    add('Road, power & water', +st.roadAccess + +st.powered + +st.watered, 3, `Connect ${st.missing.join(', ') || 'utilities'}`);
+    if (t.construct > 0) {
+      // Under construction: crew, then the work itself.
+      add('Construction crew on site', t.crew ? 1 : 0, 1, this.crews.unreachable.has(i) || !w.tiles.some((q) => q.structure === 'constructionYard') ? 'Build a Construction Yard connected by road' : 'Crew truck on its way / queued');
+      add('Construction work', CONSTRUCT_TICKS - t.construct, CONSTRUCT_TICKS, 'Keep road, power and water connected');
+      return rows;
+    }
+    const dem = this.demand[t.zone].value;
+    add(`${t.zone === 'residential' ? 'Residential' : t.zone === 'commercial' ? 'Commercial' : 'Industrial'} demand`, Math.max(0, Math.round(dem * 100)), 1, t.zone === 'residential' ? 'Add jobs (shops/industry) to attract residents' : t.zone === 'commercial' ? 'More residents = more customers' : 'More workers or export access needed');
+    if (t.zone === 'residential') {
+      const d = this.env.desirability[i];
+      const need = next === 1 ? DESIRE_MIN : next <= 3 ? DESIRE_FOR_DENSE : MEDIUM_DENSITY[next as 4 | 5].desire;
+      add('Desirability (parks, low pollution)', Math.round(d * 100), Math.round(need * 100), 'Build a park nearby / move away from industry');
+      if (next >= 4) {
+        const tier = MEDIUM_DENSITY[next as 4 | 5].tier;
+        add('Population tier', w.tier, tier, `Reach ${tier === 2 ? '2,000' : '10,000'} people`);
+      }
+      const s = this.stats();
+      add('Jobs in the city', s.jobs, Math.ceil(s.population * 0.4), 'Zone shops or industry');
+    } else if (t.zone === 'commercial') {
+      const s = this.stats();
+      add('Customers (residents)', s.population, (t.level + 1) * 25, 'Zone more homes nearby');
+      add('Goods on the shelves', Math.round(t.stock), 1, 'Build industry or keep the highway road connected for imports');
+    } else {
+      const s = this.stats();
+      add('Workers available', Math.round(s.population * 0.55), s.jobs + jobsOf(w, i) / Math.max(1, t.level), 'Zone more homes');
+      if (isFarmLot(w, i)) {
+        const free = fieldCandidates(w.tiles, i).filter((c) => w.tiles[c].farm === i + 1 || (w.tiles[c].farm === 0 && !w.tiles[c].road && !w.tiles[c].water && w.tiles[c].structure === 'none' && (w.tiles[c].zone === null || (w.tiles[c].zone === 'industrial' && w.tiles[c].level === 0)))).length;
+        add('Free field tiles behind the farm', free, FARM_FIELDS[Math.min(3, next)], 'Clear land behind the barn (away from the road)');
+      } else if (isFoodPlant(t)) {
+        add('Food delivered from farms', Math.round(t.input), 1, 'Build farms (Industry ▸ Farm) connected by road');
+      } else {
+        add('Export access (highway road)', w.edgeIndex >= 0 && roadNextTo(w.tiles, i) >= 0 ? 1 : 0, 1, 'Connect to the highway road');
+      }
+    }
+    const extra = DEMAND[t.zone], s = this.net.service[i];
+    const sp = s.powerNet >= 0 ? this.net.power[s.powerNet].capacity - this.net.power[s.powerNet].supplied : 0;
+    const sw = s.waterNet >= 0 ? this.net.water[s.waterNet].capacity - this.net.water[s.waterNet].supplied : 0;
+    add('Spare power & water capacity', +(sp >= extra.power) + +(sw >= extra.water), 2, 'Build another power plant or water tower');
+    const need = t.zone === 'residential' && this.env.desirability[i] >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+    add('Settled (happy ticks)', Math.min(t.happyTicks, need), need, 'Just wait — growth takes a few seconds');
+    return rows;
+  }
+
   demandFactor(zone: ZoneType): number {
     return demandGrowth(this.demand[zone].value);
   }
@@ -475,7 +557,7 @@ export class Simulation {
         return;
       }
       if (t.zone === 'residential') population += residentsOf(t); // PR 5: per-level table; not until their car arrives
-      jobs += JOBS_PER_LEVEL[t.zone] * t.level;
+      jobs += jobsOf(this.world, i); // PR 5: farms have fewer jobs
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>
       ns.reduce((a, n) => ({ capacity: a.capacity + n.capacity, demand: a.demand + n.demand, outages: a.outages + n.outages }), { capacity: 0, demand: 0, outages: 0 });

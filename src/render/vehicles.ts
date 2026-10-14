@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { box, merge, part } from './models';
 import { GRID_SIZE, Tile } from '../sim/types';
 import { Vehicle } from '../sim/traffic';
-import { BRIDGE_Y } from './roads';
+import { surfaceY } from './roads';
 import { hash2 } from '../sim/random';
 
 const LANE = 0.17;
@@ -69,11 +69,11 @@ export const VEHICLES = {
       part(new THREE.CylinderGeometry(0.016, 0.021, 0.54, 10).translate(0, 0.27, 0), DARKP), // tapered pole
       part(new THREE.SphereGeometry(0.018, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2), DARKP, [0, 0.54, 0]), // pole cap
       // Mast arm: a slim tube along +x plus a diagonal brace for strength.
-      part(new THREE.CylinderGeometry(0.008, 0.012, 0.42, 8).rotateZ(Math.PI / 2).translate(0.21, 0, 0), DARKP, [0, 0.5, 0]),
+      part(new THREE.CylinderGeometry(0.008, 0.012, 0.3, 8).rotateZ(Math.PI / 2).translate(0.15, 0, 0), DARKP, [0, 0.5, 0]),
       part(new THREE.CylinderGeometry(0.005, 0.005, 0.16, 6).rotateZ(Math.PI / 2 - 0.45).translate(0.072, 0, 0), DARKP, [0, 0.465, 0]),
       // Pedestrian push-button box and a little street-name sign on the arm.
       part(box(0.02, 0.03, 0.014), YEL, [0, 0.14, 0.02]),
-      part(box(0.12, 0.028, 0.004), 0x1f7a3d, [0.15, 0.525, 0]),
+      part(box(0.1, 0.028, 0.004), 0x1f7a3d, [0.12, 0.525, 0]),
     ];
     // Signal head: housing + back plate + three visors over the lamp openings.
     const head = (cx: number, cy: number, cz: number, facing: 'z' | 'x') => {
@@ -89,8 +89,11 @@ export const VEHICLES = {
       }
       p.push(part(box(0.012, 0.03, 0.012), DARKP, at(0, 0, 0), rot)); // bracket
     };
-    head(0.36, 0.49, 0, 'z'); // on the arm, facing −z
-    head(-0.04, 0.4, 0, 'x'); // on the pole, facing −x
+    // PR 5 fix: ONE head per pole, hanging from the arm over the approach
+    // lane and facing −z, i.e. back up the road at the oncoming drivers.
+    // (The old pole had a second side head facing −x, which on two of the
+    // four corners pointed away from the traffic it was showing.)
+    head(0.26, 0.49, 0, 'z');
     return merge(p);
   },
   /** One signal lamp lens (coloured + lit per frame by the renderer). */
@@ -110,8 +113,7 @@ export const VEHICLES = {
  */
 export const SIGNAL_LAMPS: Array<{ head: 'arm' | 'pole'; slot: 0 | 1 | 2; pos: THREE.Vector3 }> = [];
 for (const slot of [0, 1, 2] as const) {
-  SIGNAL_LAMPS.push({ head: 'arm', slot, pos: new THREE.Vector3(0.36, 0.49 - 0.03 - slot * 0.042, -0.024) });
-  SIGNAL_LAMPS.push({ head: 'pole', slot, pos: new THREE.Vector3(-0.04 - 0.024, 0.4 - 0.03 - slot * 0.042, 0) });
+  SIGNAL_LAMPS.push({ head: 'arm', slot, pos: new THREE.Vector3(0.26, 0.49 - 0.03 - slot * 0.042, -0.024) });
 }
 /** Lit lamp colours (red, amber, green) — dark lamps are drawn at ~12%. */
 export const SIGNAL_COLORS = [0xff3b30, 0xffb020, 0x35e06a];
@@ -163,7 +165,6 @@ export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6
 const LANE_AVENUE = 0.24;
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const dirIdx = (a: number, b: number) => { const d = b - a; return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3; };
-const groundY = (t: Tile) => (t.water ? BRIDGE_Y + 0.02 : 0.04);
 
 /** Pose output: position + yaw + body roll/pitch (radians) + speed for wheel spin. */
 export interface Pose { yaw: number; roll: number; pitch: number }
@@ -209,9 +210,10 @@ function routePoint(v: Vehicle, tiles: Tile[], seg: number, t: number, pos: THRE
   head.x = (P1.x - P0.x) * d0 + (P2.x - P1.x) * d1 + (P3.x - P2.x) * d2;
   head.z = (P1.z - P0.z) * d0 + (P2.z - P1.z) * d1 + (P3.z - P2.z) * d2;
   if (Math.abs(head.x) + Math.abs(head.z) < 1e-6) { head.x = ix; head.z = iz; }
-  // Height: blend between this tile's deck/road height and the next tile's (bridge ramps).
-  const yA = groundY(tiles[path[seg]]), yB = groundY(tiles[path[seg + 1]]);
-  pos.y = yA + (yB - yA) * Math.min(1, Math.max(0, (t - 0.3) / 0.4));
+  // Height (PR 5 bridge rebuild): sample the actual driving surface under
+  // the car — flat road, bridge deck, or the slope of an approach ramp — so
+  // wheels follow the ramp exactly and ride on the raised deck.
+  pos.y = surfaceY(tiles, GRID_SIZE, pos.x, pos.z);
 }
 
 const H1 = { x: 0, z: 0 }, H2 = { x: 0, z: 0 };
@@ -238,6 +240,11 @@ export function vehiclePose(v: Vehicle, tiles: Tile[], pos: THREE.Vector3, out?:
     const speed = v.v ?? 1;
     out.roll = Math.max(-0.12, Math.min(0.12, -curvature * speed * speed * 0.02));
     out.pitch = Math.max(-0.07, Math.min(0.07, -(v.acc ?? 0) * 0.025));
+    // PR 5: tilt with the road on bridge ramps. Pitch is a rotation about the
+    // car's local z, and a positive angle lifts local +x (the nose), so a
+    // climb (Q higher than pos) gives a positive pitch.
+    const run = Math.hypot(Q.x - pos.x, Q.z - pos.z);
+    if (run > 1e-4) out.pitch += Math.atan2(Q.y - pos.y, run);
   }
   return yaw;
 }

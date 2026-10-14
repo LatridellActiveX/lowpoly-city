@@ -22,6 +22,7 @@
  * is merged section by section, so a field added later (like the park upkeep
  * line) gets its default instead of `undefined`.
  */
+import { initialWindDir } from './wind';
 import { World, emptyTile } from './grid';
 import { defaultTaxRates, emptyLedger, Ledger, STARTING_CASH } from './economy';
 import { scatterDecorations } from './terrain';
@@ -30,7 +31,8 @@ import { FUEL_MAX } from './rules';
 import { GRID_SIZE, Tile } from './types';
 
 const KEY = 'lowpoly-city-save';
-export const SAVE_VERSION = 4;
+/** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
+export const SAVE_VERSION = 5;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -44,6 +46,8 @@ export function saveWorld(world: World): void {
     lastLedger: world.lastLedger,
     wind: world.wind,
     windDrift: world.windDrift,
+    windDir: world.windDir,
+    windDirVel: world.windDirVel,
     clock: world.clock,
     tier: world.tier,
     tiles: world.tiles,
@@ -103,6 +107,18 @@ export function loadWorld(): World | null {
       w.clock = typeof data.clock === 'number' ? data.clock : 0;
       w.tier = typeof data.tier === 'number' ? data.tier : 0;
     }
+    if (version < 5) {
+      // ---- v4 -> v5 migration (PR 5 industry) ----
+      // Old cities have no Construction Yard, so treat sites that were already
+      // underway as having their crew on site (they finish normally). New
+      // sites need a yard; the sim posts a hint until one is built.
+      // kind / farm / input default to 0 via emptyTile(), i.e. ordinary
+      // factories and no fields — farms on farmland claim fields next tick.
+      w.tiles.forEach((t) => { if (t.construct > 0) t.crew = true; });
+    }
+    // PR 5 wind direction: older saves get the seeded default heading.
+    w.windDir = typeof data.windDir === 'number' ? data.windDir : initialWindDir(seed);
+    w.windDirVel = typeof data.windDirVel === 'number' ? data.windDirVel : 0;
     return w;
   } catch (e) {
     console.warn('Load failed: save data unreadable —', e instanceof Error ? e.message : e);

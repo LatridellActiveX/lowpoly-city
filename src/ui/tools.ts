@@ -25,7 +25,7 @@ export interface ToolDef {
 }
 
 /** PR 5: the three grouped toolbar buttons. */
-export type ToolGroupId = 'roads' | 'power' | 'water';
+export type ToolGroupId = 'roads' | 'power' | 'water' | 'industry';
 
 export interface ToolGroupDef {
   id: ToolGroupId;
@@ -48,6 +48,8 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue'] },
   { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'pumpStation'] },
+  // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
+  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'farm', 'foodPlant', 'constructionYard'] },
 ];
 
 export const TOOLS: ToolDef[] = [
@@ -56,7 +58,10 @@ export const TOOLS: ToolDef[] = [
   { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($24/tile): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.', group: 'roads' },
   { id: 'residential', label: 'Homes', icon: '🏠', key: '1', shape: 'area', hint: 'Drag to zone low-density residential.' },
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
-  { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial.' },
+  { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial. On a farmland patch it becomes a farm.', group: 'industry' },
+  { id: 'farm', label: 'Farm', icon: '🌾', key: 'f', shape: 'area', hint: 'Farm lot ($30/tile): barn + silo facing the road, claims 2/4/6 crop fields behind it as it levels up. Makes food, few jobs, little pollution.', group: 'industry' },
+  { id: 'foodPlant', label: 'Food Plant', icon: '🥫', key: 'g', shape: 'area', hint: 'Food processing plant ($60/tile): farms truck food here; it ships packaged food to grocers or exports it.', group: 'industry' },
+  { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 4 construction trucks; new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
   { id: 'powerPlant', label: 'Coal/Oil Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal or oil delivered by truck. $4,000 + $250/month.', group: 'power' },
   { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 8,000 (about 8,000 people), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.', group: 'power' },
   { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },

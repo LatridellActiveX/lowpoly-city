@@ -41,10 +41,23 @@ import { Resource } from './resources';
 import { hash2 } from './random';
 import { roadNextTo, Traffic } from './traffic';
 import { FUEL_MAX } from './rules';
+import { farmRate, fieldCount, isFarmLot, isFoodPlant } from './industry';
 
-export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal';
+/**
+ * PR 5 FOOD CHAIN: farms (industry.ts) make `food`; they truck it to the
+ * nearest FOOD PROCESSING PLANT whose input hopper has room (PLANT_INPUT_MAX)
+ * before anything else. A plant converts PROCESS_RATE × level input per tick
+ * into `packaged` food, which grocers (shops that sell food) accept as well
+ * as raw food, and which exports for more ($420 vs $180 a load).
+ */
+export const PLANT_INPUT_MAX = 48;
+export const PROCESS_RATE = 0.15;
+/** Does a shop selling `sells` accept a load of `good`? Grocers take packaged food too. */
+export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && good === 'packaged');
 
-export const GOOD_NAMES: Record<GoodType, string> = { goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Oil', coal: 'Coal' };
+export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged';
+
+export const GOOD_NAMES: Record<GoodType, string> = { goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Oil', coal: 'Coal', packaged: 'Packaged food' };
 /**
  * Units in one truckload. PR 5: 4 → 16 — each truck carries 4× more, so
  * deliveries/exports/imports/fuel runs are ~4× rarer while goods throughput
@@ -59,7 +72,7 @@ export const SHOP_LOW = 12;
 export const SHOP_MAX = 40;
 export const FACTORY_MAX = 48;
 /** $ per truckload exported through the edge connection. */
-export const EXPORT_PRICE: Record<GoodType, number> = { goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0 };
+export const EXPORT_PRICE: Record<GoodType, number> = { goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0, packaged: 420 };
 export const IMPORT_EVERY = 80;
 /** Power plant fuel. One load = LOAD × FUEL_PER_UNIT fuel. */
 export const FUEL_BURN = 0.2;
@@ -69,6 +82,9 @@ export const COAL_PRICE = 600; // per (4× bigger) load — same $ per unit as P
 
 /** What an (industrial) tile produces. */
 export function factoryGood(world: World, i: number): GoodType {
+  // PR 5: farms (Farm tool or a farmland patch) make food from the start; plants package it.
+  if (isFoodPlant(world.tiles[i])) return 'packaged';
+  if (isFarmLot(world, i)) return 'food';
   if (world.tier < 2) return 'goods';
   switch (world.resourceAt(i)) {
     case Resource.Farmland: return 'food';
@@ -112,7 +128,13 @@ export class Shipping {
       if (!t.zone || t.level === 0 || t.construct > 0 || !operating(i)) return;
       if (t.zone === 'industrial') {
         factories.push(i);
-        t.stock = Math.min(FACTORY_MAX, t.stock + t.level * PRODUCE_RATE);
+        if (isFoodPlant(t)) {
+          // Process raw food from the hopper into packaged food.
+          const r = Math.min(t.input, t.level * PROCESS_RATE, FACTORY_MAX - t.stock);
+          if (r > 0) { t.input -= r; t.stock += r; }
+        } else if (isFarmLot(world, i)) {
+          t.stock = Math.min(FACTORY_MAX, t.stock + farmRate(PRODUCE_RATE, fieldCount(world, i)));
+        } else t.stock = Math.min(FACTORY_MAX, t.stock + t.level * PRODUCE_RATE);
       } else if (t.zone === 'commercial') {
         shops.push(i);
         t.stock = Math.max(0, t.stock - t.level * SELL_RATE);
@@ -150,10 +172,28 @@ export class Shipping {
       const good = factoryGood(world, f);
       const from = roadNextTo(tiles, f);
       if (from < 0) continue;
+      // PR 5: farms feed the nearest food plant with room in its hopper first.
+      if (good === 'food') {
+        let plant = -1, pd = Infinity;
+        for (const p of factories) {
+          const pt = tiles[p];
+          if (!isFoodPlant(pt) || pt.input > PLANT_INPUT_MAX - LOAD || this.incoming.has(-1 - p)) continue;
+          const d = manhattan(f, p);
+          if (d < pd) { pd = d; plant = p; }
+        }
+        if (plant >= 0) {
+          const p = plant;
+          if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, p), 'delivery: food to plant', 0x6e9e3a, () => this.feedPlant(world, p))) {
+            t.stock -= LOAD;
+            this.incoming.add(-1 - p); // negative key = the plant's INPUT side
+            continue;
+          }
+        }
+      }
       // Nearest needy shop selling this good.
       let best = -1, bestD = Infinity;
       for (const s of shops) {
-        if (shopGood(world, s) !== good || tiles[s].stock >= SHOP_LOW || this.incoming.has(s)) continue;
+        if (!shopAccepts(shopGood(world, s), good) || tiles[s].stock >= SHOP_LOW || this.incoming.has(s)) continue;
         const d = manhattan(f, s);
         if (d < bestD) { bestD = d; best = s; }
       }
@@ -182,7 +222,7 @@ export class Shipping {
       if (t.stock > 0.5 || this.incoming.has(s) || edge < 0 || trucks() >= maxTrucks) continue;
       if (world.tick - (this.lastImport.get(s) ?? -1e9) < IMPORT_EVERY) continue;
       const good = shopGood(world, s);
-      if (factories.some((f) => factoryGood(world, f) === good)) continue; // a local factory will come
+      if (factories.some((f) => shopAccepts(good, factoryGood(world, f)))) continue; // a local factory will come
       this.lastImport.set(s, world.tick);
       if (traffic.spawn(world, 'truck', edge, roadNextTo(tiles, s), `import: ${good}`, undefined, () => this.deliver(world, s))) this.incoming.add(s);
     }
@@ -193,6 +233,14 @@ export class Shipping {
     const t: Tile = world.tiles[shop];
     if (t.zone !== 'commercial') return; // bulldozed while the truck was driving
     t.stock = Math.min(SHOP_MAX, t.stock + LOAD);
+    this.stats.delivered++;
+  }
+
+  private feedPlant(world: World, plant: number): void {
+    this.incoming.delete(-1 - plant);
+    const t = world.tiles[plant];
+    if (!isFoodPlant(t)) return; // bulldozed meanwhile
+    t.input = Math.min(PLANT_INPUT_MAX, t.input + LOAD);
     this.stats.delivered++;
   }
 

@@ -123,6 +123,11 @@ export const DESIRE_FOR_DENSE = 0.6;
 /** Homes at or above this grow twice as fast. */
 export const DESIRE_FAST = 1.5;
 
+/** PR 5: the zone a zoning tool paints (farm/food plant are industrial lots). */
+export function zoneOf(tool: ToolId): ZoneType {
+  return tool === 'farm' || tool === 'foodPlant' ? 'industrial' : (tool as ZoneType);
+}
+
 /** True if this tile has nothing on it at all. */
 export function isBare(t: Tile): boolean {
   return !t.road && !t.powerLine && !t.waterPipe && t.zone === null && t.structure === 'none';
@@ -137,6 +142,8 @@ export function isBare(t: Tile): boolean {
  *    zone can be repainted over a different zone's EMPTY lot.
  */
 export function canPlace(tool: ToolId, t: Tile): boolean {
+  // PR 5: a farm's field (owned) can only be bulldozed (→ fallow) or inspected.
+  if (t.farm > 0 && tool !== 'bulldoze' && tool !== 'inspect') return false;
   const noBuilding = t.zone === null && t.structure === 'none';
   // PR 4: water only takes roads (bridges). Nothing else may be built on it.
   if (t.water && tool !== 'road' && tool !== 'avenue' && tool !== 'bulldoze' && tool !== 'inspect') return false;
@@ -155,19 +162,26 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'residential':
     case 'commercial':
     case 'industrial':
-      if (t.zone !== null) return t.zone !== tool && t.level === 0 && t.construct === 0; // re-zone an empty lot
+    case 'farm':
+    case 'foodPlant': {
+      // PR 5: Farm / Food Plant paint INDUSTRIAL lots with a kind (industry.ts).
+      const kind = tool === 'farm' ? 1 : tool === 'foodPlant' ? 2 : 0;
+      if (t.zone === 'industrial' && t.level === 0 && t.construct === 0) return t.kind !== kind;
+      if (t.zone !== null) return t.zone !== zoneOf(tool) && t.level === 0 && t.construct === 0; // re-zone an empty lot
       return isBare(t);
+    }
     case 'powerPlant':
     case 'nuclearPlant':
     case 'windTurbine':
     case 'waterTower':
     case 'pumpStation':
+    case 'constructionYard':
     case 'park':
       return isBare(t);
     case 'bulldoze':
       // The highway connection at the map edge is permanent.
       if (t.edge) return false;
-      return !isBare(t) || t.deco !== 0;
+      return !isBare(t) || t.deco !== 0 || t.farm > 0;
     case 'inspect':
       return true;
   }
@@ -195,7 +209,13 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'residential':
     case 'commercial':
     case 'industrial':
-      t.zone = tool;
+    case 'farm':
+    case 'foodPlant':
+      t.zone = zoneOf(tool);
+      t.kind = tool === 'farm' ? 1 : tool === 'foodPlant' ? 2 : 0;
+      t.farm = 0; // building on fallow land
+      t.input = 0;
+      t.crew = false;
       t.structure = 'none';
       t.level = 0;
       t.happyTicks = 0;
@@ -207,8 +227,10 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'windTurbine':
     case 'waterTower':
     case 'pumpStation':
+    case 'constructionYard': // PR 5: built instantly, no crew needed (it IS the crews)
     case 'park':
       t.structure = tool;
+      t.farm = 0;
       // New power plants arrive with a full fuel bunker (goods.ts).
       t.stock = tool === 'powerPlant' ? FUEL_MAX : 0;
       break;
@@ -223,6 +245,11 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.construct = 0;
       t.stock = 0;
       t.part = 0;
+      t.kind = 0;
+      t.input = 0;
+      t.crew = false;
+      // PR 5: bulldozing a farm FIELD leaves it fallow so its farm shrinks.
+      if (t.farm > 0) t.farm = -t.farm;
       break;
     case 'inspect':
       break;
