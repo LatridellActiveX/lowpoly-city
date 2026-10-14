@@ -136,7 +136,7 @@ export class CityRenderer {
   /** PR 4: smokestack tops of fuelled power plants. */
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
-  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number }> = [];
+  private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number; axis: 'ns' | 'ew' }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
@@ -262,7 +262,7 @@ export class CityRenderer {
     add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
-    add('lightPole', VEHICLES.lightPole(), solid, 128);
+    add('lightPole', VEHICLES.lightPole(), solid, 512);
     add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
     // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
     add('signalGlow', new THREE.PlaneGeometry(0.11, 0.11), this.signalGlowMat, 512, false);
@@ -399,16 +399,25 @@ export class CityRenderer {
       if (t.road) {
         this.addRoad(t, x, z, center, has);
         if (isIntersection(tiles, i)) {
-          // PR 5: two signal poles on opposite corners (north-west and
-          // south-east). Each has a mast-arm head over the road for the
-          // north-south traffic and a pole-mounted head for east-west.
-          // NW pole: yaw 0 (arm → east, arm head faces north).
-          // SE pole: yaw π (arm → west, arm head faces south).
+          // PR 5 fix: ONE signal pole PER APPROACH (3 at a T, 4 at a
+          // crossroads), on the near-right corner for traffic entering
+          // from that side, its arm reaching over that approach's lane and
+          // its head facing the oncoming drivers.
+          // Model frame (vehicles.ts lightPole): traffic arrives from local
+          // NORTH (−z) driving +z; its right is −x, so the near-right corner
+          // is (−0.44, −0.44), the arm runs +x over the lane at x ≈ −0.18
+          // and the head faces −z. rotateY(a) sends local north (0, −1) to
+          // (−sin a, −cos a), so the approach from neighbour (dx, dz) uses:
+          //   north (0,−1) → 0,  east (1,0) → −π/2,  south (0,1) → π,  west (−1,0) → π/2.
+          // Approaches from north/south run on the 'ns' phase, east/west on 'ew'
+          // (same axis test as traffic.ts uses to stop cars at red).
           const y = t.water ? BRIDGE_Y : 0.04;
-          for (const [ox, oz, yaw] of [[-0.44, -0.44, 0], [0.44, 0.44, Math.PI]] as const) {
-            const pos = center.clone().add(new THREE.Vector3(ox, y, oz));
+          for (const [dx, dz, yaw] of [[0, -1, 0], [1, 0, -Math.PI / 2], [0, 1, Math.PI], [-1, 0, Math.PI / 2]] as const) {
+            if (!has(x + dx, z + dz, (q) => q.road)) continue;
+            const pos = new THREE.Vector3(-0.44, 0, -0.44).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(center).setY(y);
             P.lightPole.add(this.place(pos, yaw));
-            this.junctions.push({ i, pos, yaw });
+            const axis: 'ns' | 'ew' = dx === 0 ? 'ns' : 'ew';
+            this.junctions.push({ i, pos, yaw, axis });
           }
         }
       }
@@ -773,12 +782,11 @@ export class CityRenderer {
       // of each head is lit (full colour; the material is unlit so it reads
       // as glowing, and at night a soft coloured halo is added on top);
       // the other two lamps are drawn very dark, like real unlit lenses.
-      // The arm head serves north-south traffic, the pole head east-west.
+      // Each pole's single head shows its own approach's phase (axis).
       const glowOn = this.pools.signalGlow.mesh.visible;
-      for (const { i, pos: p, yaw } of this.junctions) {
+      for (const { i, pos: p, yaw, axis } of this.junctions) {
         const st = lightState(i, sim.world.clock);
         for (const lamp of SIGNAL_LAMPS) {
-          const axis = lamp.head === 'arm' ? 'ns' : 'ew';
           const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
           const lit = lamp.slot === active;
           const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(p);
