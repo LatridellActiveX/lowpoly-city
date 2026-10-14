@@ -118,6 +118,8 @@ export class World {
   }
   /** PR 4: highest population tier reached (progression.ts). Never goes down. */
   tier = 0;
+  /** PR 6: highest population ever reached (medium housing unlock at 1,000, progression.ts). */
+  peakPop = 0;
   private resourceCache: Uint8Array | null = null;
   /**
    * PR 6 cell grid (cells.ts): per-cell zone codes, owners and roles; the

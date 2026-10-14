@@ -30,6 +30,7 @@ import { CELL_GRID, CELLS_PER_TILE, CellRole, cidx, tileOfCell, ZONE_CODES, Zone
 import { area, isFiller, Template, TEMPLATES, TPL } from './footprints';
 import { FIT_BUDGET, MERGE_TICKS, SHRINK_TICKS, capacityAt, growablePool, scoreOption, tileBuildable, refreshTileZone, Building } from './lots';
 import { lotFits } from './parking';
+import { tierOk } from './progression';
 import { CONSTRUCT_TICKS, DEMAND, DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, GROW_TICKS, MEDIUM_DENSITY } from './rules';
 import { growthFactor } from './economy';
 import { hash2 } from './random';
@@ -60,7 +61,7 @@ export function levelCap(sim: Simulation, b: Building): number {
   if (tpl.legacy) {
     // Migrated PR 5 homes keep the PR 5 ladder (levels 4/5 = medium density).
     let cap = d < DESIRE_FOR_DENSE ? 1 : 3;
-    for (const lv of [4, 5] as const) if (sim.world.tier >= MEDIUM_DENSITY[lv].tier && d >= MEDIUM_DENSITY[lv].desire && sim.demand.residential.value > 0) cap = lv;
+    for (const lv of [4, 5] as const) if (tierOk(sim.world, MEDIUM_DENSITY[lv].tier) && d >= MEDIUM_DENSITY[lv].desire && sim.demand.residential.value > 0) cap = lv;
     return cap;
   }
   if (tpl.density === 0 && d < DESIRE_FOR_DENSE) return 1;
@@ -90,7 +91,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     const t = w.tiles[i];
     if (!t.zone) continue;
     const zone = t.zone;
-    const pool = growablePool(zone, w.tier).filter((p) => p.density === 0 || desireOf2(sim, i) >= DENSITY_DESIRE[p.density] || zone !== 'residential');
+    const pool = growablePool(zone, w).filter((p) => p.density === 0 || desireOf2(sim, i) >= DENSITY_DESIRE[p.density] || zone !== 'residential');
     const opts = lots.options(w, i, pool);
     if (!opts.length) { fillGaps(sim, i); continue; }
     // Not this tick (demand roll / no service): keep the tile queued.
@@ -168,7 +169,7 @@ const desireOf2 = (sim: Simulation, i: number) => sim.env.desirability[i];
 function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { power: number; water: number }) => boolean): boolean {
   const w = sim.world, lots = w.lots;
   const tpl = TPL[b.tpl];
-  const bigger = growablePool(tpl.zone, w.tier).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]));
+  const bigger = growablePool(tpl.zone, w).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]));
   if (!bigger.length) return false;
   // Neighbours that may be swallowed: same zone/kind, finished, maxed (or fillers), near b.
   const replace = new Set<number>();
@@ -389,6 +390,10 @@ export function buildingRequirements(sim: Simulation, b: Building): Requirement[
     const d = desireOf(sim, b);
     const need = tpl.legacy ? (next === 1 ? DESIRE_MIN : next <= 3 ? DESIRE_FOR_DENSE : MEDIUM_DENSITY[next as 4 | 5].desire) : next <= 1 ? DESIRE_MIN : tpl.density === 0 ? DESIRE_FOR_DENSE : DENSITY_DESIRE[tpl.density];
     add('Desirability (parks, low pollution)', Math.round(d * 100), Math.round(need * 100), 'Build a park nearby / move away from industry');
+    if (tpl.legacy && next >= 4) {
+      const tier = MEDIUM_DENSITY[next as 4 | 5].tier;
+      add('Population milestone', tierOk(w, tier) ? 1 : 0, 1, tier === 2 ? 'Reach 1,000 people (medium housing)' : 'Reach 10,000 people');
+    }
   }
   const req = park.required(b, next);
   let have = park.available(b);

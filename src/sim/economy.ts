@@ -134,6 +134,13 @@ export function ledgerNet(l: Ledger): number {
 export function placementCost(tool: ToolId, t: Tile): number {
   if (tool === 'inspect') return 0;
   if (tool === 'bulldoze') return t.deco ? CLEAR_COST : 0; // removing a lone tree
+  // PR 6 AVENUE UPGRADE: dragging the avenue tool over an existing STREET
+  // converts it in place (rules.canPlace allows roadType 0 → 1; applyTool
+  // keeps the tile's connections, pole line and water main). You pay only
+  // the difference ($29 − $17 = $12). A street BRIDGE upgrades the same way
+  // with no second bridge surcharge — its deck is already paid for.
+  // Tiles that are already avenues are skipped by canPlace.
+  if (tool === 'avenue' && t.road && t.roadType === 0) return BUILD_COST.avenue - BUILD_COST.road;
   const bridge = (tool === 'road' || tool === 'avenue') && t.water && !t.road ? BRIDGE_EXTRA : 0;
   return BUILD_COST[tool] + bridge + (t.deco ? CLEAR_COST : 0);
 }

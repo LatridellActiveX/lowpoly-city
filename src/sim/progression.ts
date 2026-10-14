@@ -39,9 +39,24 @@ export const RESOURCES_TIER = 0;
 
 export const isUnlocked = (tool: ToolId, tier: number) => tier >= (TOOL_TIER[tool] ?? 0);
 
+/**
+ * PR 6: the first MEDIUM-DENSITY housing (townhouses, duplex rows, small
+ * walk-ups — templates with tier 2, and PR 5 level-4 homes) unlocks at
+ * 1,000 people, between the Village (500) and Town (2,000) tiers. It's a
+ * separate milestone instead of a new tier so the saved tier numbers (and
+ * everything keyed off "tier 3 = City") stay the same. World.peakPop
+ * remembers the best population ever reached, so the unlock never goes away.
+ */
+export const MEDIUM_HOUSING_POP = 1000;
+export const mediumUnlocked = (world: World) => world.tier >= 2 || world.peakPop >= MEDIUM_HOUSING_POP;
+/** Is a template / level gated at `tier` available? (tier 2 = medium housing, see above.) */
+export const tierOk = (world: World, tier: number, zone: string = 'residential') => (tier === 2 && zone === 'residential' ? mediumUnlocked(world) : world.tier >= tier);
+
 /** Raise world.tier if the population passed a threshold. Returns the messages to announce. */
 export function updateTier(world: World, population: number): string[] {
   const out: string[] = [];
+  if (population >= MEDIUM_HOUSING_POP && world.peakPop < MEDIUM_HOUSING_POP && world.tier < 2) out.push('🏘 1,000 people! Medium-density housing unlocked: townhouses, duplex rows and walk-up flats can now grow (zone Residential · Medium, needs desirability 1.2).');
+  world.peakPop = Math.max(world.peakPop, population);
   while (world.tier + 1 < TIERS.length && population >= TIERS[world.tier + 1].pop) {
     world.tier++;
     const t = TIERS[world.tier];

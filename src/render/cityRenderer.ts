@@ -18,7 +18,7 @@
 import * as THREE from 'three';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
 import { bodyRect, surfaceSpaces, TPL } from '../sim/footprints';
-import { localToCell, rectAABB } from '../sim/lots';
+import { frame, localToCell, rectAABB } from '../sim/lots';
 import { box, merge, part } from './models';
 
 /** PR 6: most parked cars drawn per rebuild (performance cap), their colours, and asphalt. */
@@ -48,7 +48,7 @@ import { CREW_PURPOSE } from "../sim/industry";
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
-import { buildDesigns, pickLook } from './buildings';
+import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
@@ -121,6 +121,7 @@ function iconMaterial(kind: 'power' | 'water' | 'crew'): THREE.MeshBasicMaterial
 function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: number } {
   // PR 5: levels 4/5 are the medium-density rowhouses / apartment blocks.
   if (zone === 'residential' && level === 4) return { w: 0.9, d: 0.6, h: 0.26 * 3 + 0.25 };
+  if (zone === 'residential' && level === 6) return { w: 0.84, d: 0.64, h: 1.62 }; // PR 6 tower (unit height; stretched by template.tall)
   if (zone === 'residential' && level === 5) return { w: 0.88, d: 0.68, h: 0.26 * 5 + 0.2 };
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
   if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
@@ -276,6 +277,9 @@ export class CityRenderer {
     add('stall', merge([part(box(0.012, 0.002, 0.2), 0xf2f2f2, [-0.118, 0, 0])]), solid, 2048, false);
     add('parkedCar', VEHICLES.car(), solid, 512);
     add('parkDeck', parkDeckModel(), solid, 32);
+    // PR 6 yard props: a small pool (tiles + water) and a street hedge, both cell-sized.
+    add('pool', merge([part(box(0.22, 0.012, 0.22), 0xe9e4da), part(box(0.17, 0.004, 0.17), 0x4fb3e8, [0, 0.012, 0])]), solid, 128, false);
+    add('hedge', merge([part(box(0.24, 0.06, 0.04), 0x4f7a3a, [0, 0, 0.1])]), solid, 1024);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
     // PR 5: two levels of detail. "high" pools are named like
     // "residential.2.1.walls", "low" ones "lo:residential.2.1.walls". Both
@@ -777,9 +781,19 @@ export class CityRenderer {
             P.loadingDock.add(this.place(cellPos(cx, cz, 0.002), yaw, 0.8, 1, 1.1));
           } else if (role === CellRole.Garden) {
             P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(0x7fbf5a));
+            // PR 6 yard props, seeded per cell: shrubs, a shed, an occasional
+            // pool (villas always get one), hedges along the street and a
+            // picket fence along the back of every home's garden.
             const hsh = hash2(cx, cz, seed + 91);
-            if (hsh < 0.45) P.bush.add(this.place(cellPos(cx, cz), hsh * 20, 0.45, 0.45));
-            else if (hsh < 0.6) P.garage.add(this.place(cellPos(cx, cz), yaw, 0.8, 0.8, 0.8), this.c.setHex(0xa38b6d)); // garden shed
+            const pool = tpl.id === 'villa' ? u >= 3 && v >= 2 : tpl.zone === 'residential' && hsh > 0.93;
+            if (pool) P.pool.add(this.place(cellPos(cx, cz, 0.002), 0, 1, 1, 1));
+            else if (hsh < 0.4) P.bush.add(this.place(cellPos(cx, cz), hsh * 20, 0.45, 0.45));
+            else if (hsh < 0.52) P.garage.add(this.place(cellPos(cx, cz), yaw, 0.8, 0.8, 0.8), this.c.setHex(0xa38b6d)); // garden shed
+            if (tpl.zone === 'residential') {
+              const f = frame(b.face);
+              if (v === 0) P.hedge.add(this.place(cellPos(cx, cz), yaw));
+              if (v === tpl.d - 1) P.fieldFence.add(this.place(cellPos(cx, cz), Math.atan2(-f.dx, -f.dz), Q, 1, Q), this.c.setHex(0xf4f1ea));
+            }
           } else if (role === CellRole.Body && tpl.capacity[0] > 0) {
             P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(0x9fcf72));
           }
@@ -787,15 +801,18 @@ export class CityRenderer {
       }
       if (tpl.capacity[0] === 0) continue; // fillers: done
       // Body rect → world centre + size (in tiles).
-      const body = bodyRect(tpl);
-      const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
-      const centre = new THREE.Vector3(((x0 + x1) / 2) * Q, 0, ((z0 + z1) / 2) * Q);
-      const bw = body.w * Q, bd = body.d * Q; // along-road width, depth
-      const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
-      const mlv = tpl.model.level[lvIdx];
+      // PR 6: some designs have several bodies (twin towers, courtyard wings) — one model each.
+      const bodies = tpl.rects.filter((r) => r.role === CellRole.Body);
+      let centre = new THREE.Vector3(), bw = 0, bd = 0, sx = 1, sy = 1, sz = 1, mlv = 1, body = bodyRect(tpl);
       const farm = tpl.zone === 'industrial' && tpl.kind === 1;
       const food = tpl.zone === 'industrial' && tpl.kind === 2;
-      let sx: number, sy: number, sz: number;
+      for (const [bi, br] of bodies.entries()) {
+      body = br;
+      const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
+      centre = new THREE.Vector3(((x0 + x1) / 2) * Q, 0, ((z0 + z1) / 2) * Q);
+      bw = body.w * Q; bd = body.d * Q; // along-road width, depth
+      const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
+      mlv = tpl.model.level[lvIdx];
       if (farm || food) {
         sx = sz = Math.min(bw, bd) * 0.95; sy = sx;
       } else {
@@ -805,7 +822,7 @@ export class CityRenderer {
         sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1);
       }
       const progress = b.construct > 0 ? 1 - b.construct / CONSTRUCT_TICKS : 1;
-      const look = pickLook(tpl.zone, b.ox, b.oz, seed);
+      const look = pickLook(tpl.zone, b.ox + bi * 3, b.oz, seed, tpl.zone === 'residential' && mlv <= 3 ? RES_DESIGNS : undefined);
       const key = `${this.lod === 'low' ? 'lo:' : ''}${tpl.zone}.${look.design}.${mlv}`;
       const m = this.place(centre, yaw, sx, sy * (b.construct > 0 ? Math.max(0.06, progress) : 1), sz);
       const raw = b.construct > 0 ? 0.75 : 0;
@@ -823,6 +840,7 @@ export class CityRenderer {
         const on = b.construct === 0 && st.operating && lit < 0.92 && late < bedtime;
         const hue = hash2(b.ox, b.oz, seed + 405);
         P[`${key}.lights`].add(m, on ? this.c.setHex(hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+      }
       }
       const h = (farm || food ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
       if (ov === 'parking') {

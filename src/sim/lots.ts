@@ -46,6 +46,7 @@ import { CELL_GRID, CellRole, CELLS_PER_TILE, cellInBounds, cidx, FACES, tileOfC
 import { area, bodyRect, isFiller, parkingRequired, parkingSupply, Template, TEMPLATES, TPL } from './footprints';
 import { World } from './grid';
 import { hash2 } from './random';
+import { tierOk } from './progression';
 import { GRID_SIZE, Tile, ZoneType } from './types';
 
 export interface Building {
@@ -355,8 +356,8 @@ export function refreshTileZone(world: World, i: number): void {
 }
 
 /** Templates that may be FOUNDED (grown fresh) at this tier. */
-export function growablePool(zone: ZoneType, tier: number): Template[] {
-  return TEMPLATES.filter((t) => !t.legacy && !isFiller(t) && t.zone === zone && t.tier <= tier);
+export function growablePool(zone: ZoneType, world: World): Template[] {
+  return TEMPLATES.filter((t) => !t.legacy && !isFiller(t) && t.zone === zone && tierOk(world, t.tier, t.zone));
 }
 
 /** Seeded pick among options: weight × density preference × area × random. */

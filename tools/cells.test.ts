@@ -131,6 +131,51 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
   check('medium templates appear (townhouses/apartments)', ids.some((t) => ['townhouse', 'apartment', 'apartment_d'].includes(t)), [...new Set(ids)]);
   console.log('redevelopment stats', m.world.lots.stats);
 }
+// 10. Avenue upgrade: only the price difference, connections + utilities kept, avenues skipped.
+{
+  const a = new Simulation(new World(undefined, 5)); a.world.cash = 1e6; a.world.tier = 1; a.world.tiles.forEach((t) => { t.deco = 0; t.water = false; });
+  a.apply('road', rect(5, 5, 12, 5)); a.world.tiles[5 * N + 9].water = true; // pretend one tile is a bridge
+  const q = a.quote('avenue', rect(5, 5, 12, 5));
+  const r = a.apply('avenue', rect(5, 5, 12, 5));
+  const t = a.world.tiles[5 * N + 7];
+  check('avenue upgrade charges only the difference ($12/tile, bridge too)', q === 8 * 12 && r.spent === 96, { q, spent: r.spent });
+  check('upgraded tile keeps road + water main + power', t.road && t.roadType === 1 && t.waterPipe);
+  check('already-avenue tiles are skipped', a.quote('avenue', rect(5, 5, 12, 5)) === 0 && a.apply('avenue', rect(5, 5, 12, 5)).changed === 0);
+}
+// 11. Auto water mains join everything with no gaps: a manual pipe branch,
+//     a water tower beside the road, a bridge, an avenue and an upgraded street.
+{
+  const a = new Simulation(new World(undefined, 6)); a.world.cash = 1e6; a.world.tier = 1; a.world.tiles.forEach((t) => { t.deco = 0; t.water = false; });
+  for (let x = 20; x <= 22; x++) a.world.tiles[30 * N + x].water = true; // a river under the road
+  a.apply('road', rect(10, 30, 40, 30));            // street incl. a 3-tile bridge
+  a.apply('avenue', rect(25, 30, 30, 30));          // upgraded street
+  a.apply('avenue', rect(40, 20, 40, 30));          // a new avenue branch (T-junction)
+  a.apply('powerPlant', [[9, 30]]); a.apply('waterTower', [[11, 31]]);
+  a.apply('waterPipe', rect(15, 31, 15, 36));       // manual off-road pipe branch
+  a.apply('residential', rect(16, 36, 16, 36));     // a lot fed only by the manual pipe
+  a.apply('residential', rect(35, 31, 35, 31));     // lot beside the upgraded road
+  a.apply('residential', rect(41, 22, 41, 22));     // lot beside the new avenue
+  a.step();
+  const net = (x: number, z: number) => a.net.service[z * N + x].waterNet;
+  const n0 = net(10, 30);
+  const pts: Array<[number, number]> = [[21, 30], [27, 30], [40, 21], [15, 36], [16, 36], [35, 31], [41, 22], [11, 31]];
+  check('road mains, bridge, avenue, upgraded road, manual pipe, tower and lots are ONE water network', n0 >= 0 && pts.every(([x, z]) => net(x, z) === n0), pts.map(([x, z]) => net(x, z)));
+  check('every road tile has a pipe (incl. bridge + upgraded)', rect(10, 30, 40, 30).concat(rect(40, 20, 40, 30)).every(([x, z]) => a.world.at(x, z).waterPipe));
+  check('lots beside roads get water', a.net.service[31 * N + 35].watered || a.net.service[31 * N + 35].waterNet === n0);
+}
+// 12. Medium housing unlocks at 1,000 people (not 2,000), saved via peakPop.
+{
+  const { growablePool } = await import('../src/sim/lots');
+  const { updateTier } = await import('../src/sim/progression');
+  const w = new World(undefined, 3); w.tier = 1;
+  const before = growablePool('residential', w).some((t) => t.density === 1);
+  const msgs = updateTier(w, 1000);
+  const after = growablePool('residential', w).filter((t) => t.density === 1).map((t) => t.id);
+  check('medium housing locked below 1,000, unlocked at 1,000 with a notice', !before && after.includes('townhouse') && msgs.some((m) => m.includes('Medium-density')), { after, msgs });
+  check('shopping centre still needs the Town tier', !growablePool('commercial', w).some((t) => t.id === 'mall'));
+  updateTier(w, 400);
+  check('unlock persists after population drops (peakPop)', growablePool('residential', w).some((t) => t.id === 'townhouse'));
+}
 const gave = s.world.parking.stats;
 console.log('NUMBERS', JSON.stringify({ population: st.population, jobs: st.jobs, buildings: bs.length, templates: [...new Set(bs.map((b) => b.tpl))], sizes: [...sizes], parking: pt, arrivals: gave, gaveUpRate: gave.arrivals ? +(gave.gaveUp / gave.arrivals).toFixed(3) : 0, power: st.power, water: st.water, ms900ticks: ms, lots: s.world.lots.stats, crews: s.crews.stats }));
 process.exit(fails ? 1 : 0);

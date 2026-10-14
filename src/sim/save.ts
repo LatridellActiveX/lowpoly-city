@@ -54,6 +54,7 @@ export function saveWorld(world: World): void {
     windDirVel: world.windDirVel,
     clock: world.clock,
     tier: world.tier,
+    peakPop: world.peakPop,
     tiles: world.tiles,
     // PR 6 cell layer: typed arrays as base64 (≈ 90 KB zone/role + 350 KB owners, before JSON).
     cells: { zone: bytesToB64(world.cells.zone), role: bytesToB64(world.cells.role), owner: bytesToB64(new Uint8Array(world.cells.owner.buffer)) },
@@ -116,6 +117,7 @@ export function loadWorld(): World | null {
     } else {
       w.clock = typeof data.clock === 'number' ? data.clock : 0;
       w.tier = typeof data.tier === 'number' ? data.tier : 0;
+      w.peakPop = typeof data.peakPop === 'number' ? data.peakPop : 0; // older saves: set on the first tick from the current population
     }
     if (version < 5) {
       // ---- v4 -> v5 migration (PR 5 industry) ----
