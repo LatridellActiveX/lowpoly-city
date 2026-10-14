@@ -11,7 +11,8 @@ import { loadWorld, saveWorld } from '../src/sim/save';
 import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
-import { isRightTurn } from '../src/sim/traffic';
+import { isRightTurn, ringStepOk } from '../src/sim/traffic';
+import { isUnlocked } from '../src/sim/progression';
 import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
 
@@ -153,6 +154,41 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   // isRightTurn geometry: heading north then east = right; north then west = left.
   const j = idx(10, 10);
   check('isRightTurn: N→E right, N→W not', isRightTurn(idx(10, 11), j, idx(11, 10)) && !isRightTurn(idx(10, 11), j, idx(9, 10)));
+}
+
+// ---------------------------------------------------------------- stages 7+8: roundabout + 4-lane avenues
+{
+  // Avenue unlock: locked at tier 0 below 250 people, open at 250.
+  check('avenue locked < 250 pop, unlocked at 250', !isUnlocked('avenue', 0, 249) && isUnlocked('avenue', 0, 250));
+  // Lane changes: a long avenue corridor under load.
+  const t = town({ seed: 91 });
+  t.world.tier = 1;
+  t.apply('avenue', rect(10, 26, 50, 26)); // upgrade tool still works on streets
+  check('avenue upgrade tool converts streets', t.world.tiles[idx(20, 26)].roadType === 1);
+  t.settings.maxCars = 400;
+  const av: number[] = []; for (let x = 10; x <= 50; x++) av.push(idx(x, 26));
+  const sides = [idx(30, 13), idx(30, 40), idx(10, 19), idx(50, 33)];
+  for (let k = 0; k < 160; k++) t.traffic.spawn(t.world, 'car', av[(k * 7) % 5], k % 3 ? av[av.length - 1 - (k % 4)] : sides[k % 4], 'stress');
+  const lanesSeen = new Set<number>();
+  for (let i = 0; i < 300; i++) { t.traffic.update(t.world, 0.5); t.world.clock += 0.5; for (const v of t.traffic.vehicles) if (t.world.tiles[v.path[v.seg]]?.roadType === 1) lanesSeen.add(v.lane); }
+  check('avenue cars change lanes (MOBIL + turn lanes)', t.traffic.stats.laneChanges > 0, t.traffic.stats.laneChanges);
+  check('both avenue lanes are used', lanesSeen.has(0) && lanesSeen.has(1), [...lanesSeen]);
+
+  // Roundabout: replace the (30,18)-(31,19) area with a 2x2 ring on the grid.
+  const r = town({ seed: 33 });
+  r.apply('roundabout', [[30, 18], [31, 18], [30, 19], [31, 19]]);
+  const ring = [[30, 18], [31, 18], [30, 19], [31, 19]].map(([x, z]) => r.world.tiles[idx(x, z)]);
+  check('roundabout: 4 ring tiles with water mains', ring.every((q) => q.road && q.roadType === 2 && q.waterPipe));
+  check('ring circulation is one-way counter-clockwise', ringStepOk(r.world.tiles, idx(31, 18), idx(30, 18)) !== ringStepOk(r.world.tiles, idx(30, 18), idx(31, 18)));
+  r.settings.maxCars = 300;
+  const roads: number[] = []; r.world.tiles.forEach((q, i) => q.road && roads.push(i));
+  for (let k = 0; k < 200; k++) r.traffic.spawn(r.world, 'car', roads[(k * 37) % roads.length], roads[(k * 101 + 13) % roads.length], 'stress');
+  const a0 = r.traffic.stats.arrived, g0 = r.traffic.stats.gaveUp;
+  for (let i = 0; i < 300; i++) { r.traffic.update(r.world, 0.5); r.world.clock += 0.5; }
+  const arrived = r.traffic.stats.arrived - a0, gave = r.traffic.stats.gaveUp - g0;
+  check('roundabout traffic flows (no gridlock)', arrived > 100 && gave / Math.max(1, arrived + gave) < 0.15, { arrived, gave });
+  r.apply('bulldoze', [[31, 18]]);
+  check('bulldozing a ring tile reverts the block to streets', r.world.tiles[idx(30, 18)].roadType === 0);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

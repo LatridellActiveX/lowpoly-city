@@ -457,7 +457,7 @@ export class Hud {
       const price = BUILD_COST[t.id];
       const poor = cash < price;
       // PR 4: tools above the city's tier show a padlock and the population needed.
-      const locked = !isUnlocked(t.id, sim.world.tier);
+      const locked = !isUnlocked(t.id, sim.world.tier, sim.world.peakPop);
       b.classList.toggle('locked', locked);
       b.classList.toggle('unaffordable', poor && !locked);
       const need = TIERS[TOOL_TIER[t.id] ?? 0];

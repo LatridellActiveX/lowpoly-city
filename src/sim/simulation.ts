@@ -368,6 +368,36 @@ export class Simulation {
     return [[0, -1], [1, 0], [0, 1], [-1, 0]].some(([ddx, ddz]) => { const nx = x + ddx, nz = z + ddz; return nx >= 0 && nz >= 0 && nx < GRID_SIZE && nz < GRID_SIZE && w.at(nx, nz).road; });
   }
 
+  /**
+   * V1.5 ROUNDABOUT: all four tiles must accept it (bare land or road, no
+   * building cells, no water), paid together, then become ring tiles.
+   */
+  private applyRoundabout(tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
+    const w = this.world;
+    if (tiles.length !== 4 || !tiles.every(([x, z]) => canPlace('roundabout', w.at(x, z)) && !tileHasCells(this, x, z))) return res;
+    const cost = tiles.reduce((c, [x, z]) => c + placementCost('roundabout', w.at(x, z)), 0);
+    if (cost > w.cash) return { ...res, broke: true };
+    w.cash -= cost;
+    w.ledger.construction += cost;
+    for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
+    this.net = computeNetworks(w);
+    this.env = computeEnvironment(w);
+    this.version++;
+    return { ...res, changed: 4, spent: cost };
+  }
+
+  /** V1.5: ring tiles whose 2×2 block is broken (a tile bulldozed) revert to plain streets. */
+  private fixRings(): void {
+    const t = this.world.tiles, N = GRID_SIZE;
+    const ring = (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N && t[z * N + x].road && t[z * N + x].roadType === 2;
+    t.forEach((q, i) => {
+      if (q.roadType !== 2) return;
+      const x = i % N, z = Math.floor(i / N);
+      const inBlock = [[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([ox, oz]) => ring(x + ox, z + oz) && ring(x + ox + 1, z + oz) && ring(x + ox, z + oz + 1) && ring(x + ox + 1, z + oz + 1));
+      if (!inBlock || !q.road) q.roadType = q.road ? 0 : q.roadType === 2 ? 0 : q.roadType;
+    });
+  }
+
   private applyParking(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
     const w = this.world;
     const [x, z] = tiles[tiles.length - 1] ?? [0, 0];
@@ -402,9 +432,10 @@ export class Simulation {
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
     // PR 4: tools above the city's tier are locked (progression.ts).
-    if (!isUnlocked(tool, w.tier)) return { ...res, locked: true };
+    if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
     if (tool === 'nuclearPlant') return this.applyBig(tool, tiles, res);
+    if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
     if (tool === 'parkingLot' || tool === 'parkingGarage') return this.applyParking(tool, tiles, res);
@@ -436,6 +467,7 @@ export class Simulation {
       res.changed++;
     }
     const changed = res.changed;
+    if (changed && tool === 'bulldoze') this.fixRings();
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);

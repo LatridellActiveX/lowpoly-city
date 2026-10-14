@@ -45,7 +45,7 @@ export interface ToolGroupDef {
  * that selects the Road tool (see hud.ts).
  */
 export const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'parkingLot', 'parkingGarage'] },
+  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'roundabout', 'parkingLot', 'parkingGarage'] },
   { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'pumpStation'] },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
@@ -70,6 +70,8 @@ export const TOOLS: ToolDef[] = [
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'water' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
+  // V1.5: 2×2 roundabout, available from the start.
+  { id: 'roundabout', label: 'Roundabout', icon: '⭕', key: 'h', shape: 'point', hint: '2×2 roundabout ($260): traffic circulates counter-clockwise and entering cars yield — no lights. Click its top-left tile; it joins the roads, power and water mains on every side. Can replace an existing junction.', group: 'roads' },
   { id: 'parkingLot', label: 'Parking Lot', icon: '🅿️', key: 'b', shape: 'point', hint: 'Public surface lot filling the whole tile (16 spaces, $480). Serves buildings within 6 tiles that are short of parking.', group: 'roads' },
   { id: 'parkingGarage', label: 'Parking Garage', icon: '🏢', key: 'm', shape: 'point', hint: 'Public 3-deck garage filling one tile (40 spaces, $1,600). Serves buildings within 9 tiles and earns parking fees. Busy shopping streets also grow their own garages.', group: 'roads' },
   { id: 'bulldoze', label: 'Bulldoze', icon: '🧨', key: 'x', shape: 'area', hint: 'Drag to clear everything in the box.' },
@@ -84,7 +86,8 @@ export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: n
   const shape = toolDef(id).shape;
   const out: Array<[number, number]> = [];
   // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
-  if (id === 'nuclearPlant') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
+  // V1.5: the roundabout is 2×2 too (hovered tile = top-left).
+  if (id === 'nuclearPlant' || id === 'roundabout') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

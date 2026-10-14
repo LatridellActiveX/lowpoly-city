@@ -162,7 +162,12 @@ export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6
 // Lane offset blends from the entry road type to the exit road type, so
 // turning from a street onto an avenue drifts smoothly into the wider lane.
 
-const LANE_AVENUE = 0.24;
+// V1.5 true 4-lane avenues: two lanes each way. Lane centres sit between
+// the markings (median ±0.025, lane dash ±0.24, edge line ±0.36): kerb
+// lane 0 at 0.30, median lane 1 at 0.13. v.laneX (0..1) slides between
+// them during a lane change, so the car drifts across smoothly.
+const LANE_OUTER = 0.30, LANE_INNER = 0.13;
+let LANE_AVENUE = LANE_OUTER; // set per vehicle in routePoint
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const dirIdx = (a: number, b: number) => { const d = b - a; return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3; };
 
@@ -174,6 +179,7 @@ const P0 = new THREE.Vector3(), P1 = new THREE.Vector3(), P2 = new THREE.Vector3
 /** Evaluate a vehicle's spot on its route at (seg, t); writes pos, returns heading (dx, dz) via out. */
 function routePoint(v: Vehicle, tiles: Tile[], seg: number, t: number, pos: THREE.Vector3, head: { x: number; z: number }): void {
   const path = v.path;
+  LANE_AVENUE = LANE_OUTER - (LANE_OUTER - LANE_INNER) * (v.laneX ?? 0);
   // Which tile are we crossing, and how far through it (u = 0..1)?
   let tile: number, u: number, din: number, dout: number;
   if (t >= 0.5) {

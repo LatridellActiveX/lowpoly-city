@@ -177,6 +177,10 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
   switch (tool) {
     case 'road':
       return noBuilding && !t.road;
+    case 'roundabout':
+      // V1.5: on empty land or over existing streets/avenues (a junction
+      // becomes a roundabout); never on water (no ring bridges).
+      return noBuilding && !t.water && t.roadType !== 2;
     case 'avenue':
       // A new avenue on empty land, or an upgrade of an existing street.
       return noBuilding && (!t.road || t.roadType === 0);
@@ -230,6 +234,15 @@ export function applyTool(tool: ToolId, t: Tile): void {
       // power poles), so connected roads form one water network and anything
       // beside a road gets water. The pipe is part of the road's price.
       t.waterPipe = true;
+      break;
+    case 'roundabout':
+      // V1.5: a ring tile. Like every road it carries power poles (PR 3
+      // auto lines are drawn for any road) and a water main (PR 6), so the
+      // roads, pipes and lines on all four sides join up automatically.
+      t.road = true;
+      t.roadType = 2;
+      t.waterPipe = true;
+      t.deco = 0;
       break;
     case 'avenue':
       t.road = true;

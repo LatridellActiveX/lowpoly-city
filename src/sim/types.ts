@@ -137,6 +137,7 @@ export type ToolId =
   | 'inspect'
   | 'road'
   | 'avenue'
+  | 'roundabout' // V1.5: 2×2 ring (roadType 2)
   | 'residential'
   | 'commercial'
   | 'industrial'

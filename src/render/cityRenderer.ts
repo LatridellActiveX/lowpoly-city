@@ -363,6 +363,16 @@ export class CityRenderer {
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
+    // V1.5 roundabout island: kerb ring, lawn, flower bed and a small tree.
+    add('ringIsland', merge([
+      part(new THREE.CylinderGeometry(0.46, 0.48, 0.07, 24).translate(0, 0.035, 0), 0xc9c6bf),
+      part(new THREE.CylinderGeometry(0.43, 0.43, 0.075, 24).translate(0, 0.04, 0), 0x6fb54f),
+      part(new THREE.CylinderGeometry(0.2, 0.2, 0.08, 16).translate(0, 0.045, 0), 0xb5651d),
+      ...[0, 1, 2, 3, 4, 5].map((k) => part(new THREE.SphereGeometry(0.035, 6, 4), [0xe84a5f, 0xffd166, 0xf8f8ff][k % 3], [Math.cos(k) * 0.14, 0.1, Math.sin(k) * 0.14])),
+      part(new THREE.CylinderGeometry(0.025, 0.03, 0.28, 6).translate(0, 0.14, 0), 0x6b4a2b),
+      part(new THREE.IcosahedronGeometry(0.14, 0).translate(0, 0.36, 0), 0x3f8f3a),
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => part(new THREE.SphereGeometry(0.04, 6, 4), 0x4f9e45, [Math.cos(k * 0.785 + 0.3) * 0.34, 0.09, Math.sin(k * 0.785 + 0.3) * 0.34])),
+    ]), solid, 32);
     add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
     add('pumpStation', pumpStationModel(), solid, 16);
@@ -648,6 +658,16 @@ export class CityRenderer {
     const isRoad = (n: Tile) => n.road;
     const n = has(x, z - 1, isRoad), e = has(x + 1, z, isRoad), s = has(x, z + 1, isRoad), w = has(x - 1, z, isRoad);
     const tint = t.roadType === 1 ? this.c.setRGB(0.78, 0.78, 0.8) : this.c.setRGB(1, 1, 1);
+    // V1.5 ROUNDABOUT tile (roadType 2): plain asphalt + kerbs on open
+    // sides. The landscaped island is added once per 2×2 block (at its
+    // north-west tile) and sits over the four inner corners.
+    if (t.roadType === 2 && !t.water) {
+      P.road.add(this.place(center), tint);
+      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.sidewalk.add(this.place(center, yaw as number)));
+      const ring = (q: Tile) => q.roadType === 2;
+      if (has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), hash2(x, z, 515) * 6));
+      return;
+    }
     if (t.water) {
       // PR 5 bridge tile: deck slab, an edge (sidewalk + parapet) on every
       // side without a road beyond it, and a pier on every other tile of a
