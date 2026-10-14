@@ -28,6 +28,7 @@ import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput, pointer } from './ui/input';
 import { ZONE_TOOLS } from './sim/simulation';
+import { sound, toolSound } from './audio/sound';
 import { shapeTiles, toolDef, TOOLS } from './ui/tools';
 import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
@@ -120,6 +121,7 @@ function renderZoneBar(): void {
 }
 
 function setTool(id: ToolId): void {
+  if (id !== tool) sound.play('tool');
   tool = id;
   renderZoneBar();
   hud.setTool(id);
@@ -214,6 +216,40 @@ function updatePreview(): void {
   hud.showTip(html, mouse[0], mouse[1]);
 }
 
+/**
+ * PR 6 sound hooks that don't belong to one call site:
+ *  - every <button> click → soft click; hovering a toolbar / top-bar button → tiny tick;
+ *  - flyout groups and panels opening/closing → pops (watching .open / .hidden classes);
+ *  - each frame, sim counters: new construction sites (thump), finished
+ *    buildings (chime at level 1, sparkle on a level-up), HUD notices (ding).
+ */
+sound.attach();
+document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) sound.play('click'); }, true);
+document.addEventListener('pointerover', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && b !== lastHoverBtn) { lastHoverBtn = b; sound.play('hover'); } }, true);
+let lastHoverBtn: Element | null = null;
+new MutationObserver((ms) => {
+  for (const m of ms) {
+    const el = m.target as HTMLElement;
+    const was = (m.oldValue ?? '').split(' ');
+    if (el.classList.contains('open') !== was.includes('open')) sound.play(el.classList.contains('open') ? 'open' : 'close');
+    else if (el.classList.contains('panel') && el.classList.contains('hidden') !== was.includes('hidden')) sound.play(el.classList.contains('hidden') ? 'close' : 'open');
+  }
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+const soundSeen = { founded: 0, completed: -1, notices: 0 };
+function soundTick(): void {
+  const st = sim.world.lots.stats;
+  if (st.founded > soundSeen.founded && soundSeen.completed >= 0) sound.play('place');
+  soundSeen.founded = st.founded;
+  if (sim.world.tick !== soundSeen.completed) {
+    if (soundSeen.completed >= 0) for (const id of sim.completed) { const b = sim.world.lots.buildings.get(id); if (b) sound.play(b.level > 1 ? 'levelup' : 'complete'); }
+    soundSeen.completed = sim.world.tick;
+  }
+  const n = hud.notices.log.length;
+  if (n > soundSeen.notices) sound.play('ding');
+  soundSeen.notices = n;
+}
+setInterval(soundTick, 100);
+
 attachInput(renderer.domElement, cam, ground, {
   hover(t, mx, my) {
     mouse = [mx, my];
@@ -237,6 +273,9 @@ attachInput(renderer.domElement, cam, ground, {
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
+        // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
+        if (r.locked || r.changed === 0) sound.play('error');
+        else sound.play(toolSound(tool));
         if (r.locked) hud.flash('🔒 Locked — grow your population to unlock this (see the tier bar)');
         else if (r.broke && r.changed === 0) hud.flash('Not enough money');
         else if (r.broke) hud.flash(`Ran out of money after ${r.changed} tiles (-$${r.spent.toLocaleString()})`);

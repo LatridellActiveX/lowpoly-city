@@ -1,3 +1,4 @@
+import { sound } from '../audio/sound';
 /**
  * ui/menu.ts — PR 4 main menu (☰ button, top-left) with two panels:
  *
@@ -62,7 +63,21 @@ export class GameMenu {
           ${[['high', 'High (detailed models up close)'], ['low', 'Low (simple models, faster)']].map(([v, l]) => `<option value="${v}" ${s.detail === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select></label>
         <label class="set check"><input type="checkbox" data-k="dayNight" ${s.dayNight ? 'checked' : ''}><span>🌗 Day/night cycle (1 hour per day at 1×)</span></label>
+        <h4>🔊 Sound</h4>
+        <label class="set"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" data-a="volume" value="${sound.settings.volume}"><b>${Math.round(sound.settings.volume * 100)}%</b></label>
+        <label class="set"><span>UI sounds</span><input type="range" min="0" max="1" step="0.05" data-a="ui" value="${sound.settings.ui}"><b>${Math.round(sound.settings.ui * 100)}%</b></label>
+        <label class="set"><span>Effects</span><input type="range" min="0" max="1" step="0.05" data-a="fx" value="${sound.settings.fx}"><b>${Math.round(sound.settings.fx * 100)}%</b></label>
+        <label class="set check"><input type="checkbox" data-a="muted" ${sound.settings.muted ? 'checked' : ''}><span>🔇 Mute all sound</span></label>
         <div class="muted small">Fewer vehicles helps slower computers. The update rate changes how fast the city grows and months pass at 1×; it doesn't change day length.</div>`;
+      // PR 6 sound settings (audio/sound.ts persists them on its own).
+      this.el.querySelectorAll<HTMLInputElement>('[data-a]').forEach((inp) => {
+        inp.oninput = () => {
+          const k = inp.dataset.a as 'volume' | 'ui' | 'fx' | 'muted';
+          if (k === 'muted') sound.set({ muted: inp.checked });
+          else { sound.set({ [k]: Number(inp.value) }); inp.parentElement!.querySelector('b')!.textContent = `${Math.round(Number(inp.value) * 100)}%`; }
+        };
+        inp.onchange = () => { (inp.oninput as () => void)(); sound.play('click'); };
+      });
       this.el.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-k]').forEach((inp) => {
         inp.oninput = inp.onchange = () => {
           const st = this.getSim().settings;
