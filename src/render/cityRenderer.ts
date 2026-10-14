@@ -158,6 +158,34 @@ function haloMaterial(neutral = false): THREE.MeshBasicMaterial {
   return new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
 }
 
+/**
+ * Tileable grayscale "grain" for the solid low-poly material. Every speck is
+ * drawn at its wrapped offsets so the texture tiles seamlessly; each face's
+ * built-in 0..1 UVs then sample a different patch of noise. Three.js
+ * multiplies map x vertex color x instance color, so near-white speckles add
+ * surface variation without changing any model's palette.
+ */
+function grainTexture(size = 128, speckles = 1100): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = '#f4f4f4';
+  g.fillRect(0, 0, size, size);
+  for (let i = 0; i < speckles; i++) {
+    const x = Math.random() * size, y = Math.random() * size;
+    const r = 0.5 + Math.random() * 1.7;
+    const v = 224 + Math.floor(Math.random() * 31); // 224..255, subtle darkening only
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+      g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 /** Scratch colour for lerps. */
 const TMP = new THREE.Color();
 
@@ -250,7 +278,11 @@ export class CityRenderer {
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
-    const solid = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    // Procedural grain on the shared low-poly material: one 128px tileable
+    // canvas texture adds subtle surface variation to every solid face
+    // (map x vertex color x instance color multiply in the shader).
+    const grain = grainTexture();
+    const solid = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: grain });
     const add = (name: string, geo: THREE.BufferGeometry, mat: THREE.Material = solid, cap = 256, shadows = true) =>
       (this.pools[name] = new InstancePool(this.group, geo, mat, cap, shadows));
 
@@ -271,7 +303,7 @@ export class CityRenderer {
     add('bridgePier', ROADS.bridgePier(), solid, 256);
     add('bridgeRamp', ROADS.bridgeRamp(), solid, 128);
     add('highway', ROADS.highway(), solid, 4);
-    add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
+    add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9, map: grain }), 1024, false);
     add('lot', MODELS.lot(), solid, 4096, false);
     // PR 6 parking: painted stall lines, parked cars and public garages.
     add('stall', merge([part(box(0.012, 0.002, 0.2), 0xf2f2f2, [-0.118, 0, 0])]), solid, 2048, false);

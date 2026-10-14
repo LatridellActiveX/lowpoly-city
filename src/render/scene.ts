@@ -11,6 +11,33 @@
 import * as THREE from 'three';
 import { GRID_SIZE } from '../sim/types';
 
+/**
+ * Tileable stylized grass drawn on a canvas: a green base with darker blade
+ * tufts and lighter flecks. Every mark is drawn at its wrapped offsets so the
+ * texture tiles seamlessly when repeated across the 64-unit map.
+ */
+function grassTexture(size = 256): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = '#86c25e';
+  g.fillRect(0, 0, size, size);
+  const dot = (x: number, y: number, r: number, c: string) => {
+    g.fillStyle = c;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+      g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
+    }
+  };
+  for (let i = 0; i < 260; i++) dot(Math.random() * size, Math.random() * size, 1 + Math.random() * 2.2, '#6aa548'); // blade tufts
+  for (let i = 0; i < 130; i++) dot(Math.random() * size, Math.random() * size, 0.8 + Math.random() * 1.6, '#9ad470'); // light flecks
+  for (let i = 0; i < 60; i++) dot(Math.random() * size, Math.random() * size, 1.2 + Math.random() * 2, '#7ab54f'); // mid patches
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.repeat.set(24, 24); // ~2.7 units per tile on the 64-unit map
+  return tex;
+}
+
 export function tileCenter(x: number, z: number): THREE.Vector3 {
   return new THREE.Vector3(x + 0.5, 0, z + 0.5);
 }
@@ -56,11 +83,15 @@ export function createScene(container: HTMLElement): SceneBundle {
   scene.add(sun, sun.target);
 
   // The map is a thick slab of grass with an earthy side, like a diorama.
+  // The grass top face gets a procedural canvas texture (repeated); the
+  // material color stays white so the texture's greens show exactly.
   const half = GRID_SIZE / 2;
   const slab = new THREE.Mesh(
     new THREE.BoxGeometry(GRID_SIZE, 2, GRID_SIZE),
-    [0x8a6a48, 0x8a6a48, 0x86c25e, 0x5c4630, 0x8a6a48, 0x8a6a48].map(
-      (c) => new THREE.MeshLambertMaterial({ color: c }),
+    [0x8a6a48, 0x8a6a48, 0xffffff, 0x5c4630, 0x8a6a48, 0x8a6a48].map((c, i) =>
+      i === 2
+        ? new THREE.MeshLambertMaterial({ color: c, map: grassTexture() })
+        : new THREE.MeshLambertMaterial({ color: c }),
     ),
   );
   slab.position.set(half, -1, half);

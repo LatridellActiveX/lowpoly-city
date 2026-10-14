@@ -24,8 +24,9 @@ export function part(
   rot: [number, number, number] = [0, 0, 0],
 ): THREE.BufferGeometry {
   // toNonIndexed so every part has the same attribute layout and can be merged.
+  // UVs are KEPT (not deleted): primitive UVs let canvas textures sample each
+  // face, and Three.js multiplies map x vertex color x instance color.
   const g = geo.index ? geo.toNonIndexed() : geo;
-  g.deleteAttribute('uv');
   g.rotateX(rot[0]);
   g.rotateY(rot[1]);
   g.rotateZ(rot[2]);
