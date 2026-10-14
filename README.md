@@ -1,9 +1,10 @@
 # Low-Poly City
 
 A browser-based isometric low-poly city builder built with **Vite + TypeScript + Three.js**.
-Zone land, lay roads, power lines and water pipes, and keep your city's power and water networks running.
+Zone land, lay roads, run power and water networks, balance a budget, and watch
+traffic, industry and the day/night cycle bring your city to life.
 
-![Test city](docs/city-m2-desktop.png)
+![City overview](docs/city-m6-overview.png)
 
 ## Run it locally
 
@@ -15,11 +16,13 @@ npm run build    # type-check + production build into dist/
 
 ## How to play
 1. Lay a **Road**. Every building needs a road on one of its four sides.
-2. Build a **Power Plant** (120 power) or **Wind Turbine** (15) and drag **Power Lines** past where you'll build.
+2. Build a **Power Plant** (120 power) or **Wind Turbine** (15, varies with the wind) and drag **Power Lines** past where you'll build.
 3. Build a **Water Tower** (80 water, needs power to pump) and drag **Pipes** past the same blocks.
 4. Paint **Homes / Shops / Industry** zones beside the road. Lots grow into buildings over time once they have road + power + water.
 5. Watch your 💵 cash. Everything costs money, bulldozing refunds 25%, and each month operating buildings pay taxes while plants, turbines and towers cost upkeep. Open **💰 Budget** to see the books and set tax rates (0–20%; higher taxes slow growth).
 6. Watch the ⚡ and 💧 meters. If demand passes capacity, the furthest buildings go dark (outage) and get a warning gem.
+7. Industry ships **goods by truck** to shops — keep the roads flowing or shelves go empty.
+8. Cars drive the roads for real: signals, parking and congestion all matter.
 
 ## Controls
 | Action | Mouse / keys | Touch |
@@ -31,17 +34,28 @@ npm run build    # type-check + production build into dist/
 | Pause | Space | ⏸ |
 | Tools | I R 1 2 3 P N L T O X | toolbar |
 
+## Features
+- **Simulation:** zone growth, power/water networks with capacity outages, traffic with signals and parking, industrial goods, pollution & desirability, variable wind, economy with taxes and upkeep, save/load.
+- **Presentation:** day/night cycle with lit windows and lamp glows, seasons-ready palette, procedural low-poly models, sound effects, population graphs, demand bars, game log and notifications.
+- **Rendering:** every model is procedural — primitives merged into single vertex-colored geometries, drawn as instanced meshes with flat shading. Detail comes from procedural canvas textures (surface grain, grass, icon badges, light halos). No model files, no art pipeline.
+
 ## Code layout
 ```
-src/sim/     the city as plain data + rules (no graphics)  — grid, rules, networks, simulation, economy, terrain, random, save
-src/render/  Three.js drawing (reads the sim, never changes it) — camera, scene, models, buildings, nature, instancing
-src/ui/      HTML toolbar/panels and input                    — hud, input, tools
+src/sim/     the city as plain data + rules (no graphics) — grid, growth, networks,
+             traffic, economy & goods, environment (wind, pollution), save
+src/render/  Three.js drawing (reads the sim, never changes it) — cityRenderer,
+             camera, scene, models, buildings, industryModels, roads, vehicles,
+             nature, powerLines, dayNight, instancing
+src/ui/      HTML toolbar/panels and input — hud, tools, input, graphs, gameLog,
+             notifications, menu, demandBars
 src/main.ts  wires the layers together and runs the game loop
+src/audio/   procedural sound effects
 ```
 Every file starts with a comment explaining its job; see the wiki for longer explanations.
 
 ## Roadmap
-- **Milestone 1:** grid, isometric camera, placement tools, utilities, zone growth, save/load. ✅
-- **Milestone 2:** building variety, terrain & trees, money and budget. ✅
-- **Next:** car traffic (A* pathfinding, traffic lights, settings for car count).
-- **Milestone 3:** economy (industrial goods shipped by truck to commercial), polish.
+- ✅ **Milestones 1–2:** grid, isometric camera, placement tools, utilities, zone growth, save/load, building variety, terrain & trees, money and budget.
+- ✅ **Traffic:** cars on real road graphs, traffic signals, parking, congestion.
+- ✅ **Environment:** day/night cycle, variable wind, pollution & desirability, parks.
+- ✅ **Economy:** industrial goods shipped by truck, construction system, progression.
+- **Next:** see the wiki's upcoming-features page for proposed designs.
