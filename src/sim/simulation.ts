@@ -30,7 +30,8 @@ import { computeNetworks, NetworkResult } from './networks';
 import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
-import { Building } from './lots';
+import { Building, tileBuildable } from './lots';
+import { cidx, ZoneCode } from './cells';
 import { TPL, isFiller } from './footprints';
 import { BUILD_COST } from './economy';
 import { hash2 } from './random';
@@ -193,6 +194,13 @@ export class Simulation {
     const sparePower = this.net.power.map((n) => n.capacity - n.supplied);
     const spareWater = this.net.water.map((n) => n.capacity - n.supplied);
 
+    // V1.5: busy shopping districts grow multi-storey garages (parking.ts),
+    // before lots grow so a garage can claim free frontage first.
+    const grown = w.parking.growGarages(w, w.lots, (x, z) => this.garageTileFree(x, z));
+    if (grown) {
+      this.events.push(`🅿️ Parking was short around the shops, so a ${grown.decks}-deck garage (${grown.spaces} spaces) grew on a commercial lot.`);
+      this.version++;
+    }
     // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
     growLots(this, sparePower, spareWater);
     // Cars park (parking.ts): occupancy for the time of day + commuter claims.
@@ -344,18 +352,35 @@ export class Simulation {
     return res;
   }
 
+  /**
+   * V1.5: can a grown garage take tile (x, z)? Every cell zoned commercial
+   * and unowned, buildable land, and a road on one side.
+   */
+  garageTileFree(x: number, z: number): boolean {
+    const w = this.world;
+    if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE || !tileBuildable(w.at(x, z))) return false;
+    for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) {
+      const c = cidx(x * 4 + dx, z * 4 + dz);
+      if (w.cells.owner[c] !== 0) return false;
+      const code = w.cells.zone[c];
+      if (code !== ZoneCode.ComLow && code !== ZoneCode.ComHigh) return false;
+    }
+    return [[0, -1], [1, 0], [0, 1], [-1, 0]].some(([ddx, ddz]) => { const nx = x + ddx, nz = z + ddz; return nx >= 0 && nz >= 0 && nx < GRID_SIZE && nz < GRID_SIZE && w.at(nx, nz).road; });
+  }
+
   private applyParking(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
     const w = this.world;
     const [x, z] = tiles[tiles.length - 1] ?? [0, 0];
     if (!canPlace(tool, w.at(x, z))) return res;
-    const size = tool === 'parkingGarage' ? 4 : 2;
+    // V1.5: surface lots fill the whole tile too (16 cells, 16 spaces).
+    const size = 4;
     const spot = parkingSpot(this, x, z, this.pointerFrac[0], this.pointerFrac[1], size);
     const cost = BUILD_COST[tool as 'parkingLot'];
     if (!spot) return res;
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    w.parking.addLot(w, spot[0], spot[1], size);
+    w.parking.addLot(w, spot[0], spot[1], size, tool === 'parkingGarage');
     w.parking.allocate(w.lots);
     this.version++;
     return { ...res, changed: 1, spent: cost };

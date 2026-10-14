@@ -77,7 +77,11 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
     // Put a lot on any free cell quadrant within range: try around the host tile.
     const hx = shop.host % N, hz = Math.floor(shop.host / N);
     let placed = false;
-    for (const [dx, dz] of [[0, 1], [1, 0], [-1, 0], [0, -1], [2, 0], [-2, 0], [1, 1], [-1, 1]]) {
+    // V1.5: lots fill a whole free tile and reach 6 tiles, so search wider.
+    const ring: number[][] = [];
+    for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) ring.push([dx, dz]);
+    ring.sort((a, b) => Math.abs(a[0]) + Math.abs(a[1]) - Math.abs(b[0]) - Math.abs(b[1]));
+    for (const [dx, dz] of ring) {
       const x = hx + dx, z = hz + dz;
       for (const f of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]] as const) {
         s.pointerFrac = [f[0], f[1]];

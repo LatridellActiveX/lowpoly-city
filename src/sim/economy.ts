@@ -61,7 +61,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // PR 6 public parking (Roads flyout): a 2×2-cell surface lot (4 spaces) and
   // a 4×4-cell (one tile) three-deck garage (40 spaces). Priced per space:
   // $30 surface, $40 decked (you pay for the land you save).
-  parkingLot: 120,
+  parkingLot: 480, // V1.5: whole tile (16 spaces) — was $120 for a 2×2-cell quarter
   parkingGarage: 1600,
 };
 
@@ -114,7 +114,8 @@ export interface Ledger {
   construction: number;
   refunds: number;
   /** PR 4 trade: export income (+) and imported power-plant coal (−). */
-  trade: { exports: number; fuel: number };
+  trade: { exports: number; fuel: number; parking?: number };
+  // V1.5: trade.parking = garage fees (parking.ts chargeFees).
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
@@ -128,7 +129,7 @@ export const emptyLedger = (): Ledger => ({
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
   const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
-  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
+  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel + (l.trade.parking ?? 0);
 }
 
 /** What placing `tool` on tile `t` costs (including clearing a decoration). */

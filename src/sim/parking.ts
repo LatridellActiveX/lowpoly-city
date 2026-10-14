@@ -41,10 +41,20 @@ import { Tile } from './types';
 
 export interface PublicLot {
   id: number;
-  /** Top-left cell and size in cells (2 = surface lot, 4 = garage). */
+  /**
+   * Top-left cell and size in cells. V1.5: new surface lots and garages both
+   * fill the whole tile (size 4 = 16 cells); PR 6 saves may still hold 2×2
+   * surface lots (size 2), which keep working unchanged.
+   */
   cx: number;
   cz: number;
   size: number;
+  /** V1.5: multi-storey garage (vs surface lot). PR 6 saves: size 4 = garage. */
+  garage: boolean;
+  /** V1.5: garage decks (3 for a built garage, 3–5 for a grown one). */
+  decks: number;
+  /** V1.5: grown by commercial parking demand (growGarages), not placed by the player. */
+  grown: boolean;
   spaces: number;
   /** Spaces handed to short buildings by allocate(). */
   allocated: number;
@@ -53,12 +63,36 @@ export interface PublicLot {
 }
 
 export const PUBLIC_RANGE = 12;
+/**
+ * V1.5 service ranges (Manhattan, in cells): surface lots reach 2× the PR 6
+ * range (24 cells = 6 tiles), garages 3× (36 cells = 9 tiles).
+ */
+export const LOT_RANGE = PUBLIC_RANGE * 2;
+export const GARAGE_RANGE = PUBLIC_RANGE * 3;
+export const rangeOf = (l: PublicLot) => (l.garage ? GARAGE_RANGE : LOT_RANGE);
+/** V1.5: spaces per garage deck (3 decks = 40, the PR 6 garage). */
+export const SPACES_PER_DECK = 40 / 3;
+export const garageSpaces = (decks: number) => Math.round(SPACES_PER_DECK * decks);
+/** V1.5: a surface lot holds 1 car per cell (whole tile = 16; PR 6 2×2 = 4). */
+export const lotSpaces = (size: number) => size * size;
+/** V1.5: garage fee per parked car per sim tick (≈ $1.50 per car per game day at 1×). */
+export const GARAGE_FEE = 0.025;
+/**
+ * V1.5 grown garages: a commercial building whose surrounding parking demand
+ * stays above GROW_RATIO × supply for GROW_CHECKS checks in a row (one check
+ * every GROW_INTERVAL ticks) gets a garage on a free commercial tile nearby.
+ */
+export const GROW_RATIO = 1.2;
+export const GROW_CHECKS = 4;
+export const GROW_INTERVAL = 30;
+/** Demand/supply is measured within this many cells of the shop (= lot range). */
+export const DEMAND_RADIUS = LOT_RANGE;
 /** Share of the required spaces filled by the time-of-day baseline (see tick). */
 export const BASELINE_SHARE = 0.7;
 export const LOT_SPACES = 4;
 export const GARAGE_SPACES = 40;
 /** Build costs (economy.ts reads these for the Roads flyout tools). */
-export const LOT_COST = 120;
+export const LOT_COST = 480; // V1.5: whole-tile lot
 export const GARAGE_COST = 1600;
 
 interface Claim {
@@ -102,8 +136,9 @@ export class Parking {
   }
 
   /** Add a lot whose cells the caller already checked are free. */
-  addLot(world: World, cx: number, cz: number, size: number): PublicLot {
-    const l: PublicLot = { id: this.nextId++, cx, cz, size, spaces: size === 4 ? GARAGE_SPACES : LOT_SPACES, allocated: 0, parked: 0 };
+  addLot(world: World, cx: number, cz: number, size: number, garage = false, decks = 3, grown = false): PublicLot {
+    const spaces = garage ? garageSpaces(decks) : lotSpaces(size);
+    const l: PublicLot = { id: this.nextId++, cx, cz, size, garage, decks, grown, spaces, allocated: 0, parked: 0 };
     for (let z = cz; z < cz + size; z++) for (let x = cx; x < cx + size; x++) {
       world.cells.owner[cidx(x, z)] = -l.id;
       world.cells.role[cidx(x, z)] = CellRole.Public;
@@ -116,7 +151,8 @@ export class Parking {
   /** Public lots within walking range of building b, nearest first. */
   inRange(b: Building): PublicLot[] {
     const c = centre(b);
-    return [...this.lots.values()].filter((l) => manhattan(c, lotCentre(l)) <= PUBLIC_RANGE + (b.x1 - b.x0 + b.z1 - b.z0) / 2).sort((p, q) => manhattan(c, lotCentre(p)) - manhattan(c, lotCentre(q)));
+    // V1.5: each lot has its own reach (rangeOf: lots 2×, garages 3× PR 6).
+    return [...this.lots.values()].filter((l) => manhattan(c, lotCentre(l)) <= rangeOf(l) + (b.x1 - b.x0 + b.z1 - b.z0) / 2).sort((p, q) => manhattan(c, lotCentre(p)) - manhattan(c, lotCentre(q)));
   }
 
   own(b: Building): number {
@@ -171,6 +207,7 @@ export class Parking {
     const claimed = new Map<number, number>();
     for (const c of this.claims) claimed.set(c.where, (claimed.get(c.where) ?? 0) + 1);
     for (const l of this.lots.values()) l.parked = claimed.get(-l.id) ?? 0;
+    this.chargeFees(world);
     for (const b of lots.buildings.values()) {
       b.arrivals *= 0.995; // decay: "recent" history (≈ 200 ticks half-life)
       b.gaveUp *= 0.995;
@@ -223,6 +260,96 @@ export class Parking {
     b.gaveUp++;
     this.stats.gaveUp++;
     return false;
+  }
+
+  /**
+   * V1.5: garages charge drivers. Called each tick with the PREVIOUS tick's
+   * occupancy (lots only refill further down); booked as trade income.
+   */
+  private feeCarry = 0;
+  private chargeFees(world: World): void {
+    let cars = 0;
+    for (const l of this.lots.values()) if (l.garage) cars += l.parked;
+    this.feeCarry += cars * GARAGE_FEE;
+    if (this.feeCarry >= 1) {
+      const whole = Math.floor(this.feeCarry);
+      this.feeCarry -= whole;
+      world.cash += whole;
+      world.ledger.trade.parking = (world.ledger.trade.parking ?? 0) + whole;
+    }
+  }
+
+  /** V1.5: parking demand (required spaces) and supply (own + public) within `radius` cells of a point. */
+  localBalance(lots: Lots, c: number[], radius = DEMAND_RADIUS): { demand: number; supply: number } {
+    let demand = 0, supply = 0;
+    for (const b of lots.buildings.values()) {
+      if (b.level <= 0 || manhattan(c, centre(b)) > radius) continue;
+      // Demand is what the area WANTS, not just what's built: a building
+      // whose next level is blocked by parking counts its next-level need,
+      // and drivers who recently gave up (no space) count on top. (Built
+      // levels always fit their parking, so "required" alone never exceeds
+      // supply.)
+      const tpl = TPL[b.tpl];
+      const blocked = b.level < tpl.maxLevel && !this.canSupport(b, b.level + 1);
+      demand += (blocked ? this.required(b, b.level + 1) : this.required(b)) + b.gaveUp;
+      supply += this.own(b);
+    }
+    for (const l of this.lots.values()) if (manhattan(c, lotCentre(l)) <= Math.max(radius, rangeOf(l))) supply += l.spaces;
+    return { demand, supply };
+  }
+
+  /** Per-building streak of "parking demand > 120 % of supply" checks (not saved; rebuilt in minutes). */
+  pressure = new Map<number, number>();
+
+  /**
+   * V1.5 GROWN GARAGES. Every GROW_INTERVAL ticks, each commercial building
+   * measures the parking balance around it. After GROW_CHECKS checks in a
+   * row above GROW_RATIO, the free commercial-zoned tile nearest to it (all
+   * 16 cells zoned commercial and unowned, next to a road) grows a garage
+   * — 3 decks, 4 if demand is > 1.6× supply, 5 if > 2×. At most one garage
+   * grows per check so a whole district doesn't turn to concrete at once.
+   * `freeTile(x, z)` comes from the sim (it knows roads/zones/buildability).
+   */
+  growGarages(world: World, lots: Lots, freeTile: (x: number, z: number) => boolean): PublicLot | null {
+    // Measuring is every GROW_INTERVAL ticks; looking for a free tile for the
+    // hot list is every tick, and the sim calls this BEFORE lots grow, so a
+    // freshly zoned commercial tile can become a garage before a shop claims it.
+    if (world.tick % GROW_INTERVAL === 0) this.hot = this.measure(lots);
+    const hot = this.hot.filter((h) => lots.buildings.has(h.b.id));
+    if (!hot.length) return null;
+    let best: { b: Building; ratio: number } | null = null;
+    let spot: [number, number] | null = null;
+    for (const h of hot) {
+      const [bx, bz] = centre(h.b).map((v) => Math.floor(v / 4)); // cells → tiles
+      let d0 = Infinity;
+      for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+        const x = bx + dx, z = bz + dz, d = Math.abs(dx) + Math.abs(dz);
+        if (d < d0 && freeTile(x, z)) { spot = [x, z]; d0 = d; }
+      }
+      if (spot) { best = h; break; }
+    }
+    if (!best || !spot) return null;
+    const decks = best.ratio > 2 ? 5 : best.ratio > 1.6 ? 4 : 3;
+    const l = this.addLot(world, spot[0] * 4, spot[1] * 4, 4, true, decks, true);
+    this.pressure.clear(); // everyone re-measures with the new supply
+    this.hot = [];
+    this.allocate(lots);
+    return l;
+  }
+
+  /** Buildings whose pressure streak reached GROW_CHECKS, worst first. */
+  private hot: Array<{ b: Building; ratio: number }> = [];
+  private measure(lots: Lots): Array<{ b: Building; ratio: number }> {
+    const hot: Array<{ b: Building; ratio: number }> = [];
+    for (const b of lots.buildings.values()) {
+      if (b.level <= 0 || TPL[b.tpl].zone !== 'commercial') continue;
+      const { demand, supply } = this.localBalance(lots, centre(b));
+      const ratio = demand / Math.max(1, supply);
+      const streak = ratio > GROW_RATIO ? (this.pressure.get(b.id) ?? 0) + 1 : 0;
+      this.pressure.set(b.id, streak);
+      if (streak >= GROW_CHECKS) hot.push({ b, ratio });
+    }
+    return hot.sort((p, q) => q.ratio - p.ratio);
   }
 
   /** Occupancy summary for the HUD / tests. */

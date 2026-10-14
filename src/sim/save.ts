@@ -36,7 +36,8 @@ import { localToCell } from './lots';
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
 /** v6 (PR 6): cell grid (zone/owner/role, base64), building entities, public lots; roads gain water mains. */
-export const SAVE_VERSION = 6;
+/** v7 (V1.5): public lots gain garage/decks/grown; whole-tile surface lots; ledger trade.parking. */
+export const SAVE_VERSION = 7;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -136,7 +137,10 @@ export function loadWorld(): World | null {
       w.cells.owner.set(new Int32Array(b64ToBytes(data.cells.owner).buffer));
       for (const b of data.buildings ?? []) if (TPL[b.tpl]) w.lots.buildings.set(b.id, { ...b, movingIn: false });
       w.lots.nextId = data.nextBuilding ?? w.lots.buildings.size + 1;
-      for (const l of data.lots ?? []) w.parking.lots.set(l.id, { ...l, parked: 0 });
+      // V1.5 (save v7): lots gained garage/decks/grown. PR 6 lots: size 4 was
+      // the garage (3 decks, 40 spaces), size 2 the surface lot (4 spaces);
+      // both keep their size and spaces.
+      for (const l of data.lots ?? []) w.parking.lots.set(l.id, { garage: l.size === 4, decks: 3, grown: false, ...l, parked: 0 });
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.

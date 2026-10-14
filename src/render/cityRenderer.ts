@@ -46,6 +46,7 @@ import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
+import { rangeOf } from '../sim/parking';
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS, PLANT_OIL } from '../sim/rules';
 import { tileCenter } from './scene';
@@ -772,18 +773,31 @@ export class CityRenderer {
 
     // ---- public lots ----
     for (const l of w.parking.lots.values()) {
-      if (l.size === 4) {
-        const c0 = new THREE.Vector3((l.cx + 2) * Q, 0, (l.cz + 2) * Q);
-        P.parkDeck.add(this.place(c0, 0));
-        if (ov === 'parking') P.overlay.add(this.place(c0.clone().setY(0.62), 0, 1, 1, 1), occColor(l.parked, l.spaces));
+      if (l.garage) {
+        // V1.5: grown garages can have 3–5 decks; the 3-deck model is
+        // stretched vertically (decks / 3) instead of keeping 3 models.
+        const c0 = new THREE.Vector3(l.cx * Q + (l.size * Q) / 2, 0, l.cz * Q + (l.size * Q) / 2);
+        P.parkDeck.add(this.place(c0, 0, 1, l.decks / 3, 1));
+        if (ov === 'parking') P.overlay.add(this.place(c0.clone().setY(0.62 * (l.decks / 3)), 0, 1, 1, 1), occColor(l.parked, l.spaces));
         continue;
       }
+      // Surface lot: V1.5 lots fill the whole tile (size 4); PR 6 saves may hold 2×2 ones.
       let k = 0;
-      for (let z = l.cz; z < l.cz + 2; z++) for (let x = l.cx; x < l.cx + 2; x++, k++) {
+      for (let z = l.cz; z < l.cz + l.size; z++) for (let x = l.cx; x < l.cx + l.size; x++, k++) {
         P.lot.add(this.place(cellPos(x, z), 0, Q, 1, Q), this.c.setHex(ASPHALT));
         P.stall.add(this.place(cellPos(x, z, 0.031), 0));
         if (k < l.parked) parkCar(x, z, Math.PI / 2, 300);
         if (ov === 'parking') P.overlay.add(this.place(cellPos(x, z, 0.09), 0, Q, 1, Q), occColor(l.parked, l.spaces));
+      }
+    }
+    // V1.5 coverage: in the Parking overlay, tint every tile that some public
+    // lot / garage reaches (rangeOf, Manhattan in cells) with a pale blue.
+    if (ov === 'parking' && w.parking.lots.size) {
+      const lotsArr = [...w.parking.lots.values()];
+      for (let tz = 0; tz < GRID_SIZE; tz++) for (let tx = 0; tx < GRID_SIZE; tx++) {
+        const cx = tx * 4 + 2, cz = tz * 4 + 2;
+        if (!lotsArr.some((l) => Math.abs(cx - (l.cx + l.size / 2)) + Math.abs(cz - (l.cz + l.size / 2)) <= rangeOf(l))) continue;
+        P.overlay.add(this.place(new THREE.Vector3(tx + 0.5, 0.05, tz + 0.5), 0, 1, 0.3, 1), this.c.setHex(0x7fb8ff));
       }
     }
 
