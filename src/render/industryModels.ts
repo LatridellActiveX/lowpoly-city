@@ -48,6 +48,14 @@ export function farmModel(): THREE.BufferGeometry {
     part(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10).rotateX(Math.PI / 2), 0x222222, [0.025, 0.03, 0.39]),
     part(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10).rotateX(Math.PI / 2), 0x222222, [0.025, 0.03, 0.33]),
   ];
+  // Water trough, feed sacks by the barn door, a weather vane on the roof.
+  p.push(part(box(0.12, 0.05, 0.05), 0x8d949c, [0.12, 0.012, -0.32]));
+  p.push(part(box(0.11, 0.006, 0.04), 0x3d95d9, [0.12, 0.055, -0.32]));
+  p.push(part(box(0.07, 0.05, 0.05), 0xd9c9a3, [-0.34, 0.012, 0.18]));
+  p.push(part(box(0.06, 0.04, 0.045), 0xcbb98f, [-0.27, 0.012, 0.2], [0, 0.4, 0]));
+  p.push(part(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 6).translate(0, 0.05, 0), 0x555c63, [-0.12, 0.372, 0.1]));
+  p.push(part(box(0.09, 0.008, 0.008), 0x555c63, [-0.12, 0.46, 0.1]));
+  p.push(part(box(0.02, 0.03, 0.004), 0x555c63, [-0.165, 0.46, 0.1]));
   // Hay bales (round, lying on their side).
   for (const [x, z] of [[-0.38, -0.3], [-0.28, -0.32], [-0.33, -0.22]]) p.push(part(new THREE.CylinderGeometry(0.045, 0.045, 0.06, 10).rotateZ(Math.PI / 2), 0xe0c46a, [x, 0.057, z]));
   // Yard fence along the back and the sides (front stays open to the road).
@@ -107,6 +115,37 @@ function conveyor(p: THREE.BufferGeometry[], x0: number, y0: number, x1: number,
     p.push(part(box(0.012, y, 0.012), STEEL_D, [x, 0, z]));
   }
 }
+/** A cluster of oil drums (blue / rust-red / grey) with lids. */
+function barrels(p: THREE.BufferGeometry[], x: number, z: number): void {
+  const cols = [0x2f6fb0, 0xb14d2a, 0x8d949c, 0x2f6fb0, 0xb14d2a];
+  [[0, 0], [0.09, 0.01], [0.045, 0.08], [-0.045, 0.07], [0.13, 0.07]].forEach(([dx, dz], i) => {
+    p.push(part(cyl(0.035, 0.09), cols[i % cols.length], [x + dx, 0.012, z + dz]));
+    p.push(part(new THREE.CylinderGeometry(0.036, 0.036, 0.008, 10), STEEL_D, [x + dx, 0.075, z + dz]));
+  });
+}
+/** Wooden pallet stacked with two crates. */
+function cratePallet(p: THREE.BufferGeometry[], x: number, z: number): void {
+  p.push(part(box(0.12, 0.02, 0.1), 0x9b7a50, [x, 0.012, z]));
+  p.push(part(box(0.1, 0.07, 0.08), 0xc89a5e, [x, 0.032, z]));
+  p.push(part(box(0.07, 0.05, 0.06), 0xb78a4e, [x + 0.01, 0.102, z - 0.005]));
+}
+/** Green dumpster with a lid and caster blocks. */
+function dumpster(p: THREE.BufferGeometry[], x: number, z: number): void {
+  p.push(part(box(0.14, 0.09, 0.07), 0x2f7a4c, [x, 0.012, z]));
+  p.push(part(box(0.145, 0.015, 0.075), 0x256b42, [x, 0.102, z]));
+  for (const s of [-1, 1]) p.push(part(box(0.02, 0.02, 0.02), 0x222222, [x + s * 0.05, 0.012, z]));
+}
+/** Roof exhaust stack with a rain cap on two posts. */
+function exhaustStack(p: THREE.BufferGeometry[], x: number, y: number, z: number, h = 0.16): void {
+  p.push(part(cyl(0.02, h), STEEL_D, [x, y, z]));
+  p.push(part(box(0.06, 0.012, 0.06), STEEL_D, [x, y + h + 0.02, z]));
+  for (const s of [-1, 1]) p.push(part(box(0.006, 0.025, 0.006), STEEL_D, [x + s * 0.024, y + h + 0.008, z]));
+}
+/** Small orange traffic cone with a white band. */
+function trafficCone(p: THREE.BufferGeometry[], x: number, z: number): void {
+  p.push(part(new THREE.ConeGeometry(0.025, 0.07, 8).translate(0, 0.035, 0), 0xf28c1d, [x, 0.014, z]));
+  p.push(part(new THREE.CylinderGeometry(0.016, 0.019, 0.015, 8).translate(0, 0.04, 0), 0xffffff, [x, 0.014, z]));
+}
 
 /**
  * Food processing plant, three variants (k = 0..2). All have the loading
@@ -129,6 +168,10 @@ export function foodPlantModel(k: number): THREE.BufferGeometry {
     tank(p, 0.32, 0.02, 0.07, 0.26);
     conveyor(p, 0.3, 0.12, 0.18, 0.24, -0.18);
     docks(p, -0.36, 4, 0.265, 0.22);
+    // Yard detail: barrel cluster, dumpster, roof exhaust stack.
+    barrels(p, -0.4, -0.32);
+    dumpster(p, 0.4, 0.32);
+    exhaustStack(p, -0.275, 0.252, -0.1);
   } else if (k === 1) {
     for (const [x, z] of [[-0.3, -0.3], [-0.1, -0.3], [0.1, -0.3]]) {
       p.push(part(cyl(0.085, 0.55), 0xe4e1d8, [x, 0.012, z]));
@@ -143,6 +186,11 @@ export function foodPlantModel(k: number): THREE.BufferGeometry {
     docks(p, -0.04, 3, 0.282, 0.2);
     p.push(part(box(0.1, 0.14, 0.1), 0xe8eef2, [-0.36, 0.012, 0.25])); // refrigeration unit
     for (const x of [-0.39, -0.33]) p.push(part(new THREE.CylinderGeometry(0.02, 0.02, 0.01, 10), 0x555c63, [x, 0.157, 0.25]));
+    // Staging detail: crate pallets, barrel cluster, roof exhaust stack.
+    cratePallet(p, -0.3, 0.34);
+    cratePallet(p, -0.14, 0.36);
+    barrels(p, 0.38, -0.32);
+    exhaustStack(p, 0.3, 0.272, 0.02);
   } else {
     p.push(part(box(0.78, 0.2, 0.36), 0xe6e1d4, [-0.02, 0.012, 0.06])); // long hall
     p.push(part(box(0.8, 0.02, 0.38), 0x6c757d, [-0.02, 0.212, 0.06]));
@@ -159,6 +207,12 @@ export function foodPlantModel(k: number): THREE.BufferGeometry {
     // Parked reefer truck at the end bay.
     p.push(part(box(0.26, 0.11, 0.1), 0xf4f6f8, [0.3, 0.03, 0.38], [0, Math.PI / 2, 0]));
     p.push(part(box(0.08, 0.09, 0.1), 0x2f6fb0, [0.3, 0.03, 0.54 - 0.06], [0, Math.PI / 2, 0]));
+    // Yard detail: dumpster, crate pallets, exhaust stack, hazard curb.
+    dumpster(p, 0.42, -0.08);
+    cratePallet(p, -0.4, 0.3);
+    cratePallet(p, -0.26, 0.33);
+    exhaustStack(p, 0.32, 0.232, -0.05);
+    for (let i = 0; i < 10; i++) p.push(part(box(0.07, 0.008, 0.03), i % 2 ? 0x222222 : 0xffd21f, [-0.35 + i * 0.07, 0.012, 0.44]));
   }
   return merge(p);
 }
@@ -200,6 +254,13 @@ export function constructionYardModel(): THREE.BufferGeometry {
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3 - r; c++) p.push(part(new THREE.CylinderGeometry(0.018, 0.018, 0.26, 8).rotateX(Math.PI / 2), 0x8d949c, [0.18 + c * 0.04 + r * 0.02, 0.032 + r * 0.033, 0.3]));
   for (let k = 0; k < 4; k++) p.push(part(box(0.24, 0.018, 0.035), 0xc89a5e, [0.3, 0.014 + k * 0.019, -0.12 + (k % 2) * 0.01]));
   p.push(part(new THREE.ConeGeometry(0.1, 0.09, 10).translate(0, 0.045, 0), 0xd8c08a, [0.38, 0.014, 0.22]));
+  // Portable toilet, a floodlight mast, and traffic cones around the work area.
+  p.push(part(box(0.07, 0.14, 0.07), 0x2f6fb0, [0.4, 0.014, -0.14]));
+  p.push(part(box(0.06, 0.1, 0.006), 0x245a86, [0.4, 0.03, -0.104]));
+  p.push(part(box(0.075, 0.012, 0.075), 0xf2f2f2, [0.4, 0.154, -0.14]));
+  p.push(part(new THREE.CylinderGeometry(0.008, 0.01, 0.3, 8).translate(0, 0.15, 0), 0x8d949c, [-0.4, 0.014, 0.32]));
+  p.push(part(box(0.09, 0.02, 0.05), 0xfff3c4, [-0.4, 0.3, 0.32]));
+  for (const [x, z] of [[-0.14, 0.3], [0.02, 0.3], [0.18, 0.3], [-0.4, 0.1]]) trafficCone(p, x, z);
   // Perimeter fence (sides + back) with orange-capped posts.
   for (let k = 0; k <= 8; k++) {
     const v = -0.47 + k * 0.1175;
