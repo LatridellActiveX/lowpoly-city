@@ -23,8 +23,10 @@ import { windFrom, windLabel } from '../sim/wind';
 import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RESOURCE_NAMES } from '../sim/resources';
+import { TPL } from '../sim/footprints';
+import { cellZoneLabel, industryMix } from '../sim/growth';
 import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
-import { CONSTRUCT_TICKS, FUEL_MAX, JOBS_PER_LEVEL, MAX_RES_LEVEL, RESIDENTS_AT, residentsOf } from '../sim/rules';
+import { CONSTRUCT_TICKS, FUEL_MAX } from "../sim/rules";
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number, dir: number): string {
@@ -82,6 +84,8 @@ export class Hud {
   private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
   private currentTool: ToolId = 'inspect';
+  /** PR 6: cell under the cursor when Inspect was clicked (main.ts sets it), so the panel shows THAT building. */
+  pickCell: [number, number] | null = null;
   private lastSim: Simulation | null = null;
   private toastTimer = 0;
   /** Time-of-day text from the day/night cycle, e.g. "21:40". */
@@ -109,6 +113,8 @@ export class Hud {
         ['water', '💧 Water'],
         ['pollution', '☁️ Pollution'],
         ['resources', '🗺 Resources'],
+        ['zoning', '🧱 Zoning'],
+        ['parking', '🅿️ Parking'],
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
@@ -512,7 +518,20 @@ export class Hud {
 
     if (t.zone === 'industrial' && isFarmLot(sim.world, i)) title = t.level > 0 ? `Farm (level ${t.level})` : 'Empty farm lot';
     if (isFoodPlant(t)) title = t.level > 0 ? `Food Processing Plant (level ${t.level})` : 'Empty food plant lot';
-    if (t.farm > 0) title = 'Crop field';
+    // PR 6: which building / lot / field is under the cursor cell?
+    const [pcx, pcz] = this.pickCell ?? [x * 4 + 1, z * 4 + 1];
+    const inTile = Math.floor(pcx / 4) === x && Math.floor(pcz / 4) === z;
+    const cellOwner = inTile ? sim.world.cells.owner[pcz * 256 + pcx] : 0;
+    let bld = cellOwner > 0 ? sim.world.lots.buildings.get(cellOwner) : undefined;
+    const fieldOf = bld && inTile && sim.world.cells.role[pcz * 256 + pcx] === 5 ? bld : undefined;
+    if (fieldOf) bld = undefined;
+    if (!bld && !fieldOf) bld = sim.world.lots.hostedOn(i).find((q) => TPL[q.tpl].capacity[0] > 0) ?? sim.world.lots.onTile(sim.world, x, z).find((q) => sim.world.cells.role[pcz * 256 + pcx] !== 5 && TPL[q.tpl].capacity[0] > 0);
+    const pubLot = cellOwner < 0 ? sim.world.parking.lots.get(-cellOwner) : [...sim.world.parking.lots.values()].find((l) => Math.floor(l.cx / 4) === x && Math.floor(l.cz / 4) === z);
+    if (bld) {
+      const tpl = TPL[bld.tpl];
+      title = bld.level > 0 ? `${tpl.label}${tpl.capacity[0] > 0 ? ` (level ${bld.level}/${tpl.maxLevel})` : ''}` : `${tpl.label} — construction site`;
+    } else if (fieldOf) title = 'Crop field';
+    else if (pubLot) title = pubLot.size === 4 ? 'Public parking garage' : 'Public parking lot';
     if (t.edge) title = 'Highway connection';
     else if (t.road && t.water) title = t.roadType === 1 ? 'Avenue bridge' : 'Bridge';
     else if (t.road && t.roadType === 1 && !t.powerLine && !t.waterPipe) title = 'Avenue';
@@ -523,25 +542,34 @@ export class Hud {
       const pct = Math.round((1 - t.construct / CONSTRUCT_TICKS) * 100);
       rows.push(`<div class="row">🏗 Under construction: <b>${pct}%</b> (to level ${t.level + 1})${sim.status(i).operating ? '' : ' <span class="bad">— paused, needs road, power and water</span>'}</div>`);
     }
-    // PR 5: occupancy rows (re-rendered every HUD tick, so they update live).
-    //  - Homes: people living there now vs the level's capacity (RESIDENTS_AT,
-    //    incl. medium density). The newest level's people count only once
-    //    their car arrives (residentsOf), and nobody lives in a building
-    //    that isn't operating.
-    //  - Shops/factories: the sim has no per-building worker list, so jobs are
-    //    filled at the CITY-WIDE rate: min(1, population ÷ total jobs).
-    if (t.zone === 'residential' && t.level > 0) {
-      const cap = RESIDENTS_AT[Math.min(t.level, MAX_RES_LEVEL)];
-      const now = sim.status(i).operating ? residentsOf(t) : 0;
-      rows.push(`<div class="row">Residents: <b>${now} / ${cap}</b>${t.movingIn ? ' · 🚗 new residents on the way' : ''}</div>`);
+    // PR 6: the BUILDING under the cursor (buildings are cell entities now,
+    // lots.ts). Shows its design + footprint, residents or workers, and its
+    // parking: cars parked / spaces available, plus what it needs.
+    if (bld) {
+      const tpl = TPL[bld.tpl];
+      const real = tpl.capacity[0] > 0;
+      rows.push(`<div class="row">Footprint: <b>${tpl.w} × ${tpl.d} cells</b> <span class="muted">(${(tpl.w / 4).toFixed(2).replace(/\.?0+$/, '')} × ${(tpl.d / 4).toFixed(2).replace(/\.?0+$/, '')} tiles, faces ${['north', 'east', 'south', 'west'][bld.face]})</span></div>`);
+      if (real && bld.level > 0) {
+        const cap = tpl.capacity[Math.min(bld.level, tpl.maxLevel) - 1];
+        const op = sim.status(bld.host).operating;
+        if (tpl.zone === 'residential') {
+          const now = !op ? 0 : bld.movingIn ? (bld.level > 1 ? tpl.capacity[bld.level - 2] : 0) : cap;
+          rows.push(`<div class="row">Residents: <b>${now} / ${cap}</b>${bld.movingIn ? ' · 🚗 new residents on the way' : ''}</div>`);
+        } else {
+          const cs = sim.stats();
+          const rate = cs.jobs > 0 ? Math.min(1, cs.population / cs.jobs) : 0;
+          rows.push(`<div class="row">Workers: <b>${op ? Math.round(cap * rate) : 0} / ${cap}</b></div>`);
+        }
+        const pk = sim.world.parking;
+        const avail = pk.available(bld), need = pk.required(bld);
+        rows.push(`<div class="row">🅿️ Parking: <b>${bld.parked} / ${pk.own(bld)}</b> used${bld.publicShare ? ` <span class="muted">+ ${bld.publicShare} in public lots</span>` : ''} · needs <b class="${avail < need ? 'bad' : 'ok'}">${need}</b>${tpl.garage ? ` <span class="muted">(${tpl.garage} in garage)</span>` : ''}${tpl.bays ? ` · ${tpl.bays} truck bay${tpl.bays > 1 ? 's' : ''}` : ''}</div>`);
+        if (bld.arrivals > 0.5) rows.push(`<div class="row${bld.gaveUp / bld.arrivals > 0.3 ? ' bad' : ' muted'}">Drivers who found no space lately: ${Math.round((bld.gaveUp / bld.arrivals) * 100)}%</div>`);
+      } else if (!real) rows.push('<div class="row muted">Fills a small leftover gap in the block.</div>');
+    } else if (t.zone) {
+      if (t.zone === 'industrial') rows.push(`<div class="row muted">🏭 What grows here next: ${industryMix(sim).driver}</div>`);
+      rows.push(`<div class="row muted">Zoned cells here: ${zonedCells(sim, x, z)}/16 · ${cellZoneLabel(sim, x * 4 + 1, z * 4 + 1)}</div>`);
     }
-    if ((t.zone === 'commercial' || t.zone === 'industrial') && t.level > 0) {
-      const cap = JOBS_PER_LEVEL[t.zone] * t.level;
-      const cs = sim.stats();
-      const rate = cs.jobs > 0 ? Math.min(1, cs.population / cs.jobs) : 0;
-      const now = sim.status(i).operating ? Math.round(cap * rate) : 0;
-      rows.push(`<div class="row">Workers: <b>${now} / ${cap}</b></div>`);
-    }
+    if (pubLot) rows.push(`<div class="row">🅿️ Public ${pubLot.size === 4 ? 'garage' : 'parking lot'}: <b>${pubLot.parked} / ${pubLot.spaces}</b> parked · ${pubLot.allocated} spaces shared with nearby buildings</div>`);
     if (t.zone === 'industrial' && t.level > 0) rows.push(`<div class="row">Makes: <b>${GOOD_NAMES[factoryGood(sim.world, i)]}</b> · in stock ${t.stock.toFixed(1)}</div>`);
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
     if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);
@@ -565,13 +593,11 @@ export class Hud {
         // Pollution & desirability (PR 3): explain why a home is stuck.
         const env = sim.env;
         rows.push(`<div class="row">Pollution: <b class="${env.pollution[i] > 2 ? 'bad' : ''}">${env.pollution[i].toFixed(1)}</b> · Desirability: <b class="${env.desirability[i] < 0.6 ? 'bad' : 'ok'}">${env.desirability[i].toFixed(2)}</b></div>`);
-        const cap = sim.maxLevel(i);
-        if (cap === 0) rows.push('<div class="row bad">Too polluted to grow. Move industry away or add a park.</div>');
-        else if (cap < 3) rows.push(`<div class="row bad">Pollution limits this home to level ${cap}.</div>`);
+        if (env.desirability[i] < 0.2) rows.push('<div class="row bad">Too polluted to grow. Move industry away or add a park.</div>');
       } else if (t.zone) {
         rows.push(`<div class="row muted">Pollution here: ${sim.env.pollution[i].toFixed(1)}</div>`);
       }
-      if (t.zone && t.level === 0 && st.operating && sim.maxLevel(i) > 0) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
+      if (t.zone && t.level === 0 && st.operating && !bld) rows.push('<div class="row muted">Serviced — a building will grow here soon.</div>');
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
@@ -589,20 +615,20 @@ export class Hud {
     // PR 5 farm / food plant / yard rows.
     if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)]}</b></div>`);
     if (t.zone === 'industrial' && isFoodPlant(t)) rows.push(`<div class="row">Food in hopper: <b>${t.input.toFixed(1)}</b>${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 food on the way' : ''}</div>`);
-    if (t.farm > 0) rows.push(`<div class="row">Crop field of the farm at ${coords(t.farm - 1).join(', ')}. Bulldoze to leave it fallow.</div>`);
-    if (t.farm < 0) rows.push('<div class="row muted">Fallow field — free to build on.</div>');
+    if (fieldOf) rows.push(`<div class="row">Crop field of the farm at tile ${coords(fieldOf.host).join(', ')}. Bulldoze to leave it fallow.</div>`);
     if (t.structure === 'constructionYard') {
       rows.push(`<div class="row">Trucks out: <b>${sim.crews.out(i)} / ${YARD_FLEET}</b></div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP.constructionYard)}/month</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
     // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).
-    if (t.zone) {
-      const req = sim.requirements(i);
+    if (bld && TPL[bld.tpl].capacity[0] > 0) {
+      const req = sim.buildingRequirements(bld);
+      const atMax = bld.level >= TPL[bld.tpl].maxLevel && bld.construct === 0;
       if (!req) rows.push('<div class="row"><b>Max level</b></div>');
       else {
         const blocker = req.find((r) => !r.met);
-        rows.push(`<div class="row levelbars-h">Next level (${t.level + 1}):</div>`);
+        rows.push(`<div class="row levelbars-h">${atMax ? 'Max level — redevelopment:' : `Next level (${bld.level + 1}):`}</div>`);
         for (const r of req) {
           const pct = Math.max(0, Math.min(100, r.target > 0 ? (r.current / r.target) * 100 : 100));
           rows.push(`<div class="row lvbar${r.met ? ' met' : ''}${r === blocker ? ' blocker' : ''}"><span>${r.label}</span><span class="meter wide"><i style="width:${pct}%"></i></span><span class="muted">${r.current}/${r.target}</span>${r === blocker ? `<div class="hint">→ ${r.hint}</div>` : ''}</div>`);
@@ -612,4 +638,11 @@ export class Hud {
     this.info.innerHTML = `<button class="close" aria-label="Close">×</button><h3>${title}</h3>${rows.join('')}`;
     (this.info.querySelector('.close') as HTMLButtonElement).onclick = () => this.inspect(null);
   }
+}
+
+/** PR 6: zoned cells on tile (x, z) (Inspect). */
+function zonedCells(sim: Simulation, x: number, z: number): number {
+  let n = 0;
+  for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (sim.world.cells.zone[(z * 4 + dz) * 256 + x * 4 + dx]) n++;
+  return n;
 }

@@ -45,31 +45,31 @@ export interface ToolGroupDef {
  * that selects the Road tool (see hud.ts).
  */
 export const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue'] },
+  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'parkingLot', 'parkingGarage'] },
   { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'pumpStation'] },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
-  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'farm', 'foodPlant', 'constructionYard'] },
+  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard'] },
 ];
 
 export const TOOLS: ToolDef[] = [
   { id: 'inspect', label: 'Inspect', icon: '🔍', key: 'i', shape: 'point', hint: 'Click a tile to see its status.' },
-  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($12/tile incl. street power poles). Roads carry power and buildings need one next to them. Crossing water builds a bridge (+$48/tile).', group: 'roads' },
-  { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($24/tile): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.', group: 'roads' },
-  { id: 'residential', label: 'Homes', icon: '🏠', key: '1', shape: 'area', hint: 'Drag to zone low-density residential.' },
-  { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag to zone commercial.' },
-  { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industrial. On a farmland patch it becomes a farm.', group: 'industry' },
-  { id: 'farm', label: 'Farm', icon: '🌾', key: 'f', shape: 'area', hint: 'Farm lot ($30/tile): barn + silo facing the road, claims 2/4/6 crop fields behind it as it levels up. Makes food, few jobs, little pollution.', group: 'industry' },
-  { id: 'foodPlant', label: 'Food Plant', icon: '🥫', key: 'g', shape: 'area', hint: 'Food processing plant ($60/tile): farms truck food here; it ships packaged food to grocers or exports it.', group: 'industry' },
-  { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 4 construction trucks; new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
+  { id: 'road', label: 'Road', icon: '🛣️', key: 'r', shape: 'line', hint: 'Drag to lay roads ($17/tile incl. street power poles and a water main underneath). Roads carry power AND water; buildings need one next to them. Crossing water builds a bridge (+$48/tile).', group: 'roads' },
+  { id: 'avenue', label: 'Avenue', icon: '🛤️', key: 'v', shape: 'line', hint: 'Medium-density avenue ($29/tile incl. water main): 4 lanes, faster traffic. Drag over a street to upgrade it. Unlocks at 500 people.', group: 'roads' },
+  { id: 'residential', label: 'Homes', icon: '🏠', key: '1', shape: 'area', hint: 'Drag along a road to zone homes (fills cells ~3 tiles deep; set density + depth in the bar above the toolbar). Buildings of different sizes grow to fit, each with its own parking. High density unlocks at 10,000 people.' },
+  { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag along a road to zone shops (low: corner shops; high: strip malls and shopping centres). Shops need 1 parking space per 3 jobs.' },
+  { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industry. Factories, FARMS and FOOD PLANTS grow here on their own, weighted by what the city needs (food demand, farms waiting for processing). Farms favour farmland patches and need room behind for fields.', group: 'industry' },
+  { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 8 construction trucks (one visit covers every building on a site); new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
   { id: 'powerPlant', label: 'Coal/Oil Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal or oil delivered by truck. $4,000 + $250/month.', group: 'power' },
   { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 8,000 (about 8,000 people), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.', group: 'power' },
   { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },
   { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '800 × wind power: ~400 people at average wind, up to ~800 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
-  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Drag to carry water. Buildings beside a pipe get water.', group: 'water' },
+  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'water' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
+  { id: 'parkingLot', label: 'Parking Lot', icon: '🅿️', key: 'b', shape: 'point', hint: 'Public 2×2-cell surface lot (4 spaces, $120) on the quarter of the tile you click. Serves buildings within 3 tiles that are short of parking.', group: 'roads' },
+  { id: 'parkingGarage', label: 'Parking Garage', icon: '🏢', key: 'm', shape: 'point', hint: 'Public 3-deck garage filling one tile (40 spaces, $1,600). Serves buildings within 3 tiles.', group: 'roads' },
   { id: 'bulldoze', label: 'Bulldoze', icon: '🧨', key: 'x', shape: 'area', hint: 'Drag to clear everything in the box.' },
 ];
 

@@ -52,15 +52,18 @@ import { GRID_SIZE, Tile } from './types';
 import { World } from './grid';
 import { Resource } from './resources';
 import { roadNextTo, Traffic } from './traffic';
+import { CellRole, cellInBounds, cidx, tileOfCell, ZoneCode } from './cells';
+import { TPL } from './footprints';
+import { CREW_LINGER, localToCell, tileBuildable } from './lots';
 
 export const KIND_FACTORY = 0;
 export const KIND_FARM = 1;
 export const KIND_FOOD_PLANT = 2;
 
 /** Fields a farm wants at each level (index = level). */
-export const FARM_FIELDS = [0, 2, 4, 6];
 /** Trucks per Construction Yard. */
-export const YARD_FLEET = 4;
+/** PR 6: 4 → 8, and one visit now covers every building on the site (CREW_LINGER). */
+export const YARD_FLEET = 8;
 /** Colour of construction trucks (renderer adds a load of materials on top). */
 export const CREW_TRUCK_COLOR = 0xf28c1d;
 /** Prefix of a construction truck's `purpose` (the renderer keys off it). */
@@ -68,103 +71,83 @@ export const CREW_PURPOSE = 'construction';
 
 const N = GRID_SIZE;
 
-/** Is tile i a (grown or not) farm lot? */
+/**
+ * Is tile i a farm lot? PR 6: the tile's kind comes from its hosted building
+ * or its painted cells (lots.ts aggregate / refreshTileZone). Industry zoned
+ * on a FARMLAND patch is painted as Farm cells automatically (zoneCells).
+ */
 export function isFarmLot(world: World, i: number): boolean {
   const t = world.tiles[i];
-  return t.zone === 'industrial' && (t.kind === KIND_FARM || (t.kind === KIND_FACTORY && world.resourceAt(i) === Resource.Farmland));
+  return t.zone === 'industrial' && (t.kind === KIND_FARM || (t.kind === KIND_FACTORY && t.level === 0 && world.resourceAt(i) === Resource.Farmland));
 }
 /** A food processing plant lot? */
 export const isFoodPlant = (t: Tile) => t.zone === 'industrial' && t.kind === KIND_FOOD_PLANT;
 
 /**
- * Direction from the farm toward its road, in the same priority order the
- * renderer uses to face buildings (S, E, N, W) — so the barn's front and the
- * fields' "behind" agree with what you see. null = no road.
+ * PR 6 FARM FIELDS ON CELLS. A farm's fields are cells (role Field, owner =
+ * the farm building) claimed BEHIND the barn — the region from the barn's
+ * back row outwards, one cell wider than the barn on each side:
+ *
+ *        road ═══════════════
+ *             [yard ][yard ]       v = 0     (barn template, 3 × 3)
+ *             [ barn  barn ]       v = 1..2
+ *          F  F  F  F  F           v = 3, 4, …  ← claimed row by row,
+ *          F  F  F  F  F                         nearest first
+ *
+ * Quota per level FIELD_CELLS (2 / 4 / 6 tiles' worth, like PR 5's 2/4/6
+ * field tiles). Claimable: free cell, buildable tile, zoned Farm or not
+ * zoned at all. Bulldozing a field cell leaves it FALLOW (role Fallow, still
+ * owned) so the farm doesn't take it straight back; bulldozing the barn
+ * frees everything (lots.remove).
  */
-export function roadDir(tiles: Tile[], i: number): [number, number] | null {
-  const x = i % N, z = Math.floor(i / N);
-  for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0]] as const) {
-    const nx = x + dx, nz = z + dz;
-    if (nx >= 0 && nz >= 0 && nx < N && nz < N && tiles[nz * N + nx].road) return [dx, dz];
-  }
-  return null;
-}
+export const FIELD_CELLS = [0, 32, 64, 96];
+/** The same quota in PR 5 "field tiles" (FIELD_CELLS ÷ 16), for the HUD. */
+export const FARM_FIELDS = [0, 2, 4, 6];
+/** Field cells per PR 5 "field tile" for the production formula. */
+const CELLS_PER_FIELD = 16;
 
-/** Field candidates behind farm i, in claiming order (see the diagram above). */
-export function fieldCandidates(tiles: Tile[], i: number): number[] {
-  const d = roadDir(tiles, i);
-  if (!d) return [];
-  const x = i % N, z = Math.floor(i / N);
-  const [fx, fz] = d;
-  const bx = -fx, bz = -fz; // behind = away from the road
-  const rx = -bz, rz = bx; // a fixed side column (the farm's "right" when facing the road)
-  const out: number[] = [];
-  for (let depth = 1; depth <= 3; depth++)
-    for (const lat of [0, 1]) {
-      const cx = x + bx * depth + rx * lat, cz = z + bz * depth + rz * lat;
-      if (cx >= 0 && cz >= 0 && cx < N && cz < N) out.push(cz * N + cx);
-    }
-  return out;
-}
-
-/** May farm f claim tile c as a field? */
-function claimable(t: Tile, f: number): boolean {
-  if (t.water || t.road || t.edge || t.structure !== 'none' || t.part) return false;
-  if (t.farm > 0 && t.farm !== f + 1) return false; // another farm's field
-  if (t.farm === -(f + 1)) return false; // fallow: bulldozed by the player
-  if (t.zone === null) return true;
-  return t.zone === 'industrial' && t.level === 0 && t.construct === 0 && t.kind === KIND_FACTORY;
-}
-
-/** Number of fields currently owned by farm f. */
-export function fieldCount(world: World, f: number): number {
-  let n = 0;
-  for (const t of world.tiles) if (t.farm === f + 1) n++;
-  return n;
-}
-
-/** Steps 1 and 2 of the farm rules (see header). Cheap: one pass + ≤ 6 checks per farm. */
 export function updateFarms(world: World): void {
-  const tiles = world.tiles;
-  const owned = new Map<number, number>();
-  // 1. Free fields (and fallow marks) whose owner is gone; count the rest.
-  tiles.forEach((t, i) => {
-    if (t.farm === 0) return;
-    const owner = Math.abs(t.farm) - 1;
-    const alive = isFarmLot(world, owner) && tiles[owner].level > 0;
-    if (!alive) { t.farm = 0; return; }
-    if (t.farm > 0) {
-      // A field must still be bare land (someone may have built a road over fallow → then re-owned? no: canPlace blocks owned fields).
-      owned.set(owner, (owned.get(owner) ?? 0) + 1);
-      void i;
+  const lots = world.lots;
+  const { owner, role, zone } = world.cells;
+  for (const b of lots.buildings.values()) {
+    const tpl = TPL[b.tpl];
+    if (tpl.zone !== 'industrial' || tpl.kind !== KIND_FARM || b.level <= 0) continue;
+    const want = FIELD_CELLS[Math.min(3, b.level)];
+    if (b.fields >= want || (world.tick + b.id) % 4 !== 0) continue; // stagger: claim every 4th tick
+    // Walk the region behind the barn row by row (local u from −1 to w, v from d onward).
+    outer: for (let v = tpl.d; v < tpl.d + 14; v++) {
+      for (let u = -1; u <= tpl.w; u++) {
+        if (b.fields >= want) break outer;
+        const [cx, cz] = localToCell(b.ox, b.oz, b.face, u, v);
+        if (!cellInBounds(cx, cz)) continue;
+        const c = cidx(cx, cz);
+        if (owner[c] !== 0) continue;
+        const code = zone[c];
+        if (code !== ZoneCode.None && code !== ZoneCode.Farm && code !== ZoneCode.IndLight && code !== ZoneCode.IndHeavy) continue; // PR 6: fields spread over industrial zoning too
+        const tt = world.tiles[tileOfCell(cx, cz)];
+        if (!tileBuildable(tt) || (tt.zone !== null && tt.zone !== 'industrial')) continue;
+        owner[c] = b.id;
+        role[c] = CellRole.Field;
+        zone[c] = ZoneCode.Farm;
+        tt.deco = 0;
+        b.fields++;
+      }
     }
-  });
-  // 2. Each grown farm claims fields up to its quota; drops extras if it shrank.
-  tiles.forEach((t, f) => {
-    if (!isFarmLot(world, f) || t.level === 0) return;
-    const want = FARM_FIELDS[Math.min(3, t.level)];
-    let have = owned.get(f) ?? 0;
-    const cands = fieldCandidates(tiles, f);
-    for (const c of cands) {
-      if (have >= want) break;
-      const ct = tiles[c];
-      if (ct.farm === f + 1 || !claimable(ct, f)) continue;
-      ct.farm = f + 1;
-      ct.zone = null; // an empty industrial lot becomes farmland
-      ct.deco = 0;
-      have++;
-    }
-    // Over quota (shouldn't happen as levels only rise, but stay safe): free the last ones.
-    for (let k = cands.length - 1; k >= 0 && have > want; k--) if (tiles[cands[k]].farm === f + 1) { tiles[cands[k]].farm = 0; have--; }
-  });
+  }
 }
 
-/** Jobs at a grown commercial/industrial tile: farms are low-labour (3 per level). */
+/** Field "tiles" (16 cells each) of the farm(s) hosted on tile i — feeds goods.ts farmRate. */
+export function fieldCount(world: World, i: number): number {
+  let cells = 0;
+  for (const b of world.lots.buildings.values()) if (b.host === i) cells += b.fields;
+  return cells / CELLS_PER_FIELD;
+}
+
+/** Jobs on tile i (PR 6: the host-tile aggregate of its buildings, lots.ts). */
 export function jobsOf(world: World, i: number): number {
   const t = world.tiles[i];
-  if (!t.zone || t.zone === 'residential' || t.level === 0) return 0;
-  if (t.zone === 'commercial') return 4 * t.level;
-  return isFarmLot(world, i) ? 3 * t.level : 8 * t.level;
+  if (!t.zone || t.zone === 'residential') return 0;
+  return t.jobs;
 }
 
 /** Food per tick for a farm with `fields` fields (more fields = more output). */
@@ -237,7 +220,17 @@ export class Crews {
   private arrive(world: World, traffic: Traffic, yard: number, site: number, yardRoad: number, siteRoad: number): void {
     this.enRoute.delete(site);
     const t = world.tiles[site];
-    if (t.zone && t.construct > 0) t.crew = true; // work can start
+    if (t.zone && t.construct > 0) { t.crew = true; t.crewLinger = CREW_LINGER; } // work can start (PR 6: whole site)
+    // PR 6 "one visit covers the whole site": with buildings now smaller than
+    // a tile, a building site is the block around the truck — the crew also
+    // takes on every waiting site within one tile of where it parked.
+    const sx = site % N, sz = Math.floor(site / N);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+      const nx = sx + dx, nz = sz + dz;
+      if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
+      const q = world.tiles[nz * N + nx];
+      if (q.zone && q.construct > 0 && !q.crew) { q.crew = true; q.crewLinger = CREW_LINGER; this.enRoute.delete(nz * N + nx); }
+    }
     this.stats.arrived++;
     // Drive back; the truck is only free again once it is home.
     const home = () => { this.busy.set(yard, Math.max(0, this.out(yard) - 1)); this.stats.returned++; };

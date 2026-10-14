@@ -177,13 +177,96 @@ export const isIntersection = (tiles: Tile[], i: number): boolean => {
  * switch in lockstep. Returns 'ns' | 'ew' | 'none' (all red) and, for the
  * renderer, whether the green is in its last second (amber).
  */
-export function lightState(i: number, clock: number): { green: 'ns' | 'ew' | 'none'; amber: boolean } {
+export function lightState(i: number, clock: number, sig?: Signals): { green: 'ns' | 'ew' | 'none'; amber: boolean } {
+  // PR 6: traffic-actuated control when a controller is running (Signals).
+  if (sig?.actuated) { const st = sig.state(i); if (st) return st; }
   const p = (clock + (i * 7.31) % LIGHT_CYCLE) % LIGHT_CYCLE;
   const half = LIGHT_CYCLE / 2;
   if (p < GREEN) return { green: 'ns', amber: p > GREEN - 1 };
   if (p < half) return { green: 'none', amber: false };
   if (p < half + GREEN) return { green: 'ew', amber: p > half + GREEN - 1 };
   return { green: 'none', amber: false };
+}
+
+/**
+ * PR 6 TRAFFIC-ACTUATED SIGNALS (replaces the fixed 10 s cycle above).
+ *
+ * Each junction (3+ road neighbours: T or 4-way) runs a tiny state machine
+ * over its two PHASES, 'ns' (approaches from north/south) and 'ew':
+ *
+ *     GREEN(phase) ──(decide to switch)──► AMBER 1 s ──► ALL-RED 0.8 s ──► GREEN(other)
+ *
+ * Every frame `update()` counts the QUEUE on each phase: vehicles whose next
+ * tile is this junction and that are within the last 90 % of the approach
+ * tile (waiting at, or rolling up to, the stop line). While green:
+ *   - never switch before MIN_GREEN (5 s) — gives a platoon time to go;
+ *   - EXTEND while cars keep arriving on the green phase (its queue > 0);
+ *   - switch once the other phase's queue is LONGER than ours (after
+ *     MIN_GREEN), or ours empties ("gap-out") while the other has cars;
+ *   - force a switch at MAX_GREEN (30 s) if anyone is waiting on the other
+ *     phase, and at any time once the other phase's oldest waiter has been
+ *     red for MAX_WAIT (20 s) — starvation protection, so every waiting approach is served within ~22 s.
+ * With nobody anywhere the light rests on its current green. A junction is
+ * first seen with the phase that has the longer queue (longest queue first).
+ * The AMBER + ALL-RED clearance and the per-approach signal heads (renderer)
+ * are unchanged: the renderer just asks lightState() which phase is green.
+ */
+export const MIN_GREEN = 5;
+export const MAX_GREEN = 30;
+export const AMBER_TIME = 1;
+export const ALL_RED_TIME = 0.8;
+/** 20 s (not 40): must stay under the gridlock give-up timer STUCK_SECONDS (25 s) incl. amber + all-red, or queued drivers give up while waiting. */
+export const MAX_WAIT = 20;
+
+interface Ctl {
+  phase: 'ns' | 'ew';
+  mode: 'green' | 'amber' | 'red';
+  /** Seconds in the current mode. */
+  t: number;
+  /** Seconds the other phase has had someone waiting (starvation timer). */
+  starve: number;
+  q: { ns: number; ew: number };
+}
+
+export class Signals {
+  /** true = actuated (PR 6 default); false = PR 5 fixed timing (tests compare). */
+  actuated = true;
+  private ctl = new Map<number, Ctl>();
+  /** Queue measurement + state machines. `dt` in game seconds. */
+  update(tiles: Tile[], vehicles: Vehicle[], dt: number): void {
+    if (!this.actuated) return;
+    const q = new Map<number, { ns: number; ew: number }>();
+    for (const v of vehicles) {
+      const j = v.path[v.seg + 1];
+      if (j === undefined || v.t < 0.1 || !isIntersection(tiles, j)) continue; // (stopped cars sit at t ≈ 0.36)
+      const axis = Math.abs(j - v.path[v.seg]) === 1 ? 'ew' : 'ns';
+      const e = q.get(j) ?? { ns: 0, ew: 0 };
+      e[axis]++;
+      q.set(j, e);
+    }
+    // Forget junctions that stopped being junctions (bulldozed roads).
+    for (const j of this.ctl.keys()) if (!isIntersection(tiles, j)) this.ctl.delete(j);
+    for (const [j, e] of q) if (!this.ctl.has(j)) this.ctl.set(j, { phase: e.ew > e.ns ? 'ew' : 'ns', mode: 'green', t: 0, starve: 0, q: e });
+    for (const [j, c] of this.ctl) {
+      c.q = q.get(j) ?? { ns: 0, ew: 0 };
+      c.t += dt;
+      const other = c.phase === 'ns' ? 'ew' : 'ns';
+      if (c.mode === 'green') {
+        const mine = c.q[c.phase], theirs = c.q[other];
+        c.starve = theirs > 0 ? c.starve + dt : 0;
+        const sw = theirs > 0 && (c.starve >= MAX_WAIT || c.t >= MAX_GREEN || (c.t >= MIN_GREEN && (theirs > mine || mine === 0)));
+        if (sw) { c.mode = 'amber'; c.t = 0; }
+      } else if (c.mode === 'amber' && c.t >= AMBER_TIME) { c.mode = 'red'; c.t = 0; }
+      else if (c.mode === 'red' && c.t >= ALL_RED_TIME) { c.mode = 'green'; c.phase = other; c.t = 0; c.starve = 0; }
+    }
+  }
+  /** Current light at junction i, or null if it has no controller yet (falls back to fixed timing). */
+  state(i: number): { green: 'ns' | 'ew' | 'none'; amber: boolean } | null {
+    const c = this.ctl.get(i);
+    if (!c) return null;
+    if (c.mode === 'red') return { green: 'none', amber: false };
+    return { green: c.phase, amber: c.mode === 'amber' };
+  }
 }
 
 /** Tiny binary min-heap keyed by f (for A*). */
@@ -288,7 +371,9 @@ export class Traffic {
   vehicles: Vehicle[] = [];
   private nextId = 1;
   /** Counters for tests and the info panel. */
-  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0 };
+  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0, waitSec: 0 };
+  /** PR 6 traffic-actuated signal controllers. */
+  signals = new Signals();
 
   count(kind: VehicleKind): number {
     let n = 0;
@@ -330,6 +415,7 @@ export class Traffic {
    */
   update(world: World, dt: number): void {
     if (dt <= 0) return;
+    this.signals.update(world.tiles, this.vehicles, dt); // PR 6: actuated lights read the queues once per frame
     const n = Math.ceil(dt / SUBSTEP);
     for (let k = 0; k < n; k++) this.stepOnce(world, dt / n);
   }
@@ -408,7 +494,8 @@ export class Traffic {
       // 2. Red light at the junction we're about to enter (the next tile).
       if (v.t <= STOP_T && isIntersection(tiles, v.path[v.seg + 1])) {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
-        if (lightState(v.path[v.seg + 1], world.clock).green !== axis) {
+        if (lightState(v.path[v.seg + 1], world.clock, this.signals).green !== axis) {
+          if (v.v < 0.05) this.stats.waitSec += dt; // PR 6: time spent waiting at red (tests)
           stopAt();
           // Waiting at red: arm the reaction delay for when it turns green.
           if (v.t > STOP_T - 0.05) v.waitGreen = v.traits.react;

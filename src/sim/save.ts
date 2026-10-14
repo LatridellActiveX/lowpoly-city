@@ -29,10 +29,14 @@ import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
 import { FUEL_MAX } from './rules';
 import { GRID_SIZE, Tile } from './types';
+import { b64ToBytes, bytesToB64, CellRole, cidx, zoneCode } from './cells';
+import { TPL } from './footprints';
+import { localToCell } from './lots';
 
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
-export const SAVE_VERSION = 5;
+/** v6 (PR 6): cell grid (zone/owner/role, base64), building entities, public lots; roads gain water mains. */
+export const SAVE_VERSION = 6;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -50,7 +54,14 @@ export function saveWorld(world: World): void {
     windDirVel: world.windDirVel,
     clock: world.clock,
     tier: world.tier,
+    peakPop: world.peakPop,
     tiles: world.tiles,
+    // PR 6 cell layer: typed arrays as base64 (≈ 90 KB zone/role + 350 KB owners, before JSON).
+    cells: { zone: bytesToB64(world.cells.zone), role: bytesToB64(world.cells.role), owner: bytesToB64(new Uint8Array(world.cells.owner.buffer)) },
+    buildings: [...world.lots.buildings.values()],
+    nextBuilding: world.lots.nextId,
+    lots: [...world.parking.lots.values()],
+    nextLot: world.parking.nextId,
   };
   try {
     localStorage.setItem(KEY, JSON.stringify(data));
@@ -106,6 +117,7 @@ export function loadWorld(): World | null {
     } else {
       w.clock = typeof data.clock === 'number' ? data.clock : 0;
       w.tier = typeof data.tier === 'number' ? data.tier : 0;
+      w.peakPop = typeof data.peakPop === 'number' ? data.peakPop : 0; // older saves: set on the first tick from the current population
     }
     if (version < 5) {
       // ---- v4 -> v5 migration (PR 5 industry) ----
@@ -116,6 +128,21 @@ export function loadWorld(): World | null {
       // factories and no fields — farms on farmland claim fields next tick.
       w.tiles.forEach((t) => { if (t.construct > 0) t.crew = true; });
     }
+    if (version < 6) migrateToCells(w);
+    else if (data.cells) {
+      // ---- v6: restore the cell layer and entities ----
+      w.cells.zone.set(b64ToBytes(data.cells.zone));
+      w.cells.role.set(b64ToBytes(data.cells.role));
+      w.cells.owner.set(new Int32Array(b64ToBytes(data.cells.owner).buffer));
+      for (const b of data.buildings ?? []) if (TPL[b.tpl]) w.lots.buildings.set(b.id, { ...b, movingIn: false });
+      w.lots.nextId = data.nextBuilding ?? w.lots.buildings.size + 1;
+      for (const l of data.lots ?? []) w.parking.lots.set(l.id, { ...l, parked: 0 });
+      w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
+    }
+    // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
+    w.tiles.forEach((t, i) => t.zone && w.lots.markDirty(i));
+    w.lots.aggregate(w);
+    w.parking.allocate(w.lots);
     // PR 5 wind direction: older saves get the seeded default heading.
     w.windDir = typeof data.windDir === 'number' ? data.windDir : initialWindDir(seed);
     w.windDirVel = typeof data.windDirVel === 'number' ? data.windDirVel : 0;
@@ -141,4 +168,66 @@ function mergeLedger(l: Partial<Ledger> | null | undefined): Ledger | null {
 
 export function clearSave(): void {
   localStorage.removeItem(KEY);
+}
+
+/**
+ * ---- v5 → v6 migration (PR 6 cell grid) ----
+ *  - Every road tile gains a water main (roads now carry water).
+ *  - Every zoned tile's 16 cells get its zone (homes at PR 5 levels 4–5
+ *    become MEDIUM density cells so they can keep redeveloping).
+ *  - Every grown building / site becomes a whole-tile "legacy" lot
+ *    (footprints.ts legacy_*: 4 × 4 cells, body + driveway/lot, plus a
+ *    garage allowance so its parking matches its needs) facing the same road
+ *    PR 5 faced it to, at the same level, keeping its construction progress.
+ *  - PR 5 field tiles become Field cells owned by their farm; fallow tiles
+ *    are just freed.
+ */
+export function migrateToCells(w: World): void {
+  const N = GRID_SIZE;
+  const farmOf = new Map<number, number>(); // tile index → building id
+  w.tiles.forEach((t, i) => {
+    if (t.road) t.waterPipe = true;
+    if (!t.zone || t.part) return;
+    const x = i % N, z = Math.floor(i / N);
+    const code = zoneCode(t.zone, t.zone === 'residential' && t.level >= 4 ? 1 : 0, t.kind);
+    for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) w.cells.zone[cidx(x * 4 + dx, z * 4 + dz)] = code;
+    if (t.level === 0 && t.construct === 0) return;
+    const id = t.zone === 'residential' ? 'legacy_res' : t.zone === 'commercial' ? 'legacy_com' : t.kind === 1 ? 'legacy_farm' : t.kind === 2 ? 'legacy_food' : 'legacy_ind';
+    const tpl = TPL[id];
+    // Face the road in PR 5's priority order (S, E, N, W); FACES index 2,1,0,3.
+    let face = 2;
+    for (const [f, dx, dz] of [[2, 0, 1], [1, 1, 0], [0, 0, -1], [3, -1, 0]] as const) {
+      const nx = x + dx, nz = z + dz;
+      if (nx >= 0 && nz >= 0 && nx < N && nz < N && w.tiles[nz * N + nx].road) { face = f; break; }
+    }
+    // Pick the origin corner so the 4×4 footprint lands exactly on this tile.
+    for (let oz = z * 4; oz < z * 4 + 4; oz++) for (let ox = x * 4; ox < x * 4 + 4; ox++) {
+      const [ex, ez] = localToCell(ox, oz, face, 3, 3);
+      const inside = (cx: number, cz: number) => cx >= x * 4 && cx < x * 4 + 4 && cz >= z * 4 && cz < z * 4 + 4;
+      const [fx, fz] = localToCell(ox, oz, face, 0, 0);
+      const front = face === 0 ? fz === z * 4 : face === 2 ? fz === z * 4 + 3 : face === 1 ? fx === x * 4 + 3 : fx === x * 4;
+      if (!inside(ex, ez) || !front) continue;
+      const b = w.lots.place(w, tpl, ox, oz, face, i, Math.min(t.level, tpl.maxLevel), t.construct);
+      if (t.construct > 0) t.crew = true;
+      if (tpl.kind === 1 && tpl.zone === 'industrial') farmOf.set(i, b.id);
+      return;
+    }
+  });
+  // Fields: PR 5 tile.farm = owner tile + 1.
+  w.tiles.forEach((t, i) => {
+    if (t.farm > 0 && farmOf.has(t.farm - 1)) {
+      const id = farmOf.get(t.farm - 1)!;
+      const b = w.lots.buildings.get(id)!;
+      const x = i % N, z = Math.floor(i / N);
+      for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) {
+        const c = cidx(x * 4 + dx, z * 4 + dz);
+        if (w.cells.owner[c]) continue;
+        w.cells.owner[c] = id;
+        w.cells.role[c] = CellRole.Field;
+        w.cells.zone[c] = 8;
+        b.fields++;
+      }
+    }
+    t.farm = 0;
+  });
 }

@@ -26,7 +26,9 @@ import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRendere
 import { createScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
-import { attachInput } from './ui/input';
+import { attachInput, pointer } from './ui/input';
+import { ZONE_TOOLS } from './sim/simulation';
+import { sound, toolSound } from './audio/sound';
 import { shapeTiles, toolDef, TOOLS } from './ui/tools';
 import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
@@ -97,8 +99,31 @@ const hud = new Hud(app, {
   },
 });
 
+/**
+ * PR 6 zoning options bar: density (Low / Medium / High) and depth (tiles
+ * a road-side drag reaches back). Shown only while a zone tool is active.
+ * Residential High is locked until the 10,000 tier.
+ */
+const zoneBar = document.createElement('div');
+zoneBar.id = 'zonebar';
+zoneBar.className = 'panel hidden';
+document.body.append(zoneBar);
+function renderZoneBar(): void {
+  const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant';
+  zoneBar.classList.toggle('hidden', !show);
+  if (!show) return;
+  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High'] : ['Light', 'Heavy'];
+  const d = Math.min(sim.zoneOpt.density, names.length - 1);
+  zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
+    <span class="muted" style="margin-left:10px">Depth</span> ${[1, 2, 3, 4].map((k) => `<button class="btn${k === sim.zoneOpt.depth ? ' active' : ''}" data-depth="${k}">${k}</button>`).join('')} <span class="muted">tiles</span>`;
+  zoneBar.querySelectorAll<HTMLButtonElement>('[data-d]').forEach((b) => (b.onclick = () => { sim.zoneOpt.density = +b.dataset.d!; renderZoneBar(); }));
+  zoneBar.querySelectorAll<HTMLButtonElement>('[data-depth]').forEach((b) => (b.onclick = () => { sim.zoneOpt.depth = +b.dataset.depth!; renderZoneBar(); }));
+}
+
 function setTool(id: ToolId): void {
+  if (id !== tool) sound.play('tool');
   tool = id;
+  renderZoneBar();
   hud.setTool(id);
   // Pipes are underground: only show them while placing pipes (or via the water overlay).
   city.showPipes = id === 'waterPipe';
@@ -142,7 +167,12 @@ function updatePreview(): void {
     return preview.show([{ x: hoverTile[0], z: hoverTile[1], ok: null }]);
   }
   const from = dragFrom ?? hoverTile;
-  const tiles = shapeTiles(tool, from[0], from[1], hoverTile[0], hoverTile[1]);
+  let tiles = shapeTiles(tool, from[0], from[1], hoverTile[0], hoverTile[1]);
+  // PR 6: a zoning drag also covers the tiles behind it (depth setting), and
+  // the tooltip counts CELLS. The park preview shows its 10×10 area.
+  const zq = ZONE_TOOLS.has(tool) ? sim.zoneQuote(tool, tiles) : null;
+  if (zq) tiles = zq.tiles.length ? zq.tiles : tiles;
+  sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
   // If the whole drag is unaffordable, every tile shows red and the cursor
   // becomes a "not allowed" sign; the hint line shows the price.
   const cost = sim.quote(tool, tiles);
@@ -154,6 +184,15 @@ function updatePreview(): void {
     tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })),
     affordable && valid > 0,
   );
+  if (tool === 'park' && hoverTile) {
+    // PR 6: show the park's 10×10 desirability square (offsets −5..+4).
+    const area: Array<{ x: number; z: number; ok: boolean | null }> = [];
+    for (let dz = -5; dz <= 4; dz++) for (let dx = -5; dx <= 4; dx++) {
+      const x = hoverTile[0] + dx, z = hoverTile[1] + dz;
+      if (x >= 0 && z >= 0 && x < 64 && z < 64) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
+    }
+    preview.show(area, affordable && valid > 0);
+  }
   // ---- Cursor tooltip ----
   const money = (n: number) => `$${Math.round(n).toLocaleString()}`;
   const def = toolDef(tool);
@@ -168,12 +207,48 @@ function updatePreview(): void {
   else if (tool === 'bulldoze') {
     const refund = tiles.reduce((a, [x, z]) => a + (canPlace(tool, sim.world.at(x, z)) ? bulldozeRefund(sim.world.at(x, z)) : 0), 0);
     html = `${size}${valid} tile${valid > 1 ? 's' : ''} · <span class="ok">refund ${money(refund)}</span>${cost ? ` · clearing ${money(cost)}` : ''}`;
+  } else if (zq) {
+    html = zq.cells ? `${size}${zq.tiles.length} tiles · <b>${zq.cells} cells</b> zoned · <b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>` : `<span class="muted">Already zoned</span>`;
   } else {
     const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
     html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
   }
   hud.showTip(html, mouse[0], mouse[1]);
 }
+
+/**
+ * PR 6 sound hooks that don't belong to one call site:
+ *  - every <button> click → soft click; hovering a toolbar / top-bar button → tiny tick;
+ *  - flyout groups and panels opening/closing → pops (watching .open / .hidden classes);
+ *  - each frame, sim counters: new construction sites (thump), finished
+ *    buildings (chime at level 1, sparkle on a level-up), HUD notices (ding).
+ */
+sound.attach();
+document.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('button')) sound.play('click'); }, true);
+document.addEventListener('pointerover', (e) => { const b = (e.target as HTMLElement).closest('button'); if (b && b !== lastHoverBtn) { lastHoverBtn = b; sound.play('hover'); } }, true);
+let lastHoverBtn: Element | null = null;
+new MutationObserver((ms) => {
+  for (const m of ms) {
+    const el = m.target as HTMLElement;
+    const was = (m.oldValue ?? '').split(' ');
+    if (el.classList.contains('open') !== was.includes('open')) sound.play(el.classList.contains('open') ? 'open' : 'close');
+    else if (el.classList.contains('panel') && el.classList.contains('hidden') !== was.includes('hidden')) sound.play(el.classList.contains('hidden') ? 'close' : 'open');
+  }
+}).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+const soundSeen = { founded: 0, completed: -1, notices: 0 };
+function soundTick(): void {
+  const st = sim.world.lots.stats;
+  if (st.founded > soundSeen.founded && soundSeen.completed >= 0) sound.play('place');
+  soundSeen.founded = st.founded;
+  if (sim.world.tick !== soundSeen.completed) {
+    if (soundSeen.completed >= 0) for (const id of sim.completed) { const b = sim.world.lots.buildings.get(id); if (b) sound.play(b.level > 1 ? 'levelup' : 'complete'); }
+    soundSeen.completed = sim.world.tick;
+  }
+  const n = hud.notices.log.length;
+  if (n > soundSeen.notices) sound.play('ding');
+  soundSeen.notices = n;
+}
+setInterval(soundTick, 100);
 
 attachInput(renderer.domElement, cam, ground, {
   hover(t, mx, my) {
@@ -193,9 +268,14 @@ attachInput(renderer.domElement, cam, ground, {
   dragEnd(t) {
     const end = t ?? hoverTile;
     if (dragFrom && end) {
+      sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
+      hud.pickCell = [Math.max(0, Math.min(255, Math.floor(pointer.x * 4))), Math.max(0, Math.min(255, Math.floor(pointer.z * 4)))];
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
+        // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
+        if (r.locked || r.changed === 0) sound.play('error');
+        else sound.play(toolSound(tool));
         if (r.locked) hud.flash('🔒 Locked — grow your population to unlock this (see the tier bar)');
         else if (r.broke && r.changed === 0) hud.flash('Not enough money');
         else if (r.broke) hud.flash(`Ran out of money after ${r.changed} tiles (-$${r.spent.toLocaleString()})`);

@@ -28,9 +28,10 @@ export const STARTING_CASH = 50_000;
 export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number> = {
   // $10 of asphalt + a $2 surcharge for the street-side power poles that are
   // built automatically along every road (PR 3 auto power lines).
-  road: 12,
+  // PR 6: + $5 for the water main laid under every road automatically → $17.
+  road: 17,
   // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
-  avenue: 24,
+  avenue: 29, // PR 6: $24 + $5 water main
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
@@ -56,6 +57,11 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   farm: 30,
   foodPlant: 60,
   constructionYard: 2500,
+  // PR 6 public parking (Roads flyout): a 2×2-cell surface lot (4 spaces) and
+  // a 4×4-cell (one tile) three-deck garage (40 spaces). Priced per space:
+  // $30 surface, $40 decked (you pay for the land you save).
+  parkingLot: 120,
+  parkingGarage: 1600,
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
@@ -128,6 +134,13 @@ export function ledgerNet(l: Ledger): number {
 export function placementCost(tool: ToolId, t: Tile): number {
   if (tool === 'inspect') return 0;
   if (tool === 'bulldoze') return t.deco ? CLEAR_COST : 0; // removing a lone tree
+  // PR 6 AVENUE UPGRADE: dragging the avenue tool over an existing STREET
+  // converts it in place (rules.canPlace allows roadType 0 → 1; applyTool
+  // keeps the tile's connections, pole line and water main). You pay only
+  // the difference ($29 − $17 = $12). A street BRIDGE upgrades the same way
+  // with no second bridge surcharge — its deck is already paid for.
+  // Tiles that are already avenues are skipped by canPlace.
+  if (tool === 'avenue' && t.road && t.roadType === 0) return BUILD_COST.avenue - BUILD_COST.road;
   const bridge = (tool === 'road' || tool === 'avenue') && t.water && !t.road ? BRIDGE_EXTRA : 0;
   return BUILD_COST[tool] + bridge + (t.deco ? CLEAR_COST : 0);
 }
@@ -135,10 +148,10 @@ export function placementCost(tool: ToolId, t: Tile): number {
 /** What bulldozing tile `t` refunds: 25% of the value of everything on it. */
 export function bulldozeRefund(t: Tile): number {
   let value = 0;
-  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road;
+  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road; // (includes the auto water main)
   if (t.road && t.water) value += BRIDGE_EXTRA;
   if (t.powerLine) value += BUILD_COST.powerLine;
-  if (t.waterPipe) value += BUILD_COST.waterPipe;
+  if (t.waterPipe && !t.road) value += BUILD_COST.waterPipe; // PR 6: a road's pipe is in the road price
   if (t.zone) value += BUILD_COST[t.zone];
   if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure];
   return Math.round(value * REFUND_RATE);

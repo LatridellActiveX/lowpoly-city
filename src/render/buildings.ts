@@ -59,6 +59,13 @@ function quonset(r: number, length: number): THREE.BufferGeometry {
 }
 
 export const DESIGNS_PER_ZONE = 5;
+/**
+ * PR 6 variety pass: homes get 8 designs (3 new low-density roofs:
+ * saltbox, brick hip with bay window, stucco flat-roof with parapet), a 4th
+ * medium variant (mansard with balconies) and a new level 6 = stepped /
+ * set-back TOWERS for high density. Shops and factories keep 5.
+ */
+export const RES_DESIGNS = 8;
 const W = 0xffffff; // white = "tint me with the instance colour"
 const GLASS = 0x3e5f7a;
 const DARK = 0x4a4a4a;
@@ -146,7 +153,8 @@ const FLOOR = 0.26; // height of one storey
 // Residential: cottages to small apartment blocks
 // ----------------------------------------------------------------------------
 function residential(k: number, level: number, hi = true): DesignParts {
-  if (level >= 4) return medium(k % 3, level, hi); // PR 5 medium density
+  if (level === 6) return tower(k % 4, hi); // PR 6 high density
+  if (level >= 4) return medium(k % 4, level, hi); // PR 5 medium density (PR 6: 4 variants)
   const b = new Builder(hi);
   const floors = level;
   const h = FLOOR * floors + 0.06;
@@ -199,6 +207,42 @@ function residential(k: number, level: number, hi = true): DesignParts {
       b.fix(box(0.2, 0.012, 0.022), 0xf4f1ea, [0, 0.09, d / 2 + 0.008], [0, 0, -0.8]);
       for (let f = 1; f < floors; f++) b.windows(2, w, d, 0.1 + f * FLOOR);
       b.fix(box(0.1, 0.03, 0.08), 0xcfc4b0, [0, 0, d / 2 + 0.05]); // stoop
+      break;
+    }
+    case 5: {
+      // PR 6 SALTBOX: long rear roof slope (ridge pushed toward the front),
+      // clapboard trim bands and a big brick chimney on the gable end.
+      b.wall(box(w, h, d));
+      b.acc(gable(w + 0.05, 0.26 + level * 0.03, d + 0.08, 0.3), [0, h, 0]);
+      b.fix(box(0.09, h + 0.3, 0.09), 0x9a4f3a, [-w / 2 - 0.03, 0, -d * 0.1]);
+      for (let f = 0; f < floors; f++) b.fix(box(w + 0.004, 0.012, d + 0.004), TRIM, [0, (f + 1) * FLOOR - 0.02, 0]);
+      b.fix(box(0.1, 0.17, 0.02), 0x2e4a62, [w * 0.2, 0, d / 2 + 0.005]);
+      for (let f = 0; f < floors; f++) b.windows(2, w, d, 0.1 + f * FLOOR);
+      break;
+    }
+    case 6: {
+      // PR 6 BRICK HIP with a front BAY WINDOW and a small porch hood.
+      b.fix(box(w, h, d), 0xa9573f, [0, 0, 0]);
+      b.acc(pyramid(w + 0.08, 0.2 + level * 0.03), [0, h, 0]);
+      b.wall(box(w * 0.4, FLOOR - 0.02, 0.07), [-w * 0.18, 0.02, d / 2 + 0.035]); // bay
+      b.fix(box(w * 0.34, 0.1, 0.02), GLASS, [-w * 0.18, 0.08, d / 2 + 0.072]);
+      b.acc(box(w * 0.44, 0.03, 0.09), [-w * 0.18, FLOOR, d / 2 + 0.035]);
+      b.fix(box(0.09, 0.16, 0.02), 0x3f5f3f, [w * 0.22, 0, d / 2 + 0.005]);
+      b.acc(box(0.16, 0.02, 0.08), [w * 0.22, 0.2, d / 2 + 0.04]); // porch hood
+      for (let f = 1; f < floors; f++) b.windows(2, w, d, 0.1 + f * FLOOR);
+      break;
+    }
+    case 7: {
+      // PR 6 STUCCO FLAT ROOF with a parapet, roof terrace and a pergola.
+      b.wall(box(w, h, d));
+      b.acc(box(w + 0.02, 0.05, 0.02), [0, h, d / 2]);
+      b.acc(box(w + 0.02, 0.05, 0.02), [0, h, -d / 2]);
+      b.acc(box(0.02, 0.05, d), [w / 2, h, 0]);
+      b.acc(box(0.02, 0.05, d), [-w / 2, h, 0]);
+      for (const px of [-0.12, 0.12]) b.fix(box(0.015, 0.12, 0.015), WOOD, [w / 2 + 0.06, 0, d / 2 - 0.02 + px * 0]); // pergola posts
+      b.fix(box(0.12, 0.012, 0.16), WOOD, [w / 2 + 0.06, 0.12, d / 2 - 0.06]);
+      b.fix(box(w * 0.5, 0.12, 0.02), GLASS, [0, 0.07, d / 2 + 0.005]);
+      for (let f = 1; f < floors; f++) b.windows(2, w, d, 0.1 + f * FLOOR);
       break;
     }
     default: // Steep A-frame with a dormer
@@ -437,6 +481,13 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
       b.acc(box(0.2, 0.03, 0.14), [0, h + 0.12, d / 2 - 0.02]);
       b.acc(box(w + 0.02, 0.035, d + 0.02), [0, h, 0]);
       for (let f = 0; f < floors; f++) for (const sx of [-1, 1]) b.windows(2, w * 0.36, d, 0.1 + f * FLOOR, GLASS, 0.08), void sx;
+    } else if (v === 3) {
+      // PR 6 MANSARD block: steep slate mansard on top, a balcony on every bay.
+      b.wall(box(w, h - FLOOR, d));
+      b.acc(gambrel(w + 0.02, FLOOR + 0.1, d + 0.02), [0, h - FLOOR, 0], [0, Math.PI / 2, 0]);
+      for (let f = 0; f < floors - 1; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
+      for (const dx of [-0.3, 0, 0.3]) { b.wall(box(0.1, 0.09, 0.08), [dx, h - FLOOR + 0.04, d / 2 - 0.03]); b.fix(box(0.07, 0.06, 0.02), GLASS, [dx, h - FLOOR + 0.055, d / 2 + 0.015]); }
+      if (hi) for (let f = 1; f < floors - 1; f++) for (const dx of [-0.3, 0, 0.3]) balcony(b, dx, f * FLOOR + 0.02, d / 2, 0.14);
     } else {
       // Block with a ground-floor shopfront, upper floors set back, corner tower.
       b.wall(box(w, FLOOR + 0.04, d));
@@ -448,7 +499,7 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
       b.acc(box(w * 0.94, 0.035, d * 0.88), [0, h, -d * 0.05]);
       for (let f = 1; f < floors; f++) b.windows(4, w * 0.8, d * 0.86 - 0.1, 0.1 + f * FLOOR, GLASS, 0.08);
     }
-    if (hi) {
+    if (hi && v !== 3) {
       // Balconies on upper floors, roof plant, entrance canopy, bike racks, plinth.
       for (let f = 1; f < floors; f++) {
         balcony(b, -w * 0.28, f * FLOOR + 0.02, d / 2 - (v === 2 ? 0.1 : 0), 0.18);
@@ -469,15 +520,41 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
 }
 
 /**
+ * PR 6 HIGH-DENSITY TOWERS (residential model level 6). Drawn at a "unit"
+ * height and stretched tall by the renderer (template model.tall), so
+ * these are about proportions: a podium, then 2–3 STEPPED SET-BACK volumes,
+ * balcony bands, a crown. Variants: 0 wedding-cake setbacks, 1 slim glass
+ * tower with a podium, 2 brick tower with corner balconies, 3 stepped slab.
+ */
+function tower(v: number, hi: boolean): DesignParts {
+  const b = new Builder(hi);
+  const tiers = v === 1 ? [[0.86, 0.66, 0.25], [0.5, 0.42, 1.25]] : v === 3 ? [[0.88, 0.5, 0.7], [0.7, 0.4, 0.45], [0.5, 0.3, 0.35]] : [[0.84, 0.64, 0.6], [0.66, 0.5, 0.5], [0.46, 0.36, 0.4]];
+  let y = 0;
+  tiers.forEach(([tw, td, th], k) => {
+    if (v === 2) b.fix(box(tw, th, td), 0xa9573f, [0, y, 0]);
+    else b.wall(box(tw, th, td), [0, y, 0]);
+    if (v === 1 && k === 1) b.fix(box(tw * 0.9, th * 0.96, 0.01), 0x9fd7ff, [0, y + 0.02, td / 2 + 0.005]);
+    // window bands
+    for (let f = 0; f < Math.floor(th / 0.09); f++) b.fix(box(tw * 0.86, 0.035, 0.012), GLASS, [0, y + 0.03 + f * 0.09, td / 2 + 0.004]);
+    if (hi && v !== 1) for (let f = 1; f < Math.floor(th / 0.09); f += 2) b.fix(box(tw * 0.9, 0.01, 0.05), TRIM, [0, y + f * 0.09, td / 2 + 0.025]); // balcony slabs
+    y += th;
+    b.acc(box(tw + 0.02, 0.025, td + 0.02), [0, y, 0]); // setback terrace edge
+  });
+  b.acc(box(0.14, 0.12, 0.14), [0, y, 0]); // crown / plant room
+  if (hi) { acUnit(b, 0.1, y, 0.05, 1.2); b.fix(box(0.9, 0.03, 0.7), STONE, [0, 0, 0]); door(b, 0, 0.33, 0x9fd7ff, 0.14, 0.12); }
+  return b.done();
+}
+
+/**
  * Build all designs: result[zone][design][level-1].
  * PR 5: `lod` picks the high-detail (default) or the low-detail (PR 4) set.
  */
 export function buildDesigns(lod: 'high' | 'low' = 'high'): Record<ZoneType, DesignParts[][]> {
   const hi = lod === 'high';
-  const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3]) =>
-    Array.from({ length: DESIGNS_PER_ZONE }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
-  // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments).
-  return { residential: make(residential, [1, 2, 3, 4, 5]), commercial: make(commercial), industrial: make(industrial) };
+  const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3], n = DESIGNS_PER_ZONE) =>
+    Array.from({ length: n }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
+  // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments); PR 6 adds 6 = towers and 8 designs.
+  return { residential: make(residential, [1, 2, 3, 4, 5, 6], RES_DESIGNS), commercial: make(commercial), industrial: make(industrial) };
 }
 
 // ----------------------------------------------------------------------------
@@ -556,7 +633,8 @@ function resDetails(b: Builder, k: number, level: number, w: number, h: number, 
   // Stone plinth the house sits on.
   b.fix(box(bw + 0.025, 0.035, d + 0.025), STONE, [0, 0, zoff]);
   // Door + steps (designs that already have a door get steps and trim).
-  const doorX = [-w / 4, 0, -w * 0.3, 0, 0][k];
+  // PR 6: designs 5–7 (saltbox, brick hip, stucco flat) have their door centred.
+  const doorX = [-w / 4, 0, -w * 0.3, 0, 0][k] ?? 0;
   if (k === 2) door(b, doorX, front, 0x3b4a57);
   else if (k !== 1) {
     b.fix(box(0.125, 0.014, 0.026), TRIM, [doorX, 0.17, front + 0.004]); // lintel over the existing door
@@ -682,12 +760,13 @@ function indDetails(b: Builder, k: number, level: number, w: number, h: number, 
 // Palettes and deterministic picking
 // ----------------------------------------------------------------------------
 const WALLS: Record<ZoneType, number[]> = {
-  residential: [0xf3ead8, 0xf6e3a8, 0xcfe0ec, 0xd5e3c4, 0xf0d2c4, 0xffffff, 0xd9a58a],
+  // PR 6: wider (still muted) palette — siding creams, sage, pale blue, warm stucco, greys, brick-ish clay.
+  residential: [0xf3ead8, 0xf6e3a8, 0xcfe0ec, 0xd5e3c4, 0xf0d2c4, 0xffffff, 0xd9a58a, 0xe8dcc8, 0xc9d4c0, 0xbfc8cf, 0xeed9b6, 0xdcc5b0, 0xb9a48f, 0xe4e0d4],
   commercial: [0xf1f3f5, 0xd6dbe0, 0xcdebd9, 0xf6dcc2, 0xe2d6f0],
   industrial: [0xd8ccb4, 0xb8bdc2, 0xc7b08f, 0xbfcab3, 0xd2bfa8],
 };
 const ACCENTS: Record<ZoneType, number[]> = {
-  residential: [0xc8553d, 0x8a5a44, 0x5b6770, 0x4f7a4a, 0xb8643f, 0x4c5d7a],
+  residential: [0xc8553d, 0x8a5a44, 0x5b6770, 0x4f7a4a, 0xb8643f, 0x4c5d7a, 0x3f3f44, 0x6e4b3a, 0x7d8c6a, 0x94755a],
   commercial: [0xd94a4a, 0x3c8dde, 0x3fa66b, 0xf08a3c, 0x2bb3b1, 0x8d6bd6],
   industrial: [0xb5543c, 0x5e6266, 0x3d8f8a, 0xa8743f, 0x7d8a9a],
 };
@@ -698,16 +777,18 @@ export interface Look {
   accent: number;
 }
 
-function rawDesign(x: number, z: number, seed: number): number {
-  return Math.floor(hash2(x, z, seed + 101) * DESIGNS_PER_ZONE);
+function rawDesign(x: number, z: number, seed: number, n = DESIGNS_PER_ZONE): number {
+  return Math.floor(hash2(x, z, seed + 101) * n);
 }
 
-export function pickLook(zone: ZoneType, x: number, z: number, seed: number): Look {
-  let design = rawDesign(x, z, seed);
+/** `n` (PR 6): how many designs to pick from (homes have RES_DESIGNS). */
+export function pickLook(zone: ZoneType, x: number, z: number, seed: number, n = zone === 'residential' ? RES_DESIGNS : DESIGNS_PER_ZONE): Look {
+  const DESIGNS_PER_ZONE = n;
+  let design = rawDesign(x, z, seed, n);
   // Neighbour rule: never the same design as the raw pick of the tile to the
   // west or north, so adjacent buildings differ.
-  const west = rawDesign(x - 1, z, seed);
-  const north = rawDesign(x, z - 1, seed);
+  const west = rawDesign(x - 1, z, seed, n);
+  const north = rawDesign(x, z - 1, seed, n);
   for (let tries = 0; tries < DESIGNS_PER_ZONE && (design === west || design === north); tries++) {
     design = (design + 1) % DESIGNS_PER_ZONE;
   }
