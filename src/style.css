@@ -177,3 +177,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #zonebar { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; padding: 6px 10px; z-index: 30; }
 #zonebar.hidden { display: none; }
 #zonebar .btn.active { outline: 2px solid #ffd21f; }
+
+/* V1.5 update prompt: centred card above everything. */
+.update-prompt { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 50; width: 380px; padding: 16px 18px; }
+.update-prompt h3 { margin: 0 0 8px; }
+.update-prompt p { margin: 0 0 10px; line-height: 1.4; }
+.update-prompt .warn { color: #ffb36b; }
+.update-prompt .row { display: flex; gap: 8px; justify-content: flex-end; }
+.btn.primary { background: #3d7be0; color: #fff; }

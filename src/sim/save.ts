@@ -231,3 +231,41 @@ export function migrateToCells(w: World): void {
     t.farm = 0;
   });
 }
+
+/**
+ * V1.5: the raw save JSON (or null), for "Export save" in the update prompt
+ * and the title screen. Kept as the exact stored string so a later import is
+ * byte-identical and goes through the normal loadWorld() migrations.
+ */
+export function exportSaveText(): string | null {
+  return localStorage.getItem(KEY);
+}
+
+/**
+ * V1.5: import a previously exported save. Validates that it parses and has
+ * the basic shape; returns false (and leaves the current save alone) if not.
+ */
+export function importSaveText(text: string): boolean {
+  try {
+    const d = JSON.parse(text);
+    if (d.size !== GRID_SIZE || !Array.isArray(d.tiles)) return false;
+    localStorage.setItem(KEY, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** V1.5: trigger a browser download of the current save as a .json file. */
+export function downloadSave(name = 'lowpoly-city-save'): boolean {
+  const text = exportSaveText();
+  if (!text) return false;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return true;
+}

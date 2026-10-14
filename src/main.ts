@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import './style.css';
 import { idx } from './sim/grid';
 import { canPlace } from './sim/rules';
-import { clearSave, hasSave, loadWorld, saveWorld } from './sim/save';
+import { clearSave, downloadSave, hasSave, loadWorld, saveWorld } from './sim/save';
 import { Simulation } from './sim/simulation';
 import { ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
@@ -34,6 +34,7 @@ import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
 import { gameLog } from './ui/gameLog';
 import { GameMenu } from './ui/menu';
+import { UpdateChecker } from './ui/updateCheck';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
 gameLog.install();
@@ -383,6 +384,15 @@ document.addEventListener('visibilitychange', () => document.hidden && saveWorld
 window.addEventListener('beforeunload', () => saveWorld(sim.world));
 if (hasSave()) hud.flash('Welcome back — city loaded');
 
+// ---- V1.5: update prompt ----
+// Polls /version.json (every 5 min + on focus) and offers to update.
+const updater = new UpdateChecker({
+  save: () => saveWorld(sim.world),
+  exportSave: () => { saveWorld(sim.world); return downloadSave(); },
+  clearSave: () => clearSave(),
+});
+updater.start();
+
 // Debug handle (handy in the browser console and for automated screenshots).
 (window as unknown as { city: unknown }).city = {
   get sim() {
@@ -395,6 +405,7 @@ if (hasSave()) hud.flash('Welcome back — city loaded');
     hud.notices.reset(sim);
   },
   setTool,
+  updater,
   setOverlay,
   setSpeed,
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
