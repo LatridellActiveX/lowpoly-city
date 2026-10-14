@@ -37,6 +37,7 @@ import { BUILD_COST } from './economy';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
+import { Redevelopment } from './redevelop';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
@@ -123,6 +124,8 @@ export class Simulation {
   demand: Demand;
   /** PR 4: goods production, deliveries, exports and plant fuel (goods.ts). */
   shipping = new Shipping();
+  /** V1.5 stage 12: monthly building health + redevelopment. */
+  redevelop = new Redevelopment();
   /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
   crews = new Crews();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
@@ -235,6 +238,7 @@ export class Simulation {
     l.property = m.property;
     w.cash += Math.round(income + (l.property ?? 0) - upkeep);
     this.bookProfits();
+    this.redevelop.month(this); // V1.5 stage 12: health → redevelopment
     w.lastLedger = l;
     w.ledger = emptyLedger();
   }

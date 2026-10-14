@@ -81,6 +81,12 @@ export interface Building {
   parked: number;
   arrivals: number;
   gaveUp: number;
+  /** V1.5 stage 12: health 0..1 at the last monthly check (redevelop.ts). Saved; optional for old saves. */
+  health?: number;
+  /** V1.5 stage 12: consecutive months with health < REDEV_HEALTH. */
+  lowMonths?: number;
+  /** V1.5 stage 12: this site is a redevelopment rebuild (counts toward the concurrent cap). */
+  redev?: boolean;
 }
 
 /** A crew must be on site; after the last stage finishes it lingers this many ticks for follow-up work. */

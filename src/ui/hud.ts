@@ -633,6 +633,13 @@ export class Hud {
       if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month + property <b>${this.money(Math.round(propertyTax(t, st.operating, sim.env.landValue[i], sim.world.propertyRate)))}</b></div>`);
       // V1.5 stage 11: land value and last month's profit.
       if (t.zone) rows.push(`<div class="row">Land value: <b>${sim.env.landValue[i].toFixed(2)}</b> <span class="muted">(noise ${sim.env.noise[i].toFixed(1)})</span></div>`);
+      // V1.5 stage 12: building health (monthly) and redevelopment status.
+      for (const hb of sim.world.lots.hostedOn(i)) {
+        if (hb.health === undefined) continue;
+        const hp = Math.round(hb.health * 100);
+        rows.push(`<div class="row">Health: <b class="${hb.health < 0.3 ? 'bad' : hb.health > 0.6 ? 'ok' : ''}">${hp}%</b>${hb.lowMonths ? ` <span class="bad">· struggling ${hb.lowMonths}/3 months — then it's redeveloped</span>` : ''}${hb.redev && hb.construct > 0 ? ' · 🏗 being redeveloped' : ''}</div>`);
+        break;
+      }
       const pf = sim.world.profits.get(i);
       if (pf) rows.push(`<div class="row">Profit last month: <b class="${pf.net < 0 ? 'bad' : 'ok'}">${pf.net < 0 ? '-' : ''}${this.money(Math.abs(Math.round(pf.net)))}</b> <span class="muted">(sales ${this.money(Math.round(pf.sales))} − inputs ${this.money(Math.round(pf.inputs))} − wages ${this.money(Math.round(pf.wages))} − tax ${this.money(Math.round(pf.taxes))})</span></div>`);
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);

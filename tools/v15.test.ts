@@ -14,6 +14,7 @@ import { rangeOf } from '../src/sim/parking';
 import { isRightTurn, ringStepOk } from '../src/sim/traffic';
 import { isUnlocked } from '../src/sim/progression';
 import { roleOf } from '../src/sim/chains';
+import { REDEV_MAX, REDEV_MONTHS } from '../src/sim/redevelop';
 import { Resource } from '../src/sim/resources';
 import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
@@ -232,6 +233,53 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   saveWorld(w);
   check('property rate survives save/load', loadWorld()!.propertyRate === 0.1);
 
+}
+
+// ---------------------------------------------------------------- stage 12: health-based redevelopment
+{
+  const s = town({ seed: 12 });
+  run(s, 1500);
+  const w = s.world, all = [...w.lots.buildings.values()].filter((b) => b.health !== undefined);
+  const avg = all.reduce((a, b) => a + b.health!, 0) / Math.max(1, all.length);
+  check('every finished building gets a monthly health 0..1', all.length > 20 && all.every((b) => b.health! >= 0 && b.health! <= 1), { n: all.length, avg: +avg.toFixed(2) });
+  const lowBy: Record<string, number> = {}; for (const b of all) if (b.health! < 0.3) lowBy[TPL[b.tpl].zone] = (lowBy[TPL[b.tpl].zone] ?? 0) + 1;
+  check('a serviced, growing town is mostly healthy (avg > 0.5, < 15% struggling)', avg > 0.5 && Object.values(lowBy).reduce((a, b) => a + b, 0) < all.length * 0.15, { avg: +avg.toFixed(2), lowBy });
+  // Pollution + no land value make a street sick: coal plants beside homes.
+  const homes = all.filter((b) => TPL[b.tpl].zone === 'residential');
+  const victim = homes[0];
+  const before = s.redevelop.health(s, victim, 1);
+  s.env.pollution[victim.host] += 4; s.env.landValue[victim.host] = 0; s.env.desirability[victim.host] -= 2; // as if a coal plant opened next door
+  const after = s.redevelop.health(s, victim, 1);
+  check('pollution / lost land value lower building health', after < before - 0.1, { before: +before.toFixed(2), after: +after.toFixed(2) });
+
+  // Trigger + cap: force every shop unhealthy and run monthly passes.
+  const rd = s.redevelop as any; const orig = rd.health.bind(rd);
+  rd.health = (sim: any, b: any, wr: number) => (TPL[b.tpl].zone === 'commercial' ? 0.1 : orig(sim, b, wr));
+  const shops0 = new Map([...w.lots.buildings.values()].filter((b) => TPL[b.tpl].zone === 'commercial' && b.level > 0).map((b) => [b.id, b.tpl]));
+  for (let m = 0; m < REDEV_MONTHS - 1; m++) s.redevelop.month(s);
+  check('no rebuild before health stays low for 3 months', s.redevelop.stats.rebuilt === 0, s.redevelop.stats);
+  (w.parking as any).localBalance = () => ({ demand: 0, supply: 100 }); // no parking pressure → plain rebuilds
+  s.redevelop.month(s);
+  const sites = [...w.lots.buildings.values()].filter((b) => b.redev && b.construct > 0);
+  check('after 3 low months: rebuilt as a DIFFERENT same-zone template, capped', sites.length > 0 && sites.length <= REDEV_MAX && sites.every((b) => TPL[b.tpl].zone === 'commercial'), { sites: sites.length, cap: REDEV_MAX, tpls: sites.map((b) => b.tpl) });
+  check('rebuild sites need construction crews (start at level 0)', sites.every((b) => b.level === 0));
+  s.redevelop.month(s);
+  check('cap holds while rebuilds are under way', [...w.lots.buildings.values()].filter((b) => b.redev && b.construct > 0).length <= REDEV_MAX);
+  // SHOP → GARAGE when the district is short of parking.
+  (w.parking as any).localBalance = () => ({ demand: 500, supply: 10 });
+  const lone = [...w.lots.buildings.values()].find((b) => TPL[b.tpl].zone === 'commercial' && !TPL[b.tpl].residents && b.level > 0 && w.lots.onTile(w, b.host % 64, Math.floor(b.host / 64)).filter((o) => TPL[o.tpl].capacity[0] > 0).length === 1);
+  const g0 = w.parking.lots.size;
+  if (lone) s.redevelop.rebuild(s, lone);
+  check('shop → garage when parking is short', !!lone && s.redevelop.stats.shopToGarage === 1 && w.parking.lots.size === g0 + 1, { lone: !!lone, ...s.redevelop.stats });
+  // GARAGE → SHOP: an idle grown garage goes when shops are wanted.
+  const gl = [...w.parking.lots.values()].find((l) => l.grown)!;
+  gl.parked = 0;
+  (s as any).demand.commercial.value = 0.5;
+  for (const b of w.lots.buildings.values()) b.redev = false; // free the cap for this check
+  rd.health = () => 0.9;
+  for (let m = 0; m < REDEV_MONTHS; m++) { gl.parked = 0; s.redevelop.month(s); }
+  check('idle grown garage → shop lot', s.redevelop.stats.garageToShop >= 1 && !w.parking.lots.has(gl.id), s.redevelop.stats);
+  void shops0;
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
