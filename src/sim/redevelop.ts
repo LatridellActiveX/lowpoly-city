@@ -90,7 +90,7 @@ export class Redevelopment {
     }
     const lv = clamp01(env.landValue[b.host] / LV_GOOD);
     // V1.5b: uncollected garbage counts against cleanliness too.
-    const clean = clamp01(1 - env.pollution[b.host] / 4 - t.garbage / 90);
+    const clean = clamp01(1 - env.pollution[b.host] / 4 - (t.garbage / 90) * (w.peakPop < 1000 ? 0.3 : 1)); // mild before the dump unlocks
     const frustrated = b.arrivals > 3 && b.gaveUp / b.arrivals > 0.5;
     const park = frustrated ? 0.4 : w.parking.shortfall(b) > 0 ? 0.7 : 1;
     const access = (st.roadAccess && st.powered && st.watered ? 1 : 0.3) * park;

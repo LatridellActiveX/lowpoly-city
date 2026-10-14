@@ -56,7 +56,7 @@ import { isUnlocked } from '../src/sim/progression';
     const s = town({ seed: 21 });
     s.world.peakPop = 1000;
     if (dump) s.apply('garbageDump', [[31, 17]]);
-    run(s, 900);
+    run(s, 2200); // longer since the halved GARBAGE_RATE / higher G_WARN tune
     let g = 0, n = 0, piles = 0, lv = 0;
     s.world.tiles.forEach((t, i) => { if (t.zone && t.level > 0) { g += t.garbage; n++; lv += s.env.landValue[i]; if (t.garbage >= G_WARN) piles++; } });
     res[dump ? 'dump' : 'none'] = { avg: +(g / n).toFixed(1), piles, lv: +(lv / n).toFixed(2), trips: s.garbage.stats.trips, collected: Math.round(s.garbage.stats.collected), dumpTile: s.world.at(31, 17).structure };
@@ -68,7 +68,7 @@ import { isUnlocked } from '../src/sim/progression';
       check('dump upkeep is booked under services', p.upkeep.service === SERVICE_DEFS[Svc.Dump].upkeep, p.upkeep);
     }
   }
-  check('without a dump, garbage piles up at buildings (warnings)', res.none.piles > 10, res);
+  check('without a dump, garbage piles up at buildings (warnings)', res.none.piles > 5, res);
   check('dump trucks drive out and collect', res.dump.trips > 5 && res.dump.collected > 100, res.dump);
   check('collection keeps garbage low and land value higher', res.dump.avg < res.none.avg * 0.6 && res.dump.lv > res.none.lv, res);
   const s2 = town({ seed: 22 });

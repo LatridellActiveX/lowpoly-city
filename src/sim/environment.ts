@@ -108,7 +108,7 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
     if (service) v += (service[i].powered ? LV_SERVICE : 0) + (service[i].watered ? LV_SERVICE : 0);
     v += LV_PARK * env.parks[i] + Math.min(LV_COMMERCE_MAX, LV_COMMERCE * commerce[i]);
     v -= LV_POLLUTION * env.pollution[i] + LV_NOISE * noise[i];
-    v -= LV_GARBAGE * Math.min(1, t.garbage / 60); // V1.5b stage E
+    v -= LV_GARBAGE * Math.min(1, t.garbage / 60) * (world.peakPop < 1000 ? 0.3 : 1); // V1.5b stage E (mild before the dump unlocks)
     out[i] = Math.max(0, Math.min(LV_MAX, v));
   }
   return { noise, landValue: out };
