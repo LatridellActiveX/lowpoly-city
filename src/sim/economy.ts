@@ -28,9 +28,10 @@ export const STARTING_CASH = 50_000;
 export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number> = {
   // $10 of asphalt + a $2 surcharge for the street-side power poles that are
   // built automatically along every road (PR 3 auto power lines).
-  road: 12,
+  // PR 6: + $5 for the water main laid under every road automatically → $17.
+  road: 17,
   // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
-  avenue: 24,
+  avenue: 29, // PR 6: $24 + $5 water main
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
@@ -56,6 +57,11 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   farm: 30,
   foodPlant: 60,
   constructionYard: 2500,
+  // PR 6 public parking (Roads flyout): a 2×2-cell surface lot (4 spaces) and
+  // a 4×4-cell (one tile) three-deck garage (40 spaces). Priced per space:
+  // $30 surface, $40 decked (you pay for the land you save).
+  parkingLot: 120,
+  parkingGarage: 1600,
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
@@ -135,10 +141,10 @@ export function placementCost(tool: ToolId, t: Tile): number {
 /** What bulldozing tile `t` refunds: 25% of the value of everything on it. */
 export function bulldozeRefund(t: Tile): number {
   let value = 0;
-  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road;
+  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road; // (includes the auto water main)
   if (t.road && t.water) value += BRIDGE_EXTRA;
   if (t.powerLine) value += BUILD_COST.powerLine;
-  if (t.waterPipe) value += BUILD_COST.waterPipe;
+  if (t.waterPipe && !t.road) value += BUILD_COST.waterPipe; // PR 6: a road's pipe is in the road price
   if (t.zone) value += BUILD_COST[t.zone];
   if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure];
   return Math.round(value * REFUND_RATE);

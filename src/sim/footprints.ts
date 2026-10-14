@@ -1,0 +1,203 @@
+/**
+ * sim/footprints.ts — PR 6 FOOTPRINT TEMPLATES: every building design's size
+ * in cells, which side faces the road, and the parking it brings with it.
+ *
+ * LOCAL TEMPLATE FRAME
+ * --------------------
+ * A template is drawn in its own (u, v) cell frame:
+ *      u = 0 .. w−1  ALONG the road (left → right as you look from the road)
+ *      v = 0 .. d−1  AWAY from the road; v = 0 is the row touching the kerb
+ *
+ *        road ════════════════════
+ *        v=0  [P][P][P]           ← 3 front parking spaces
+ *        v=1  [B][B][B]
+ *        v=2  [B][B][B]           ← building body
+ *        v=3  [B][B][B]
+ *             u=0 1  2            (the "corner shop" below)
+ *
+ * lots.ts rotates this frame onto the map so v points away from whichever
+ * road the lot faces (cells.ts FACES), then checks that every cell is free
+ * and zoned. The renderer uses the SAME rects to place the model (on the
+ * body rect), asphalt + painted stalls (parking rects) and gardens.
+ *
+ * PARKING NUMBERS
+ * ---------------
+ * `required(level)` follows the approved plan:
+ *   homes:     low density 1 space / home, medium 0.7, high 0.5
+ *   shops:     1 space per 3 jobs
+ *   factories: 1 space per 4 jobs (+ truck bays, which the templates carry)
+ * `supply` = surface parking cells (1 space each) + garage spaces. Some
+ * small shops are DELIBERATELY one space short at their top level, so a
+ * public lot nearby (parking.ts) is what lets them grow — that's the
+ * "parking as a real requirement" loop.
+ */
+import { CellRole } from './cells';
+import { ZoneType } from './types';
+
+/** One rectangle of a template, in local (u, v) cells. */
+export interface TplRect {
+  u: number;
+  v: number;
+  w: number;
+  d: number;
+  role: CellRole;
+}
+
+export interface Template {
+  id: string;
+  label: string;
+  zone: ZoneType;
+  /** Industrial kind (0 factory, 1 farm, 2 food plant); 0 for R/C. */
+  kind: number;
+  /** Density rank 0/1/2 (see cells.ts ZONE_CODES). Cells must allow at least this. */
+  density: number;
+  /** Lowest population tier (progression.ts) at which this design can be built. */
+  tier: number;
+  /** Width along the road and depth away from it, in cells. */
+  w: number;
+  d: number;
+  rects: TplRect[];
+  /** Spaces inside the building (underground / integrated garage). Not drawn as stalls. */
+  garage: number;
+  /** Truck loading bays (factories). */
+  bays: number;
+  /** Highest level of this design (1-based). */
+  maxLevel: number;
+  /** Residents (homes) or jobs (shops/factories) at each level; index = level − 1. */
+  capacity: number[];
+  /** Households per level (homes only), for the parking requirement. */
+  homes?: number[];
+  /** Renderer hints: which zone model level to draw, and extra height for towers. */
+  model: { level: number[]; tall?: number };
+  /** Relative chance of being picked when several templates fit. */
+  weight: number;
+  /** Only created by save migration (old 1-tile buildings), never grown. */
+  legacy?: boolean;
+}
+
+const R = (u: number, v: number, w: number, d: number, role: CellRole): TplRect => ({ u, v, w, d, role });
+const B = CellRole.Body, P = CellRole.Parking, G = CellRole.Garage, Gd = CellRole.Garden, Bay = CellRole.Bay;
+
+export const TEMPLATES: Template[] = [
+  // ---------------- Residential · low (houses) ----------------
+  // "small house 2×3 + 1×2 driveway" (plus a 1-cell garden behind the drive).
+  { id: 'house_s', label: 'Small house', zone: 'residential', kind: 0, density: 0, tier: 0, w: 3, d: 3,
+    rects: [R(0, 0, 2, 3, B), R(2, 0, 1, 2, P), R(2, 2, 1, 1, Gd)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [5, 10, 20], homes: [1, 1, 2], model: { level: [1, 2, 3] }, weight: 3 },
+  // Wider house with a driveway and a single garage at the end of it.
+  { id: 'house_w', label: 'Family house + garage', zone: 'residential', kind: 0, density: 0, tier: 0, w: 4, d: 3,
+    rects: [R(0, 0, 3, 3, B), R(3, 0, 1, 2, P), R(3, 2, 1, 1, G)], garage: 1, bays: 0,
+    maxLevel: 3, capacity: [5, 10, 20], homes: [1, 2, 2], model: { level: [1, 2, 3] }, weight: 2 },
+  // Narrow deep house: drive down the side, shed at the back.
+  { id: 'house_d', label: 'Deep-lot house', zone: 'residential', kind: 0, density: 0, tier: 0, w: 3, d: 4,
+    rects: [R(1, 0, 2, 4, B), R(0, 0, 1, 3, P), R(0, 3, 1, 1, Gd)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [5, 10, 20], homes: [1, 1, 2], model: { level: [1, 2, 3] }, weight: 1.5 },
+  // ---------------- Residential · medium ----------------
+  // "townhouse row 6×3 + rear garages".
+  { id: 'townhouse', label: 'Townhouse row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 6, d: 4,
+    rects: [R(0, 0, 6, 3, B), R(0, 3, 6, 1, G)], garage: 6, bays: 0,
+    maxLevel: 2, capacity: [40, 55], homes: [6, 8], model: { level: [4, 4] }, weight: 2 },
+  { id: 'apartment_d', label: 'Small apartment block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 6,
+    rects: [R(0, 0, 4, 4, B), R(0, 4, 4, 2, P)], garage: 12, bays: 0,
+    maxLevel: 2, capacity: [40, 65], homes: [16, 26], model: { level: [4, 5] }, weight: 1.5 },
+  // "apartments 6×6 with integrated garage" (+ a rear surface lot).
+  { id: 'apartment', label: 'Apartment block', zone: 'residential', kind: 0, density: 1, tier: 3, w: 6, d: 6,
+    rects: [R(0, 0, 6, 4, B), R(0, 4, 6, 2, P)], garage: 20, bays: 0,
+    maxLevel: 2, capacity: [70, 110], homes: [28, 44], model: { level: [5, 5] }, weight: 2 },
+  // ---------------- Residential · high (towers, City tier) ----------------
+  { id: 'tower', label: 'Residential tower', zone: 'residential', kind: 0, density: 2, tier: 3, w: 6, d: 6,
+    rects: [R(0, 0, 6, 5, B), R(0, 5, 6, 1, G)], garage: 64, bays: 0,
+    maxLevel: 2, capacity: [200, 320], homes: [80, 128], model: { level: [5, 5], tall: 2.6 }, weight: 2 },
+  { id: 'tower_l', label: 'Twin tower', zone: 'residential', kind: 0, density: 2, tier: 3, w: 8, d: 6,
+    rects: [R(0, 0, 8, 5, B), R(0, 5, 8, 1, G)], garage: 90, bays: 0,
+    maxLevel: 2, capacity: [300, 450], homes: [120, 180], model: { level: [5, 5], tall: 3.4 }, weight: 1 },
+  // ---------------- Commercial · low ----------------
+  // "corner shop 3×3 + 3 front spaces" — one space short at level 3 on purpose.
+  { id: 'corner_shop', label: 'Corner shop', zone: 'commercial', kind: 0, density: 0, tier: 0, w: 3, d: 4,
+    rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 3, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [4, 8, 12], model: { level: [1, 2, 3] }, weight: 3 },
+  { id: 'shop_w', label: 'Shop with front lot', zone: 'commercial', kind: 0, density: 0, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [5, 10, 14], model: { level: [1, 2, 3] }, weight: 2 },
+  // ---------------- Commercial · high ----------------
+  // "strip mall 8×4 + front lot".
+  { id: 'strip_mall', label: 'Strip mall', zone: 'commercial', kind: 0, density: 1, tier: 1, w: 8, d: 6,
+    rects: [R(0, 0, 8, 2, P), R(0, 2, 8, 4, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [24, 36, 48], model: { level: [1, 2, 2] }, weight: 2 },
+  { id: 'mall', label: 'Shopping centre', zone: 'commercial', kind: 0, density: 1, tier: 2, w: 8, d: 8,
+    rects: [R(0, 0, 8, 2, P), R(0, 2, 8, 6, B)], garage: 16, bays: 0,
+    maxLevel: 2, capacity: [60, 90], model: { level: [3, 3] }, weight: 1 },
+  // ---------------- Industrial ----------------
+  { id: 'workshop', label: 'Workshop', zone: 'industrial', kind: 0, density: 0, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 3, 1, P), R(3, 0, 1, 1, Bay), R(0, 1, 4, 3, B)], garage: 0, bays: 1,
+    maxLevel: 3, capacity: [8, 12, 16], model: { level: [1, 2, 3] }, weight: 2 },
+  // "factory 6×6 + loading yard".
+  { id: 'factory', label: 'Factory', zone: 'industrial', kind: 0, density: 1, tier: 0, w: 6, d: 8,
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 6, B)], garage: 0, bays: 2,
+    maxLevel: 3, capacity: [16, 24, 32], model: { level: [2, 3, 3] }, weight: 2 },
+  // Farm: barn + silo with a small yard; FIELDS are claimed separately (industry.ts).
+  { id: 'farm', label: 'Farm', zone: 'industrial', kind: 1, density: 0, tier: 0, w: 3, d: 3,
+    rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 2, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [3, 6, 9], model: { level: [1, 2, 3] }, weight: 1 },
+  { id: 'food_plant', label: 'Food processing plant', zone: 'industrial', kind: 2, density: 0, tier: 0, w: 6, d: 6,
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 4, B)], garage: 0, bays: 2,
+    maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 1 },
+  // ---------------- Leftover fillers (odd gaps) ----------------
+  // Not "buildings": no residents/jobs, no power or water. lots.ts drops one
+  // into a 1–2 cell gap along the kerb so blocks look naturally packed.
+  { id: 'garden', label: 'Garden', zone: 'residential', kind: 0, density: 0, tier: 0, w: 1, d: 2,
+    rects: [R(0, 0, 1, 2, Gd)], garage: 0, bays: 0, maxLevel: 1, capacity: [0], model: { level: [0] }, weight: 0 },
+  { id: 'overflow', label: 'Overflow parking', zone: 'commercial', kind: 0, density: 0, tier: 0, w: 2, d: 2,
+    rects: [R(0, 0, 2, 2, P)], garage: 0, bays: 0, maxLevel: 1, capacity: [0], model: { level: [0] }, weight: 0 },
+  // ---------------- Migrated PR 5 buildings (save v5 → v6) ----------------
+  // An old 1-tile building becomes a whole-tile 4×4 lot: body on 3 columns,
+  // driveway/lot on the 4th, plus a garage allowance so its parking matches
+  // what it needs at every PR 5 level (no instant shortfall after loading).
+  { id: 'legacy_res', label: 'Home (pre-PR 6 lot)', zone: 'residential', kind: 0, density: 0, tier: 0, w: 4, d: 4, legacy: true,
+    rects: [R(0, 0, 3, 4, B), R(3, 0, 1, 4, P)], garage: 24, bays: 0,
+    maxLevel: 5, capacity: [5, 10, 20, 40, 70], homes: [1, 1, 2, 6, 28], model: { level: [1, 2, 3, 4, 5] }, weight: 0 },
+  { id: 'legacy_com', label: 'Shop (pre-PR 6 lot)', zone: 'commercial', kind: 0, density: 0, tier: 0, w: 4, d: 4, legacy: true,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [4, 8, 12], model: { level: [1, 2, 3] }, weight: 0 },
+  { id: 'legacy_ind', label: 'Factory (pre-PR 6 lot)', zone: 'industrial', kind: 0, density: 0, tier: 0, w: 4, d: 4, legacy: true,
+    rects: [R(0, 0, 3, 1, P), R(3, 0, 1, 1, Bay), R(0, 1, 4, 3, B)], garage: 3, bays: 1,
+    maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 0 },
+  { id: 'legacy_farm', label: 'Farm (pre-PR 6 lot)', zone: 'industrial', kind: 1, density: 0, tier: 0, w: 4, d: 4, legacy: true,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [3, 6, 9], model: { level: [1, 2, 3] }, weight: 0 },
+  { id: 'legacy_food', label: 'Food plant (pre-PR 6 lot)', zone: 'industrial', kind: 2, density: 0, tier: 0, w: 4, d: 4, legacy: true,
+    rects: [R(0, 0, 3, 1, P), R(3, 0, 1, 1, Bay), R(0, 1, 4, 3, B)], garage: 3, bays: 1,
+    maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 0 },
+];
+
+export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));
+
+/** Is this template a filler (garden / overflow lot) rather than a real building? */
+export const isFiller = (t: Template) => t.capacity[0] === 0;
+
+/** Surface parking spaces drawn as stalls (1 per Parking cell). */
+export function surfaceSpaces(t: Template): number {
+  return t.rects.reduce((a, r) => a + (r.role === CellRole.Parking ? r.w * r.d : 0), 0);
+}
+/** Total parking supply of a template: surface stalls + garage spaces. */
+export const parkingSupply = (t: Template) => surfaceSpaces(t) + t.garage;
+
+/** PR 6 parking ratios (see header). */
+export const SPACES_PER_HOME = [1, 0.7, 0.5];
+export const SHOP_JOBS_PER_SPACE = 3;
+export const FACTORY_JOBS_PER_SPACE = 4;
+
+/** Spaces a building of this template needs at `level` (1-based). */
+export function parkingRequired(t: Template, level: number): number {
+  if (level <= 0 || isFiller(t)) return 0;
+  const k = Math.min(level, t.maxLevel) - 1;
+  if (t.zone === 'residential') return Math.ceil((t.homes?.[k] ?? 1) * SPACES_PER_HOME[t.density]);
+  if (t.zone === 'commercial') return Math.ceil(t.capacity[k] / SHOP_JOBS_PER_SPACE);
+  return Math.ceil(t.capacity[k] / FACTORY_JOBS_PER_SPACE);
+}
+
+/** The body rect (where the model stands). Every template has exactly one. */
+export const bodyRect = (t: Template) => t.rects.find((r) => r.role === CellRole.Body) ?? t.rects[0];
+
+/** Area in cells (used to prefer templates that use the space well). */
+export const area = (t: Template) => t.w * t.d;

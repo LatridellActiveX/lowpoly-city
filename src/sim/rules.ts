@@ -68,17 +68,20 @@ export const MAX_RES_LEVEL = 5;
 export const MEDIUM_DENSITY = { 4: { tier: 2, desire: 1.2 }, 5: { tier: 3, desire: 1.5 } } as const;
 /** Residents living in a home tile right now (the newest level's people only count once their car arrives). */
 export function residentsOf(t: Tile): number {
-  if (t.zone !== 'residential' || t.level <= 0) return 0;
-  const lv = Math.min(t.level, MAX_RES_LEVEL);
-  return t.movingIn ? RESIDENTS_AT[lv - 1] : RESIDENTS_AT[lv];
+  // PR 6: buildings are entities on the cell grid; their host tile carries
+  // the sum of its buildings' residents (lots.ts aggregate), already net of
+  // anyone still driving in.
+  return t.zone === 'residential' ? t.res : 0;
 }
 /**
  * "Size units" of a building for power/water/tax: residents ÷ 5 for homes
  * (so a level-5 block uses 14× a cottage), the level for shops/factories.
  */
 export function sizeUnits(t: Tile): number {
-  if (t.zone === 'residential') return RESIDENTS_AT[Math.min(t.level, MAX_RES_LEVEL)] / RESIDENTS_PER_LEVEL;
-  return t.level;
+  // PR 6: host-tile aggregate (lots.ts): residents ÷ 5 for homes, jobs ÷ 4
+  // for shops, ÷ 8 for factories, ÷ 3 for farms — the PR 5 scales, so a PR 5
+  // level-3 factory tile and a PR 6 factory with 24 jobs use the same power.
+  return t.units;
 }
 export const JOBS_PER_LEVEL: Record<ZoneType, number> = { residential: 0, commercial: 4, industrial: 8 };
 
@@ -114,7 +117,16 @@ export const DESIRE_BASE = 1;
 export const POLLUTION_WEIGHT = 0.25;
 /** A park's bonus right next to it, its radius, and the cap from many parks. */
 export const PARK_BONUS = 0.8;
-export const PARK_RADIUS = 3;
+/**
+ * PR 6: a park now lifts desirability over a 10 × 10-tile SQUARE centred on
+ * it (40 × 40 cells): tiles −5..+4 from the park on each axis, i.e. a
+ * Chebyshev "radius" of 5 with the far row/column on the +x/+z side dropped
+ * so the square is exactly 10 wide. Falloff is gentle (environment.ts
+ * parkFalloff): full bonus in the middle, ~half at the edge.
+ */
+export const PARK_RADIUS = 5;
+/** PR 6: park area side in tiles. */
+export const PARK_AREA = 10;
 export const PARK_BONUS_MAX = 1.5;
 /** Homes below this desirability don't grow at all ("too polluted"). */
 export const DESIRE_MIN = 0.2;
@@ -164,11 +176,10 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'industrial':
     case 'farm':
     case 'foodPlant': {
-      // PR 5: Farm / Food Plant paint INDUSTRIAL lots with a kind (industry.ts).
-      const kind = tool === 'farm' ? 1 : tool === 'foodPlant' ? 2 : 0;
-      if (t.zone === 'industrial' && t.level === 0 && t.construct === 0) return t.kind !== kind;
-      if (t.zone !== null) return t.zone !== zoneOf(tool) && t.level === 0 && t.construct === 0; // re-zone an empty lot
-      return isBare(t);
+      // PR 6: zoning paints CELLS (simulation.zoneCells). A tile may be
+      // (re)zoned if it is bare or already zoned; cells under buildings keep
+      // their zone, only the free cells are repainted.
+      return t.zone !== null ? t.structure === 'none' || t.structure === 'building' : isBare(t);
     }
     case 'powerPlant':
     case 'nuclearPlant':
@@ -178,6 +189,10 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'constructionYard':
     case 'park':
       return isBare(t);
+    case 'parkingLot':
+    case 'parkingGarage':
+      // PR 6 public parking: on bare land or zoned cells (cells checked by the sim).
+      return !t.road && !t.water && !t.edge && !t.powerLine && !t.waterPipe && (t.structure === 'none' || t.structure === 'building');
     case 'bulldoze':
       // The highway connection at the map edge is permanent.
       if (t.edge) return false;
@@ -195,10 +210,15 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'road':
       t.road = true;
       t.roadType = 0;
+      // PR 6: every road carries a water main under it (like the PR 3 street
+      // power poles), so connected roads form one water network and anything
+      // beside a road gets water. The pipe is part of the road's price.
+      t.waterPipe = true;
       break;
     case 'avenue':
       t.road = true;
       t.roadType = 1;
+      t.waterPipe = true; // PR 6 auto water main (see 'road')
       break;
     case 'powerLine':
       t.powerLine = true;
@@ -211,17 +231,19 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'industrial':
     case 'farm':
     case 'foodPlant':
-      t.zone = zoneOf(tool);
-      t.kind = tool === 'farm' ? 1 : tool === 'foodPlant' ? 2 : 0;
-      t.farm = 0; // building on fallow land
-      t.input = 0;
-      t.crew = false;
-      t.structure = 'none';
-      t.level = 0;
-      t.happyTicks = 0;
-      t.construct = 0;
-      t.stock = 0;
+      // PR 6: the cells are painted by Simulation.zoneCells; the tile just
+      // records a zone (lots.refreshTileZone / aggregate keep it accurate).
+      if (t.zone === null) {
+        t.zone = zoneOf(tool);
+        t.kind = tool === 'farm' ? 1 : tool === 'foodPlant' ? 2 : 0;
+        t.farm = 0;
+        t.input = 0;
+        t.stock = 0;
+      }
       break;
+    case 'parkingLot':
+    case 'parkingGarage':
+      break; // cells only (Simulation.placeParking)
     case 'powerPlant':
     case 'nuclearPlant':
     case 'windTurbine':
@@ -248,6 +270,8 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.kind = 0;
       t.input = 0;
       t.crew = false;
+      t.res = t.jobs = t.units = 0;
+      t.crewLinger = 0;
       // PR 5: bulldozing a farm FIELD leaves it fallow so its farm shrinks.
       if (t.farm > 0) t.farm = -t.farm;
       break;

@@ -16,13 +16,35 @@
  * markers) are updated separately in `animate()`, touching only those pools.
  */
 import * as THREE from 'three';
+import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
+import { bodyRect, surfaceSpaces, TPL } from '../sim/footprints';
+import { localToCell, rectAABB } from '../sim/lots';
+import { box, merge, part } from './models';
+
+/** PR 6: most parked cars drawn per rebuild (performance cap), their colours, and asphalt. */
+export const MAX_PARKED_DRAWN = 900;
+const PARKED_COLORS = [0xd94b3d, 0x3d6fd9, 0xf2f2f2, 0x2b2b2b, 0x9aa3ad, 0xe0b23a, 0x3c8f5a, 0x7a3fb0];
+const ASPHALT = 0x55585c;
+/** PR 6 public parking garage: a three-deck concrete block with ramps and stripes. */
+function parkDeckModel(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [];
+  for (let k = 0; k < 3; k++) {
+    p.push(part(box(0.9, 0.025, 0.9), 0x8d8f93, [0, k * 0.18, 0]));
+    p.push(part(box(0.9, 0.05, 0.02), 0xc9c6bf, [0, k * 0.18 + 0.03, 0.44]));
+    p.push(part(box(0.9, 0.05, 0.02), 0xc9c6bf, [0, k * 0.18 + 0.03, -0.44]));
+  }
+  for (const [x, z] of [[-0.42, -0.42], [0.42, -0.42], [-0.42, 0.42], [0.42, 0.42], [0, -0.42], [0, 0.42]]) p.push(part(box(0.05, 0.56, 0.05), 0xb8b4ab, [x, 0, z]));
+  p.push(part(box(0.9, 0.025, 0.9), 0x6f7276, [0, 0.54, 0]));
+  p.push(part(box(0.2, 0.2, 0.02), 0x2f6fd0, [0.3, 0.58, 0.45])); // blue "P" sign
+  return merge(p);
+}
 import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
-import { CREW_PURPOSE, isFarmLot, isFoodPlant } from '../sim/industry';
+import { CREW_PURPOSE } from "../sim/industry";
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
@@ -41,7 +63,8 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
   industrial: 0xeac55c,
 };
 
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources';
+/** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
@@ -248,7 +271,11 @@ export class CityRenderer {
     add('bridgeRamp', ROADS.bridgeRamp(), solid, 128);
     add('highway', ROADS.highway(), solid, 4);
     add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
-    add('lot', MODELS.lot(), solid, 1024, false);
+    add('lot', MODELS.lot(), solid, 4096, false);
+    // PR 6 parking: painted stall lines, parked cars and public garages.
+    add('stall', merge([part(box(0.012, 0.002, 0.2), 0xf2f2f2, [-0.118, 0, 0])]), solid, 2048, false);
+    add('parkedCar', VEHICLES.car(), solid, 512);
+    add('parkDeck', parkDeckModel(), solid, 32);
     // One pool per (zone, design, level, part): "residential.2.1.walls" etc.
     // PR 5: two levels of detail. "high" pools are named like
     // "residential.2.1.walls", "low" ones "lo:residential.2.1.walls". Both
@@ -489,88 +516,20 @@ export class CityRenderer {
         }
       }
 
-      if (t.zone) {
-        P.lot.add(this.place(center), this.c.setHex(ZONE_COLORS[t.zone]));
-        // PR 4 fix: EMPTY lots and construction sites also show missing
-        // power/water (PR 3 only flagged finished buildings, so a freshly
-        // zoned block with no pipe showed nothing at all).
+      // PR 6: buildings, parking and zoned cells are drawn per CELL in
+      // addLots() below. Here we only flag problems on HOST tiles (tiles that
+      // carry a building or site), so deep zoned tiles don't show a sea of
+      // "no road" icons.
+      if (t.zone && (t.level > 0 || t.construct > 0)) {
         const st0 = sim.status(i);
-        // (Lots with no road at all are skipped: they can't build anyway and
-        // a sea of icons in the middle of a block would hide the real problems.)
-        if ((t.level === 0 || t.construct > 0) && st0.roadAccess) {
-          const both = !st0.powered && !st0.watered;
-          const pos = center.clone().setY(t.construct > 0 ? 0.9 : 0.45);
-          if (!st0.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
-          if (!st0.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1.3 : 0 });
-        }
-        if (t.construct > 0) {
-          this.addConstruction(t, i, x, z, center, seed, has);
-          // PR 5: no crew yet → orange cone icon ("Waiting for construction crew", see Inspect).
-          if (!t.crew && st0.operating) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
-        } else if (t.level > 0) {
-          const st = sim.status(i);
-          // Non-operating buildings are drawn dimmed grey so problems stand out.
-          const lv = t.level;
-          const look = pickLook(t.zone, x, z, seed);
-          // Turn the building so its front (+z in model space) faces a road.
-          const face = this.roadFacing(x, z, has) ?? turn;
-          if (st.powered) this.addDropWire(tiles, x, z, face, lv, has, t.zone);
-          const key = `${this.lod === 'low' ? 'lo:' : ''}${t.zone}.${look.design}.${lv}`;
-          const dim = st.operating ? 1 : 0.55;
-          const m = this.place(center, face);
-          // PR 5: farms and food plants have their own models (industryModels.ts),
-          // scaled a little with level; ordinary lots use the zone designs.
-          const farmLot = t.zone === 'industrial' && isFarmLot(sim.world, i);
-          const foodLot = t.zone === 'industrial' && isFoodPlant(t);
-          const special = farmLot || foodLot;
-          if (special) {
-            const sc = 0.84 + 0.08 * Math.min(3, lv);
-            const pool = farmLot ? P.farm : P[`foodPlant${Math.floor(hash2(x, z, seed + 61) * 3)}`];
-            pool.add(this.place(center, face, sc, sc, sc), this.c.setScalar(dim));
-          } else {
-          P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
-          P[`${key}.accent`].add(m, this.c.setHex(look.accent).multiplyScalar(dim));
-          P[`${key}.fixed`].add(m, this.c.setScalar(dim));
-          }
-          // Night windows: most homes have a light on, some don't; offices and
-          // factories are mostly lit. Dark (non-operating) buildings stay dark.
-          // PR 4: each building has its own "bedtime" and light colour.
-          // Homes switch lights on in the evening and off one by one after
-          // ~22:00 (a few night owls stay lit), shops close around 21–23 h,
-          // factories run night shifts. Colours: warm bulbs, cool white, or
-          // the blue flicker of a TV. Hours are 0..23 (this.hour; −1 = day).
-          const lit = hash2(x, z, seed + 404);
-          const hr = this.hour < 0 ? 12 : this.hour;
-          const lateNight = hr >= 0 && hr < 6 ? hr + 24 : hr; // 18..29
-          const bedtime = t.zone === 'residential' ? 22 + lit * 7 : t.zone === 'commercial' ? 21 + lit * 2.5 : 30;
-          const on = st.operating && lit < 0.92 && lateNight < bedtime;
-          const hue = hash2(x, z, seed + 405);
-          const tintHex = hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff;
-          if (!special) P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
-          // PR 4 driveways: every home gets a strip from the street to the
-          // side of the house (plus a garage on small level-1 houses);
-          // about half of the factories get a loading apron.
-          const local = (lx: number, lz: number) => new THREE.Vector3(lx, 0, lz).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
-          if (t.zone === 'residential') {
-            const { d } = roofBox('residential', lv);
-            const z0 = lv === 1 ? 0.2 : Math.max(0.2, d / 2); // don't drive through the house
-            P.driveway.add(this.place(local(0.36, (z0 + 0.5) / 2).setY(0.002), face, 1, 1, 0.5 - z0));
-            if (lv === 1) P.garage.add(this.place(local(0.36, 0.11), face));
-          } else if (t.zone === 'industrial' && !special && hash2(x, z, seed + 808) < 0.5) {
-            P.loadingDock.add(this.place(local(0.2, 0.38).setY(0.002), face));
-          }
-          const h = roofBox(t.zone, lv).h + 0.15;
-          if (!st.operating) {
-            // Floating warnings: grey gem = no road, ⚡ = no power, 💧 = no water.
-            // With both power and water missing, the two icons sit side by side.
-            const pos = center.clone().setY(h * 0.6 + 0.4);
-            const both = !st.powered && !st.watered;
-            pos.y = Math.max(pos.y, h + 0.25); // float above the roof
-            if (!st.roadAccess) this.markers.push({ pos, color: new THREE.Color(0xbbbbbb), kind: 'gem', slot: 0 });
-            if (!st.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
-            if (!st.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1.3 : 0 });
-          }
-        }
+        const both = !st0.powered && !st0.watered;
+        const pos = center.clone().setY(t.construct > 0 ? 0.9 : 0.75);
+        if (!st0.roadAccess) this.markers.push({ pos, color: new THREE.Color(0xbbbbbb), kind: 'gem', slot: 0 });
+        if (!st0.powered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'power', slot: both ? -1.3 : 0 });
+        if (!st0.watered) this.markers.push({ pos, color: new THREE.Color(1, 1, 1), kind: 'water', slot: both ? 1.3 : 0 });
+        // PR 5: no crew yet → orange cone icon ("Waiting for construction crew", see Inspect).
+        if (t.construct > 0 && !t.crew && st0.operating) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
+        if (st0.powered && t.level > 0) this.addDropWire(tiles, x, z, this.roadFacing(x, z, has) ?? 0, 1, has, t.zone);
       }
 
       if (t.structure === 'powerPlant') {
@@ -606,25 +565,6 @@ export class CityRenderer {
       if (t.structure === 'constructionYard') {
         P.constructionYard.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
       }
-      if (t.farm > 0) {
-        // PR 5 crop field: tilled soil + crop rows tinted by SEASON and crop.
-        // Month 1..12: spring green → deep summer green → autumn gold →
-        // winter stubble. Each field has its own crop hue and ripeness offset.
-        const month = sim.world.month;
-        const crop = hash2(x, z, seed + 71);
-        const k = (((month - 1 + crop * 1.5) % 12) + 12) % 12; // 0..12 season clock
-        const cols = [0x8a7a58, 0x9bbf5a, 0x6fb041, 0x4f9a35, 0x5f9c34, 0xb9b94a, 0xd9b44a, 0xd29a3c, 0xa98a54, 0x8a7a58, 0x8a7a58, 0x8a7a58];
-        this.c.setHex(cols[Math.floor(k)]).lerp(TMP.setHex(cols[(Math.floor(k) + 1) % 12]), k % 1);
-        const rowYaw = (hash2(t.farm, 3, seed) > 0.5 ? 0 : Math.PI / 2); // all fields of a farm share a row direction
-        P.fieldSoil.add(this.place(center, rowYaw));
-        if (this.c.r + this.c.g + this.c.b > 0) P.fieldCrops.add(this.place(center, rowYaw, 1, 0.7 + crop * 0.6, 1), this.c);
-        // Fence on every edge not shared with the same farm's field or its farmyard.
-        const owner = t.farm - 1;
-        ([[0, -1, 0], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [1, 0, (3 * Math.PI) / 2]] as const).forEach(([dx, dz, yaw]) => {
-          if (!has(x + dx, z + dz, (q) => q.farm === t.farm) && idx(x + dx, z + dz) !== owner) P.fieldFence.add(this.place(center, yaw));
-        });
-      }
-
       // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
       // Tiles helped by a park (and not polluted) get a soft green instead.
       if (this.overlay === 'resources') {
@@ -641,7 +581,7 @@ export class CityRenderer {
         } else if (sim.env.parks[i] > 0.05) {
           P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84));
         }
-      } else if (this.overlay !== 'none') {
+      } else if (this.overlay === 'power' || this.overlay === 'water') {
         // Coverage overlay: yellow/blue = served, red = connected but in outage.
         const s = sim.net.service[i];
         const net = this.overlay === 'power' ? s.powerNet : s.waterNet;
@@ -653,6 +593,7 @@ export class CityRenderer {
       }
     });
 
+    this.addLots(sim, seed);
     for (const p of Object.values(P)) p.end();
   }
 
@@ -738,45 +679,190 @@ export class CityRenderer {
   }
 
   /**
-   * PR 4 construction site. The building being built is the NEXT level's
-   * design, drawn "rising": its height is scaled by the work done so far
-   * (progress 0..1) and its colours are washed out like raw concrete. Around
-   * it stands a scaffold sized to the finished building, and a tower crane
-   * in the back corner whose jib slowly turns (animate()).
-   * The old building (if this is an upgrade) is replaced by the site.
+   * PR 6: draw everything that lives on the CELL grid (sim/cells.ts):
+   *   - zoned free cells: a thin slab per cell, zone colour, darker = denser
+   *   - each building (sim/lots.ts) — the zone design model stretched onto
+   *     its template BODY rect, turned to face its road; construction sites
+   *     rise inside a scaffold with a crane on the body's back corner
+   *   - its parking cells (asphalt + PARKED CARS for the occupied ones),
+   *     garages, truck bays, gardens, farm fields
+   *   - public lots / garages, and the zoning + parking overlays.
+   * A cell is 0.25 world units; the tile-sized models (lot slab, field soil)
+   * are simply scaled by 0.25 so a cell reads as one "stall".
    */
-  private addConstruction(t: Tile, i: number, x: number, z: number, center: THREE.Vector3, seed: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): void {
+  private addLots(sim: Simulation, seed: number): void {
     const P = this.pools;
-    const zone = t.zone!;
-    const lv = Math.min(zone === 'residential' ? 5 : 3, t.level + 1); // PR 5: homes go to level 5
-    const progress = 1 - t.construct / CONSTRUCT_TICKS;
-    const look = pickLook(zone, x, z, seed);
-    const face = this.roadFacing(x, z, has) ?? 0;
-    const key = `${this.lod === 'low' ? 'lo:' : ''}${zone}.${look.design}.${lv}`;
-    const m = this.place(center, face, 1, Math.max(0.06, progress), 1);
-    const raw = 0.75; // washed-out "unfinished" tint
-    P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw));
-    P[`${key}.accent`].add(m, this.c.setHex(look.accent).lerp(TMP.setHex(0xcfc8bb), raw));
-    P[`${key}.fixed`].add(m, this.c.setScalar(0.85));
-    const { w, d, h } = roofBox(zone, lv);
-    P.scaffold.add(this.place(center, face, w + 0.06, h + 0.05, d + 0.06));
-    // Crane placement (PR 5 fix). The site faces its road with local +z
-    // (roadFacing → yaw = atan2(dx, dz), and rotateY(yaw) sends local +z to
-    // (dx, dz)), so local −z is the BACK of the lot, away from the street.
-    // The mast stands in the back-left corner, kept 0.12 inside the tile edge
-    // so its 0.16-wide foot never pokes into a neighbouring lot or road.
-    // Zoned lots are always 1×1; multi-tile structures (2×2 nuclear) are
-    // placed finished and never get a construction site.
-    const back = new THREE.Vector3(-0.36, 0, -0.36).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
-    const mastH = h + 0.45;
-    P.craneMast.add(this.place(back, 0, 1, mastH, 1));
-    // Aim: the jib model points along local +x and rotateY(a) maps +x to
-    // (cos a, −sin a), so the yaw that points from the mast to the centre of
-    // the construction frame is atan2(−dz, dx). `reach` stretches the jib so
-    // the hook (at 0.55 in model space) hangs exactly over that centre.
-    const dx = center.x - back.x, dz = center.z - back.z;
-    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28, aim: Math.atan2(-dz, dx), reach: Math.hypot(dx, dz) / 0.55 });
-    void i;
+    const w = sim.world, cells = w.cells;
+    const Q = 0.25;
+    const cellPos = (cx: number, cz: number, y = 0) => new THREE.Vector3((cx + 0.5) * Q, y, (cz + 0.5) * Q);
+    const ov = this.overlay;
+    // Parked cars drawn this rebuild; far zoom draws a simplified box only.
+    let carsLeft = MAX_PARKED_DRAWN;
+    const parkCar = (cx: number, cz: number, yaw: number, k: number) => {
+      if (carsLeft-- <= 0) return;
+      const pos = cellPos(cx, cz, 0.03);
+      const col = PARKED_COLORS[Math.floor(hash2(cx, cz, seed + k) * PARKED_COLORS.length)];
+      const m = this.place(pos, yaw + (hash2(cx, cz, seed + 5) - 0.5) * 0.12, 0.95);
+      P.parkedCar.add(m, this.c.setHex(col));
+      if (this.lod === 'high') P.carRoof.add(m, this.c.setHex(roofColor(cx * 7 + cz, col)));
+    };
+    const occColor = (used: number, cap: number) => this.c.setHex(0x3ddc84).lerp(TMP.setHex(0xff3b30), cap > 0 ? Math.min(1, used / cap) : 1);
+
+    // ---- zoned free cells (and the zoning overlay for owned ones) ----
+    for (const b of w.lots.buildings.values()) void b;
+    const zoneTint = [0, 0, 0.82, 0.66, 0, 0.78, 0, 0.78, 0, 0];
+    for (let c = 0; c < cells.zone.length; c++) {
+      const code = cells.zone[c];
+      if (!code) continue;
+      const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
+      const info = ZONE_CODES[code];
+      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : ZONE_COLORS[info.zone!];
+      if (cells.owner[c] === 0) {
+        this.c.setHex(col);
+        if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
+        P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c);
+      }
+      if (ov === 'zoning') {
+        this.c.setHex(col);
+        if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
+        P.overlay.add(this.place(cellPos(cx, cz, 0.09), 0, Q, 1, Q), this.c);
+      }
+    }
+
+    // ---- public lots ----
+    for (const l of w.parking.lots.values()) {
+      if (l.size === 4) {
+        const c0 = new THREE.Vector3((l.cx + 2) * Q, 0, (l.cz + 2) * Q);
+        P.parkDeck.add(this.place(c0, 0));
+        if (ov === 'parking') P.overlay.add(this.place(c0.clone().setY(0.62), 0, 1, 1, 1), occColor(l.parked, l.spaces));
+        continue;
+      }
+      let k = 0;
+      for (let z = l.cz; z < l.cz + 2; z++) for (let x = l.cx; x < l.cx + 2; x++, k++) {
+        P.lot.add(this.place(cellPos(x, z), 0, Q, 1, Q), this.c.setHex(ASPHALT));
+        P.stall.add(this.place(cellPos(x, z, 0.031), 0));
+        if (k < l.parked) parkCar(x, z, Math.PI / 2, 300);
+        if (ov === 'parking') P.overlay.add(this.place(cellPos(x, z, 0.09), 0, Q, 1, Q), occColor(l.parked, l.spaces));
+      }
+    }
+
+    // ---- buildings ----
+    for (const b of w.lots.buildings.values()) {
+      const tpl = TPL[b.tpl];
+      const [rx, rz] = FACES[b.face];
+      const yaw = Math.atan2(rx, rz); // model front (+z) faces the road
+      const st = sim.status(b.host);
+      const dim = b.level > 0 && !st.operating && tpl.capacity[0] > 0 ? 0.55 : 1;
+      // Occupied surface stalls: the first `parked` Parking cells (stable order).
+      let parkedLeft = b.parked;
+      const surface = surfaceSpaces(tpl);
+      const shortRatio = this.sim!.world.parking.shortfall(b) > 0;
+      for (const r of tpl.rects) {
+        for (let v = r.v; v < r.v + r.d; v++) for (let u = r.u; u < r.u + r.w; u++) {
+          const [cx, cz] = localToCell(b.ox, b.oz, b.face, u, v);
+          const ci = cz * CELL_GRID + cx;
+          if (cells.owner[ci] !== b.id) continue; // fallow / reassigned
+          const role = cells.role[ci];
+          if (role === CellRole.Parking) {
+            // Driveways (homes) are lighter concrete; lots are asphalt with stall lines.
+            const drive = tpl.zone === 'residential';
+            P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(drive ? 0xbdb8ae : ASPHALT));
+            if (!drive) P.stall.add(this.place(cellPos(cx, cz, 0.031), yaw));
+            if (parkedLeft > 0) { parkedLeft--; parkCar(cx, cz, yaw, b.id); }
+            if (ov === 'parking') P.overlay.add(this.place(cellPos(cx, cz, 0.09), 0, Q, 1, Q), occColor(b.parked, surface));
+          } else if (role === CellRole.Garage) {
+            P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(0xbdb8ae));
+            P.garage.add(this.place(cellPos(cx, cz), yaw, 1.4, 1, 1.4), this.c.setScalar(dim));
+          } else if (role === CellRole.Bay) {
+            P.loadingDock.add(this.place(cellPos(cx, cz, 0.002), yaw, 0.8, 1, 1.1));
+          } else if (role === CellRole.Garden) {
+            P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(0x7fbf5a));
+            const hsh = hash2(cx, cz, seed + 91);
+            if (hsh < 0.45) P.bush.add(this.place(cellPos(cx, cz), hsh * 20, 0.45, 0.45));
+            else if (hsh < 0.6) P.garage.add(this.place(cellPos(cx, cz), yaw, 0.8, 0.8, 0.8), this.c.setHex(0xa38b6d)); // garden shed
+          } else if (role === CellRole.Body && tpl.capacity[0] > 0) {
+            P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(0x9fcf72));
+          }
+        }
+      }
+      if (tpl.capacity[0] === 0) continue; // fillers: done
+      // Body rect → world centre + size (in tiles).
+      const body = bodyRect(tpl);
+      const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
+      const centre = new THREE.Vector3(((x0 + x1) / 2) * Q, 0, ((z0 + z1) / 2) * Q);
+      const bw = body.w * Q, bd = body.d * Q; // along-road width, depth
+      const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
+      const mlv = tpl.model.level[lvIdx];
+      const farm = tpl.zone === 'industrial' && tpl.kind === 1;
+      const food = tpl.zone === 'industrial' && tpl.kind === 2;
+      let sx: number, sy: number, sz: number;
+      if (farm || food) {
+        sx = sz = Math.min(bw, bd) * 0.95; sy = sx;
+      } else {
+        const rb = roofBox(tpl.zone, mlv);
+        sx = (bw * 0.9) / rb.w; sz = (bd * 0.9) / rb.d;
+        if (tpl.zone === 'residential' && tpl.density === 0) sx = sz = Math.min(sx, sz); // houses keep their proportions
+        sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1);
+      }
+      const progress = b.construct > 0 ? 1 - b.construct / CONSTRUCT_TICKS : 1;
+      const look = pickLook(tpl.zone, b.ox, b.oz, seed);
+      const key = `${this.lod === 'low' ? 'lo:' : ''}${tpl.zone}.${look.design}.${mlv}`;
+      const m = this.place(centre, yaw, sx, sy * (b.construct > 0 ? Math.max(0.06, progress) : 1), sz);
+      const raw = b.construct > 0 ? 0.75 : 0;
+      if (farm) P.farm.add(m, this.c.setScalar(dim));
+      else if (food) P[`foodPlant${Math.floor(hash2(b.ox, b.oz, seed + 61) * 3)}`].add(m, this.c.setScalar(dim));
+      else {
+        P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw).multiplyScalar(dim));
+        P[`${key}.accent`].add(m, this.c.setHex(look.accent).lerp(TMP.setHex(0xcfc8bb), raw).multiplyScalar(dim));
+        P[`${key}.fixed`].add(m, this.c.setScalar(b.construct > 0 ? 0.85 : dim));
+        // Night windows (PR 4 rules: per-building bedtime and bulb colour).
+        const lit = hash2(b.ox, b.oz, seed + 404);
+        const hr = this.hour < 0 ? 12 : this.hour;
+        const late = hr >= 0 && hr < 6 ? hr + 24 : hr;
+        const bedtime = tpl.zone === 'residential' ? 22 + lit * 7 : tpl.zone === 'commercial' ? 21 + lit * 2.5 : 30;
+        const on = b.construct === 0 && st.operating && lit < 0.92 && late < bedtime;
+        const hue = hash2(b.ox, b.oz, seed + 405);
+        P[`${key}.lights`].add(m, on ? this.c.setHex(hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+      }
+      const h = (farm || food ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
+      if (ov === 'parking') {
+        const need = this.sim!.world.parking.required(b), have = this.sim!.world.parking.available(b);
+        P.overlay.add(this.place(centre.clone().setY(h + 0.05), 0, bw, 1, bd), this.c.setHex(have >= need ? 0x3ddc84 : 0xff3b30));
+      }
+      if (shortRatio && b.construct === 0) this.markers.push({ pos: centre.clone().setY(h + 0.3), color: new THREE.Color(0x4aa3ff), kind: 'gem', slot: 0 });
+      if (b.construct > 0) {
+        // Scaffold around the finished size, crane on the BODY's back-left corner
+        // (local u = 0, v = far end), jib aimed at the body centre (PR 5 crane maths).
+        P.scaffold.add(this.place(centre, yaw, bw * 0.95, Math.max(0.3, h) + 0.05, bd * 0.95));
+        const [bcx, bcz] = localToCell(b.ox, b.oz, b.face, body.u, body.v + body.d - 1);
+        const back = cellPos(bcx, bcz);
+        const mastH = Math.max(0.3, h) + 0.45;
+        P.craneMast.add(this.place(back, 0, 1, mastH, 1));
+        const dx = centre.x - back.x, dz = centre.z - back.z;
+        this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(b.ox, b.oz, seed + 3) * 6.28, aim: Math.atan2(-dz, dx), reach: Math.max(0.3, Math.hypot(dx, dz)) / 0.55 });
+      }
+    }
+    // ---- farm fields (cells with role Field / Fallow) ----
+    const month = w.month;
+    for (const b of w.lots.buildings.values()) {
+      if (!b.fields && TPL[b.tpl].kind !== 1) continue;
+      if (TPL[b.tpl].zone !== 'industrial' || TPL[b.tpl].kind !== 1) continue;
+      for (let cz = Math.max(0, b.z0 - 20); cz < Math.min(CELL_GRID, b.z1 + 20); cz++)
+        for (let cx = Math.max(0, b.x0 - 20); cx < Math.min(CELL_GRID, b.x1 + 20); cx++) {
+          const ci = cz * CELL_GRID + cx;
+          if (cells.owner[ci] !== b.id || (cells.role[ci] !== CellRole.Field && cells.role[ci] !== CellRole.Fallow)) continue;
+          const pos = cellPos(cx, cz);
+          const rowYaw = hash2(b.id, 3, seed) > 0.5 ? 0 : Math.PI / 2;
+          P.fieldSoil.add(this.place(pos, rowYaw, Q, 1, Q));
+          if (cells.role[ci] === CellRole.Fallow) continue;
+          // Season colour (PR 5 palette), per-farm crop offset.
+          const crop = hash2(b.id, 71, seed);
+          const k = (((month - 1 + crop * 1.5) % 12) + 12) % 12;
+          const cols = [0x8a7a58, 0x9bbf5a, 0x6fb041, 0x4f9a35, 0x5f9c34, 0xb9b94a, 0xd9b44a, 0xd29a3c, 0xa98a54, 0x8a7a58, 0x8a7a58, 0x8a7a58];
+          this.c.setHex(cols[Math.floor(k)]).lerp(TMP.setHex(cols[(Math.floor(k) + 1) % 12]), k % 1);
+          P.fieldCrops.add(this.place(pos, rowYaw, Q, 0.7 + crop * 0.6, Q), this.c);
+        }
+    }
   }
 
   /**

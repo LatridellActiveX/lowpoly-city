@@ -33,6 +33,9 @@ export interface InputCallbacks {
   key(key: string): boolean;
 }
 
+/** PR 6: world x/z of the last ground hit (fractional tile coords) — main.ts derives the CELL under the cursor from it. */
+export const pointer = { x: 0, z: 0 };
+
 export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: THREE.Object3D, cb: InputCallbacks): void {
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -46,6 +49,8 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     if (!hit) return null;
     const x = Math.floor(hit.point.x);
     const z = Math.floor(hit.point.z);
+    pointer.x = hit.point.x;
+    pointer.z = hit.point.z;
     return inBounds(x, z) ? [x, z] : null;
   }
 
@@ -115,8 +120,17 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
 
   // Held keys pan smoothly; handled each frame via `held`.
   const held = new Set<string>();
+  // PR 6 WASD fix: only typing targets swallow keys. Buttons and sliders
+  // keep focus after a click, and PR 5 ignored keys whenever an <input>
+  // (a slider!) had focus — so WASD "died" after touching a setting.
+  const typing = (el: EventTarget | null) => {
+    const h = el as HTMLElement | null;
+    if (!h || !h.tagName) return false;
+    if (h.isContentEditable || h.tagName === 'TEXTAREA' || h.tagName === 'SELECT') return true;
+    return h.tagName === 'INPUT' && !['range', 'checkbox', 'radio', 'button', 'submit', 'color'].includes((h as HTMLInputElement).type);
+  };
   window.addEventListener('keydown', (e) => {
-    if ((e.target as HTMLElement).tagName === 'INPUT') return;
+    if (typing(e.target)) return;
     const k = e.key.toLowerCase();
     if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k) && !e.ctrlKey) {
       held.add(k);
@@ -129,7 +143,23 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     else if (cb.key(k)) e.preventDefault();
   });
   window.addEventListener('keyup', (e) => held.delete(e.key.toLowerCase()));
+  // A key released while the window had no focus never sends keyup, so the
+  // held set must be cleared whenever focus can go astray (otherwise a stuck
+  // 'w' plus a fresh 's' cancel out and the camera seems frozen).
   window.addEventListener('blur', () => held.clear());
+  window.addEventListener('focus', () => held.clear());
+  document.addEventListener('visibilitychange', () => document.hidden && held.clear());
+  window.addEventListener('contextmenu', () => held.clear());
+  // After using a button / slider / select, hand focus back so it can't
+  // swallow keys (Space would re-press the button, arrows move the slider).
+  const release = (e: Event) => {
+    const el = e.target as HTMLElement;
+    if (el && el !== document.body && !typing(el) && el.tagName !== 'CANVAS' && typeof el.blur === 'function') el.blur();
+  };
+  document.addEventListener('pointerup', release, true);
+  document.addEventListener('change', release, true);
+  // Exposed for the Playwright check (m6checks) and for menus closing.
+  (window as unknown as { __heldKeys?: Set<string> }).__heldKeys = held;
 
   const tick = (prev: number) => (now: number) => {
     const dt = Math.min((now - prev) / 1000, 0.1);

@@ -14,6 +14,9 @@ import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
 import { computeResources, Resource } from './resources';
 import { hash2 } from './random';
+import { CellLayer } from './cells';
+import { Lots } from './lots';
+import { Parking } from './parking';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -38,6 +41,10 @@ export function emptyTile(): Tile {
     farm: 0,
     input: 0,
     crew: false,
+    res: 0,
+    jobs: 0,
+    units: 0,
+    crewLinger: 0,
   };
 }
 
@@ -112,6 +119,14 @@ export class World {
   /** PR 4: highest population tier reached (progression.ts). Never goes down. */
   tier = 0;
   private resourceCache: Uint8Array | null = null;
+  /**
+   * PR 6 cell grid (cells.ts): per-cell zone codes, owners and roles; the
+   * building entities (lots.ts) and public parking lots (parking.ts). All
+   * three are saved (save.ts v6).
+   */
+  cells = new CellLayer();
+  lots = new Lots();
+  parking = new Parking();
 
   /**
    * Pass `tiles` + `seed` when loading a save. With no arguments a fresh city

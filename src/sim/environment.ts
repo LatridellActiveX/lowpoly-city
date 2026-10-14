@@ -35,6 +35,7 @@ import {
   PARK_BONUS,
   PARK_BONUS_MAX,
   PARK_RADIUS,
+  PARK_AREA,
   PLANT_POLLUTION,
   PLANT_POLLUTION_RADIUS,
   FACTORY_POLLUTION_PER_LEVEL,
@@ -64,6 +65,22 @@ function spread(field: Float32Array, cx: number, cz: number, radius: number, str
   }
 }
 
+/**
+ * PR 6 park area: a 10 × 10-tile square (PARK_AREA) around the park, offsets
+ * −5..+4 on each axis. Falloff by Chebyshev distance d (0..5):
+ * bonus × (1 − 0.5 · (d / 5)²) → 100 % at the park, 98 % one tile away,
+ * 50 % on the outer ring. Gentle, so the whole square clearly benefits.
+ */
+export const parkFalloff = (d: number) => 1 - 0.5 * (d / PARK_RADIUS) ** 2;
+function spreadSquare(field: Float32Array, cx: number, cz: number, strength: number): void {
+  const lo = -Math.floor(PARK_AREA / 2), hi = lo + PARK_AREA - 1;
+  for (let dz = lo; dz <= hi; dz++) for (let dx = lo; dx <= hi; dx++) {
+    const x = cx + dx, z = cz + dz;
+    if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE) continue;
+    field[z * GRID_SIZE + x] += strength * parkFalloff(Math.max(Math.abs(dx), Math.abs(dz)));
+  }
+}
+
 export function computeEnvironment(world: World): Environment {
   const n = world.tiles.length;
   const pollution = new Float32Array(n);
@@ -72,7 +89,7 @@ export function computeEnvironment(world: World): Environment {
     const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
     if (t.structure === 'powerPlant') spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
     else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
-    else if (t.structure === 'park') spread(parks, x, z, PARK_RADIUS, PARK_BONUS);
+    else if (t.structure === 'park') spreadSquare(parks, x, z, PARK_BONUS);
   });
   const desirability = new Float32Array(n);
   for (let i = 0; i < n; i++) {

@@ -117,6 +117,19 @@ export interface Tile {
    * makes progress while `crew` is true. Reset when the next stage starts.
    */
   crew: boolean;
+  /**
+   * PR 6 HOST-TILE AGGREGATES (written every tick by lots.ts aggregate()).
+   * Buildings are now entities on the cell grid; the tile under a building's
+   * kerb-side front is its HOST and carries these sums so the per-tile
+   * systems (networks, goods, taxes, demand) keep working unchanged:
+   *   res   = residents living here now, jobs = jobs here,
+   *   units = "size units" for power / water / tax (residents ÷ 5, or jobs ÷ 4 shops / ÷ 8 factories / ÷ 3 farms).
+   */
+  res: number;
+  jobs: number;
+  units: number;
+  /** PR 6: ticks a construction crew stays on this site after its last stage (one visit covers the whole site). */
+  crewLinger: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
@@ -138,6 +151,8 @@ export type ToolId =
   | 'constructionYard'
   | 'waterPipe'
   | 'park'
+  | 'parkingLot'
+  | 'parkingGarage'
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */

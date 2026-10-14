@@ -172,3 +172,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .info .lvbar.blocker { color: #ffb0a8; font-weight: 600; }
 .info .lvbar.blocker .meter i { background: #ff5b4f; }
 .info .lvbar .hint { grid-column: 1 / -1; font-weight: 400; color: #ffd9a0; font-size: 11px; }
+
+/* PR 6 zoning options bar (density + depth), floats above the toolbar. */
+#zonebar { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); display: flex; gap: 4px; align-items: center; padding: 6px 10px; z-index: 30; }
+#zonebar.hidden { display: none; }
+#zonebar .btn.active { outline: 2px solid #ffd21f; }

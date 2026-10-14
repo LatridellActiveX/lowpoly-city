@@ -27,18 +27,22 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, applyTool, canPlace, DEMAND, GROW_TICKS, MAX_LEVEL, MEDIUM_DENSITY, residentsOf, TICKS_PER_SECOND, CONSTRUCT_TICKS } from './rules';
-import { Tile, ToolId, ZoneType } from './types';
+import { applyTool, canPlace, residentsOf, TICKS_PER_SECOND } from './rules';
+import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
+import { bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
+import { Building } from './lots';
+import { TPL, isFiller } from './footprints';
+import { BUILD_COST } from './economy';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Shipping } from './goods';
-import { Crews, FARM_FIELDS, fieldCandidates, isFarmLot, isFoodPlant, jobsOf, updateFarms } from './industry';
+import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
-import { isUpkeepKind, bulldozeRefund, growthFactor, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
 export interface Requirement {
@@ -102,6 +106,9 @@ export const HISTORY_MAX = 500;
 /** PR 5: 6 → 12 — half as many commuter cars (rush-hour curve unchanged). */
 export const COMMUTE_PEOPLE = 12;
 
+/** PR 6: the tools that paint zone cells. */
+export const ZONE_TOOLS = new Set<ToolId>(['residential', 'commercial', 'industrial', 'farm', 'foodPlant']);
+
 export class Simulation {
   /** Session-only ring buffer of stats for the graphs (not saved). */
   history: HistoryPoint[] = [];
@@ -123,8 +130,12 @@ export class Simulation {
   speed = 1;
   /** PR 4: messages for the UI (tier unlocks etc.); the HUD empties this list. */
   events: string[] = [];
-  /** Tiles that finished a construction stage this tick (read by traffic for move-in cars). */
+  /** PR 6: ids of BUILDINGS that finished a construction stage this tick (move-in cars, sounds). */
   completed: number[] = [];
+  /** PR 6 zoning tool options (density + depth), set by the UI. */
+  zoneOpt: ZoneOptions = { density: 0, depth: 3 };
+  /** PR 6: fractional position inside the clicked tile (public parking quadrant). */
+  pointerFrac: [number, number] = [0.25, 0.25];
   /** Increments whenever anything visible changes; the renderer compares it. */
   version = 0;
   private acc = 0;
@@ -179,56 +190,10 @@ export class Simulation {
     const sparePower = this.net.power.map((n) => n.capacity - n.supplied);
     const spareWater = this.net.water.map((n) => n.capacity - n.supplied);
 
-    this.completed = [];
-    w.tiles.forEach((t, i) => {
-      if (t.zone === null) return;
-      const s = this.net.service[i];
-      const ok = s.roadAccess && s.powered && s.watered;
-      // ---- PR 4 construction ----
-      // A lot that has started building shows frames + a crane (renderer).
-      // Work only progresses on ticks where road, power AND water are all
-      // present; otherwise the site just waits (it doesn't reset).
-      // PR 5: and only once a construction crew has arrived (industry.ts).
-      if (t.construct > 0) {
-        if (ok && t.crew) {
-          t.construct--;
-          if (t.construct === 0) {
-            t.crew = false; // the crew goes home; the next stage needs a new visit
-            t.level++;
-            t.structure = 'building';
-            t.happyTicks = 0;
-            this.completed.push(i); // traffic.ts sends new residents' cars here
-            if (t.zone === 'commercial') t.stock = Math.max(t.stock, 4); // opening stock
-          }
-        }
-        return;
-      }
-      if (!ok) {
-        t.happyTicks = 0;
-        return;
-      }
-      t.happyTicks++;
-      // Homes care about pollution and parks (PR 3). Shops and factories don't.
-      const cap = this.maxLevel(i);
-      const need = t.zone === 'residential' && this.env.desirability[i] >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
-      if (t.happyTicks < need || t.level >= cap) return;
-      // Small random delay so a freshly zoned block doesn't pop up all at once.
-      // Higher taxes make the chance smaller (economy.ts growthFactor), and
-      // PR 4 zone demand (demand.ts) scales it too: 0 demand = no growth.
-      // SEEDED (PR 3): the "dice roll" is a hash of (tile, tick, city seed), so
-      // the same city with the same actions grows exactly the same way every
-      // time — handy for testing and for sharing seeds later.
-      if (hash2(i, w.tick, w.seed + 777) > 0.35 * growthFactor(w.taxRates[t.zone]) * this.demandFactor(t.zone)) return;
-      const extra = DEMAND[t.zone];
-      if (sparePower[s.powerNet] < extra.power || spareWater[s.waterNet] < extra.water) return;
-      sparePower[s.powerNet] -= extra.power;
-      spareWater[s.waterNet] -= extra.water;
-      // PR 4: instead of popping up instantly, the next level is BUILT over
-      // CONSTRUCT_TICKS serviced ticks. The capacity is reserved now.
-      t.construct = CONSTRUCT_TICKS;
-      t.crew = false; // waits for a construction truck (Crews.tick)
-      t.happyTicks = 0;
-    });
+    // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
+    growLots(this, sparePower, spareWater);
+    // Cars park (parking.ts): occupancy for the time of day + commuter claims.
+    w.parking.tick(w, w.lots);
     this.spawnTraffic();
     // PR 5: farms claim/free their fields, then crews are dispatched.
     updateFarms(w);
@@ -331,11 +296,66 @@ export class Simulation {
     let cost = 0;
     // 2×2 plant: one price for the whole footprint.
     if (tool === 'nuclearPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
+    if (ZONE_TOOLS.has(tool)) return this.zoneQuote(tool, tiles).cost;
+    if (tool === 'parkingLot' || tool === 'parkingGarage') return BUILD_COST[tool];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
       if (canPlace(tool, t)) cost += placementCost(tool, t);
     }
     return cost;
+  }
+
+  /**
+   * PR 6 zoning quote: tiles covered (drag + depth), cells that would be
+   * painted and the price — BUILD_COST is per TILE, so a cell costs 1/16.
+   */
+  zoneQuote(tool: ToolId, tiles: Array<[number, number]>): { tiles: Array<[number, number]>; cells: number; cost: number } {
+    const all = zoneTiles(this, tiles, this.zoneOpt.depth).filter(([x, z]) => canPlace(tool, this.world.at(x, z)));
+    let cells = 0, cost = 0;
+    for (const [x, z] of all) {
+      const n = paintableCells(this, x, z, codeForTool(this, tool, z * GRID_SIZE + x, this.zoneOpt));
+      cells += n;
+      cost += (BUILD_COST[tool as 'residential'] * n) / 16 + (n && this.world.at(x, z).deco ? 3 : 0);
+    }
+    return { tiles: all, cells, cost: Math.round(cost) };
+  }
+
+  private applyZone(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
+    const w = this.world;
+    if (tool === 'residential' && this.zoneOpt.density >= 2 && w.tier < 3) return { ...res, locked: true };
+    for (const [x, z] of this.zoneQuote(tool, tiles).tiles) {
+      const t = w.at(x, z);
+      const code = codeForTool(this, tool, z * GRID_SIZE + x, this.zoneOpt);
+      const n = paintableCells(this, x, z, code);
+      if (!n) continue;
+      const cost = Math.round((BUILD_COST[tool as 'residential'] * n) / 16 + (t.deco ? 3 : 0));
+      if (cost > w.cash) { res.broke = true; break; }
+      w.cash -= cost;
+      w.ledger.construction += cost;
+      res.spent += cost;
+      applyTool(tool, t);
+      paintTile(this, x, z, code);
+      res.changed += n;
+    }
+    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w); this.version++; }
+    return res;
+  }
+
+  private applyParking(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
+    const w = this.world;
+    const [x, z] = tiles[tiles.length - 1] ?? [0, 0];
+    if (!canPlace(tool, w.at(x, z))) return res;
+    const size = tool === 'parkingGarage' ? 4 : 2;
+    const spot = parkingSpot(this, x, z, this.pointerFrac[0], this.pointerFrac[1], size);
+    const cost = BUILD_COST[tool as 'parkingLot'];
+    if (!spot) return res;
+    if (cost > w.cash) return { ...res, broke: true };
+    w.cash -= cost;
+    w.ledger.construction += cost;
+    w.parking.addLot(w, spot[0], spot[1], size);
+    w.parking.allocate(w.lots);
+    this.version++;
+    return { ...res, changed: 1, spent: cost };
   }
 
   /** Can we start building with this tool at all? (Bulldoze always allowed.) */
@@ -357,11 +377,16 @@ export class Simulation {
     if (!isUnlocked(tool, w.tier)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
     if (tool === 'nuclearPlant') return this.applyBig(tool, tiles, res);
+    // PR 6: zoning paints cells, public parking places a cell lot.
+    if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
+    if (tool === 'parkingLot' || tool === 'parkingGarage') return this.applyParking(tool, tiles, res);
     // Bulldozing any tile of a 2×2 building removes the whole footprint.
     if (tool === 'bulldoze') tiles = this.expandFootprints(tiles);
     for (const [x, z] of tiles) {
       const t = w.at(x, z);
-      if (!canPlace(tool, t)) continue;
+      if (!canPlace(tool, t) && !(tool === 'bulldoze' && tileHasCells(this, x, z))) continue;
+      // PR 6: nothing tile-sized may go over cells that hold buildings / lots / fields.
+      if (tool !== 'bulldoze' && tileHasCells(this, x, z)) continue;
       const cost = placementCost(tool, t);
       if (tool !== 'bulldoze' && cost > w.cash) {
         res.broke = true;
@@ -376,7 +401,10 @@ export class Simulation {
       w.cash -= tool === 'bulldoze' ? 0 : cost;
       res.spent += cost;
       w.ledger.construction += cost;
+      if (tool === 'bulldoze') bulldozeCells(this, x, z);
       applyTool(tool, t);
+      if (tool === 'bulldoze') { t.zone = null; w.lots.markAround(x, z); }
+      if (tool === 'road' || tool === 'avenue') w.lots.markAround(x, z); // new kerbs to build along
       res.changed++;
     }
     const changed = res.changed;
@@ -408,41 +436,53 @@ export class Simulation {
     const w = this.world;
     const tiles = w.tiles;
     const edgeTile = w.edgeIndex;
+    const lots = w.lots;
     const cars = () => this.traffic.count('car');
-    for (const i of this.completed) {
-      if (tiles[i].zone !== 'residential' || edgeTile < 0 || cars() >= this.settings.maxCars) continue;
-      const home = roadNextTo(tiles, i);
-      // PR 5: the residents only count once their car pulls up (onArrive).
-      // If the trip can't start (no route), spawn() returns false and they
-      // move in straight away so a disconnected town still grows.
-      if (home >= 0) {
-        const t = tiles[i];
-        t.movingIn = true;
-        if (!this.traffic.spawn(w, 'car', edgeTile, home, 'moving in', undefined, () => (t.movingIn = false))) t.movingIn = false;
-      }
+    // Move-ins: new residents drive in from the highway; they PARK at home on arrival.
+    for (const id of this.completed) {
+      const b = lots.buildings.get(id);
+      if (!b || TPL[b.tpl].zone !== 'residential' || edgeTile < 0 || cars() >= this.settings.maxCars) continue;
+      const home = roadNextTo(tiles, b.host);
+      if (home < 0) continue;
+      b.movingIn = true;
+      if (!this.traffic.spawn(w, 'car', edgeTile, home, 'moving in', undefined, () => { b.movingIn = false; w.parking.claim(w, b, 14); })) b.movingIn = false;
     }
-    const homes: number[] = [];
-    const work: number[] = [];
+    const homes: Building[] = [];
+    const work: Building[] = [];
     let pop = 0;
-    tiles.forEach((t, i) => {
-      if (!t.zone || t.level === 0) return;
-      if (t.zone === 'residential') {
-        homes.push(i);
-        pop += residentsOf(t);
-      } else work.push(i);
-    });
+    for (const b of lots.buildings.values()) {
+      const tpl = TPL[b.tpl];
+      if (b.level <= 0 || isFiller(tpl)) continue;
+      if (tpl.zone === 'residential') { homes.push(b); pop += tpl.capacity[Math.min(b.level, tpl.maxLevel) - 1]; } else work.push(b);
+    }
     // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
-    const target = Math.min(this.settings.maxCars, Math.floor((pop / COMMUTE_PEOPLE) * rushFactor(timeOfDay(w.clock))));
+    const tod = timeOfDay(w.clock);
+    const target = Math.min(this.settings.maxCars, Math.floor((pop / COMMUTE_PEOPLE) * rushFactor(tod)));
+    const morning = tod * 24 < 13; // before ~13:00 commuters drive TO work, after it home
     for (let k = 0; k < 3 && cars() < target && homes.length; k++) {
       const r = (n: number) => hash2(w.tick, k * 13 + n, w.seed + 4100);
-      const home = roadNextTo(tiles, homes[Math.floor(r(1) * homes.length)]);
-      let other: number;
+      const hb = homes[Math.floor(r(1) * homes.length)];
+      const home = roadNextTo(tiles, hb.host);
+      let other: number, ob: Building | null = null;
       if ((r(2) < 0.15 || !work.length) && edgeTile >= 0) other = edgeTile; // out-of-town trip / visitor
-      else if (work.length) other = roadNextTo(tiles, work[Math.floor(r(3) * work.length)]);
+      else if (work.length) { ob = work[Math.floor(r(3) * work.length)]; other = roadNextTo(tiles, ob.host); }
       else break;
       if (home < 0 || other < 0 || home === other) continue;
-      const toWork = r(4) < 0.5;
-      this.traffic.spawn(w, 'car', toWork ? home : other, toWork ? other : home, 'commute');
+      const toWork = r(4) < (morning ? 0.8 : 0.2);
+      // PR 6: on arrival the car looks for a space at its destination (parking.ts).
+      const dest = toWork ? ob : hb;
+      const stay = dest === hb ? 6 : TPL[ob?.tpl ?? 'corner_shop'].zone === 'commercial' ? 1.5 : 7;
+      const destRoad = toWork ? other : home;
+      this.traffic.spawn(w, 'car', toWork ? home : other, destRoad, 'commute', undefined, dest ? () => {
+        if (w.parking.claim(w, dest, stay)) return;
+        // No space: circle the block once (to a nearby road tile), then give up.
+        const x = destRoad % GRID_SIZE, z = Math.floor(destRoad / GRID_SIZE);
+        for (const [dx, dz] of [[2, 0], [0, 2], [-2, 0], [0, -2], [1, 1], [-1, -1]]) {
+          const nx = x + dx, nz = z + dz;
+          if (nx < 0 || nz < 0 || nx >= GRID_SIZE || nz >= GRID_SIZE || !tiles[nz * GRID_SIZE + nx].road) continue;
+          if (this.traffic.spawn(w, 'car', destRoad, nz * GRID_SIZE + nx, 'looking for parking')) break;
+        }
+      } : undefined);
     }
   }
 
@@ -455,77 +495,19 @@ export class Simulation {
    * Returns null at max level (or for tiles that don't grow).
    */
   requirements(i: number): Requirement[] | null {
-    const w = this.world, t = w.tiles[i];
-    if (!t.zone || t.part) return null;
-    const lvMax = t.zone === 'residential' ? 5 : MAX_LEVEL;
-    if (t.level >= lvMax && t.construct === 0) return null;
-    const next = t.level + 1;
-    const rows: Requirement[] = [];
-    const add = (label: string, current: number, target: number, hint: string) => rows.push({ label, current, target, met: current >= target, hint });
-    const st = this.status(i);
-    add('Road, power & water', +st.roadAccess + +st.powered + +st.watered, 3, `Connect ${st.missing.join(', ') || 'utilities'}`);
-    if (t.construct > 0) {
-      // Under construction: crew, then the work itself.
-      add('Construction crew on site', t.crew ? 1 : 0, 1, this.crews.unreachable.has(i) || !w.tiles.some((q) => q.structure === 'constructionYard') ? 'Build a Construction Yard connected by road' : 'Crew truck on its way / queued');
-      add('Construction work', CONSTRUCT_TICKS - t.construct, CONSTRUCT_TICKS, 'Keep road, power and water connected');
-      return rows;
-    }
-    const dem = this.demand[t.zone].value;
-    add(`${t.zone === 'residential' ? 'Residential' : t.zone === 'commercial' ? 'Commercial' : 'Industrial'} demand`, Math.max(0, Math.round(dem * 100)), 1, t.zone === 'residential' ? 'Add jobs (shops/industry) to attract residents' : t.zone === 'commercial' ? 'More residents = more customers' : 'More workers or export access needed');
-    if (t.zone === 'residential') {
-      const d = this.env.desirability[i];
-      const need = next === 1 ? DESIRE_MIN : next <= 3 ? DESIRE_FOR_DENSE : MEDIUM_DENSITY[next as 4 | 5].desire;
-      add('Desirability (parks, low pollution)', Math.round(d * 100), Math.round(need * 100), 'Build a park nearby / move away from industry');
-      if (next >= 4) {
-        const tier = MEDIUM_DENSITY[next as 4 | 5].tier;
-        add('Population tier', w.tier, tier, `Reach ${tier === 2 ? '2,000' : '10,000'} people`);
-      }
-      const s = this.stats();
-      add('Jobs in the city', s.jobs, Math.ceil(s.population * 0.4), 'Zone shops or industry');
-    } else if (t.zone === 'commercial') {
-      const s = this.stats();
-      add('Customers (residents)', s.population, (t.level + 1) * 25, 'Zone more homes nearby');
-      add('Goods on the shelves', Math.round(t.stock), 1, 'Build industry or keep the highway road connected for imports');
-    } else {
-      const s = this.stats();
-      add('Workers available', Math.round(s.population * 0.55), s.jobs + jobsOf(w, i) / Math.max(1, t.level), 'Zone more homes');
-      if (isFarmLot(w, i)) {
-        const free = fieldCandidates(w.tiles, i).filter((c) => w.tiles[c].farm === i + 1 || (w.tiles[c].farm === 0 && !w.tiles[c].road && !w.tiles[c].water && w.tiles[c].structure === 'none' && (w.tiles[c].zone === null || (w.tiles[c].zone === 'industrial' && w.tiles[c].level === 0)))).length;
-        add('Free field tiles behind the farm', free, FARM_FIELDS[Math.min(3, next)], 'Clear land behind the barn (away from the road)');
-      } else if (isFoodPlant(t)) {
-        add('Food delivered from farms', Math.round(t.input), 1, 'Build farms (Industry ▸ Farm) connected by road');
-      } else {
-        add('Export access (highway road)', w.edgeIndex >= 0 && roadNextTo(w.tiles, i) >= 0 ? 1 : 0, 1, 'Connect to the highway road');
-      }
-    }
-    const extra = DEMAND[t.zone], s = this.net.service[i];
-    const sp = s.powerNet >= 0 ? this.net.power[s.powerNet].capacity - this.net.power[s.powerNet].supplied : 0;
-    const sw = s.waterNet >= 0 ? this.net.water[s.waterNet].capacity - this.net.water[s.waterNet].supplied : 0;
-    add('Spare power & water capacity', +(sp >= extra.power) + +(sw >= extra.water), 2, 'Build another power plant or water tower');
-    const need = t.zone === 'residential' && this.env.desirability[i] >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
-    add('Settled (happy ticks)', Math.min(t.happyTicks, need), need, 'Just wait — growth takes a few seconds');
-    return rows;
+    // PR 6: per BUILDING (growth.ts buildingRequirements). For a tile we use
+    // its first hosted real building; Inspect passes the clicked building.
+    const b = this.world.lots.hostedOn(i).find((q) => !isFiller(TPL[q.tpl]));
+    return b ? buildingRequirements(this, b) : null;
+  }
+
+  /** PR 6: requirement bars of one building. */
+  buildingRequirements(b: Building): Requirement[] | null {
+    return buildingRequirements(this, b);
   }
 
   demandFactor(zone: ZoneType): number {
     return demandGrowth(this.demand[zone].value);
-  }
-
-  maxLevel(i: number): number {
-    const t = this.world.tiles[i];
-    if (t.zone !== 'residential') return MAX_LEVEL;
-    const d = this.env.desirability[i];
-    if (d < DESIRE_MIN) return 0;
-    if (d < DESIRE_FOR_DENSE) return 1;
-    // PR 5 medium density: level 4 (townhouses) at the Town tier, level 5
-    // (apartments) at the City tier — each also needs high desirability
-    // (parks, no pollution) and positive residential demand.
-    let cap = MAX_LEVEL;
-    for (const lv of [4, 5] as const) {
-      const g = MEDIUM_DENSITY[lv];
-      if (this.world.tier >= g.tier && d >= g.desire && this.demand.residential.value > 0) cap = lv;
-    }
-    return cap;
   }
 
   status(i: number): TileStatus {
