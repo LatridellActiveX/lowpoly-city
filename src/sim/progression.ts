@@ -43,9 +43,9 @@ export const RESOURCES_TIER = 0;
 
 /** Tier gate plus the V1.5 population gate for avenues (peakPop optional for old callers). */
 export const isUnlocked = (tool: ToolId, tier: number, peakPop = Infinity) =>
-  tier >= (TOOL_TIER[tool] ?? 0) && (tool !== 'avenue' || peakPop >= AVENUE_POP || tier >= 1) && peakPop >= (SERVICE_BY_TOOL[tool]?.unlockPop ?? 0);
+  tier >= (TOOL_TIER[tool] ?? 0) && (tool !== 'avenue' || peakPop >= AVENUE_POP || tier >= 1) && peakPop >= (SERVICE_BY_TOOL[tool]?.unlockPop ?? (tool === 'bigWaterTower' ? 5000 : 0));
 /** V1.5b: the population a locked tool needs (for the 🔒 badge). */
-export const unlockPop = (tool: ToolId): number => SERVICE_BY_TOOL[tool]?.unlockPop ?? (tool === 'avenue' ? AVENUE_POP : TIERS[TOOL_TIER[tool] ?? 0].pop);
+export const unlockPop = (tool: ToolId): number => SERVICE_BY_TOOL[tool]?.unlockPop ?? (tool === 'bigWaterTower' ? 5000 : tool === 'avenue' ? AVENUE_POP : TIERS[TOOL_TIER[tool] ?? 0].pop);
 
 /**
  * PR 6: the first MEDIUM-DENSITY housing (townhouses, duplex rows, small

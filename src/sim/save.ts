@@ -37,7 +37,8 @@ const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
 /** v6 (PR 6): cell grid (zone/owner/role, base64), building entities, public lots; roads gain water mains. */
 /** v7 (V1.5): public lots gain garage/decks/grown; whole-tile surface lots; ledger trade.parking. */
-export const SAVE_VERSION = 7;
+/** v8 (V1.5b): coal plants become 2×2 where there is room (migrateCoal). */
+export const SAVE_VERSION = 8;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -145,6 +146,7 @@ export function loadWorld(): World | null {
       for (const l of data.lots ?? []) w.parking.lots.set(l.id, { garage: l.size === 4, decks: 3, grown: false, ...l, parked: 0 });
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
+    if (version < 8) migrateCoal(w);
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
     w.tiles.forEach((t, i) => t.zone && w.lots.markDirty(i));
     w.lots.aggregate(w);
@@ -275,4 +277,32 @@ export function downloadSave(name = 'lowpoly-city-save'): boolean {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   return true;
+}
+
+/**
+ * V1.5b save v8: every 1×1 COAL plant grows into a 2×2 plant (expanding
+ * right and down) when those three tiles are empty land — no road, water,
+ * structure, zone cells, wires or pipes. Otherwise it stays a legacy 1×1
+ * plant (still works; drawn with the old model). Oil plants stay 1×1.
+ */
+export function migrateCoal(w: World): number {
+  const N = 64;
+  let n = 0;
+  w.tiles.forEach((t, i) => {
+    if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return;
+    const x = i % N, z = Math.floor(i / N);
+    if (x >= N - 1 || z >= N - 1) return;
+    const others = [i + 1, i + N, i + N + 1];
+    const free = others.every((j) => {
+      const o = w.tiles[j];
+      if (o.road || o.water || o.edge || o.structure !== 'none' || o.zone || o.powerLine || o.waterPipe) return false;
+      const ox = j % N, oz = Math.floor(j / N);
+      for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) { const c = (oz * 4 + dz) * N * 4 + ox * 4 + dx; if (w.cells.zone[c] || w.cells.owner[c]) return false; }
+      return true;
+    });
+    if (!free) return;
+    for (const j of others) { const o = w.tiles[j]; o.structure = 'powerPlant'; o.kind = 0; o.part = i + 1; o.deco = 0; o.stock = 0; }
+    n++;
+  });
+  return n;
 }

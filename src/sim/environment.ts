@@ -84,7 +84,7 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
   tiles.forEach((t, i) => {
     const x = i % N, z = Math.floor(i / N);
     if (t.road) { if (t.roadType >= 1) spread(noise, x, z, NOISE_AVENUE[1], NOISE_AVENUE[0]); dist[i] = 0; queue.push(i); }
-    if (t.structure === 'powerPlant') spread(noise, x, z, NOISE_PLANT[1], NOISE_PLANT[0]);
+    if (t.structure === 'powerPlant' && !t.part) spread(noise, x, z, NOISE_PLANT[1], NOISE_PLANT[0]);
     if (t.zone === 'industrial' && t.level > 0) spread(noise, x, z, NOISE_IND_PER_LEVEL[1], NOISE_IND_PER_LEVEL[0] * t.level);
     if (t.zone === 'commercial' && t.jobs > 0) spread(commerce, x, z, 6, t.jobs);
   });
@@ -150,7 +150,7 @@ export function computeEnvironment(world: World, service?: TileService[]): Envir
   const parks = new Float32Array(n);
   world.tiles.forEach((t, i) => {
     const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
-    if (t.structure === 'powerPlant') spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
+    if (t.structure === 'powerPlant' && !t.part) spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
     else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
     else if (t.structure === 'park') spreadSquare(parks, x, z, PARK_BONUS);
   });

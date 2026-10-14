@@ -52,6 +52,8 @@ import { CONSTRUCT_TICKS } from './rules';
 import { GRID_SIZE } from './types';
 import { occupancyDemand } from './demand';
 import { healthWithSafety } from './safety';
+import { cidx, CELL_GRID, ZoneCode, ZONE_CODES } from './cells';
+import { mediumUnlocked } from './progression';
 
 export const REDEV_HEALTH = 0.3;
 export const REDEV_MONTHS = 3;
@@ -63,11 +65,34 @@ export const LV_GOOD = 1.2;
 export const GARAGE_SWAP = 1.3;
 export const GARAGE_IDLE = 0.2;
 
+/**
+ * V1.5b DEMAND-DRIVEN DENSIFICATION (Parker)
+ * ------------------------------------------
+ * When residential demand stays above DENSIFY_DEMAND (0.5) for
+ * DENSIFY_MONTHS months in a row, healthy finished homes are rebuilt one
+ * density step up (low → medium → high) REGARDLESS of the painted zoning,
+ * and the zone cells under / around them are upgraded to match (so the new
+ * building is allowed and the Inspect zone label tells the truth).
+ *   - frequency scales with demand: per month up to
+ *       1 + floor((demand − 0.5) × DENSIFY_SCALE)  lots (cap DENSIFY_MAX)
+ *   - unlocks are respected: medium only once mediumUnlocked (1,000 people
+ *     or tier 2), high only when a density-2 template is growable (tier).
+ *   - the rebuild is a normal construction site → Construction Yard crews.
+ *   - an event notifies the player; Inspect shows "densified low → medium".
+ */
+export const DENSIFY_DEMAND = 0.5;
+export const DENSIFY_MONTHS = 2;
+export const DENSIFY_SCALE = 6;
+export const DENSIFY_MAX = 4;
+const DNAME = ['low', 'medium', 'high'];
+
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 const capOf = (t: Template) => t.capacity[t.capacity.length - 1] ?? 0;
 
 export class Redevelopment {
-  stats = { checked: 0, rebuilt: 0, shopToGarage: 0, garageToShop: 0, low: 0 };
+  /** V1.5b: months in a row with residential demand > DENSIFY_DEMAND. */
+  hotMonths = 0;
+  stats = { densified: 0, checked: 0, rebuilt: 0, shopToGarage: 0, garageToShop: 0, low: 0 };
   /** Grown-garage idle streaks (lot id → months). */
   private idle = new Map<number, number>();
 
@@ -127,6 +152,21 @@ export class Redevelopment {
       if (active >= REDEV_MAX) break;
       if (this.rebuild(sim, b)) active++;
     }
+    // V1.5b: sustained high residential demand → densify a few lots.
+    const rd = sim.demand.residential.value;
+    this.hotMonths = rd > DENSIFY_DEMAND ? this.hotMonths + 1 : 0;
+    if (this.hotMonths >= DENSIFY_MONTHS) {
+      const n = Math.min(DENSIFY_MAX, 1 + Math.floor((rd - DENSIFY_DEMAND) * DENSIFY_SCALE));
+      let done = 0;
+      // Oldest, healthiest, lowest-density homes first (deterministic order).
+      const homes = [...lots.buildings.values()]
+        .filter((b) => { const t = TPL[b.tpl]; return t.zone === 'residential' && b.level > 0 && b.construct === 0 && !b.redev && t.capacity[0] > 0 && (b.health ?? 1) >= 0.4; })
+        .sort((p, q) => TPL[p.tpl].density - TPL[q.tpl].density || q.level - p.level || p.id - q.id);
+      for (const b of homes) {
+        if (done >= n) break;
+        if (this.densify(sim, b)) done++;
+      }
+    }
     // GARAGE → SHOP: idle grown garages make way for shops when shops are wanted.
     for (const l of [...w.parking.lots.values()]) {
       if (!l.grown) continue;
@@ -143,6 +183,44 @@ export class Redevelopment {
         sim.events.push('🏗 Redevelopment: an almost-empty parking garage is coming down — shops are in demand, so a shop will grow on its lot.');
       }
     }
+  }
+
+  /**
+   * V1.5b: rebuild one home a density step up (see DENSIFY header). Upgrades
+   * the residential zone cells on the building's host tile and its 8
+   * neighbours that are free or owned by `b` (never someone else's lot),
+   * then places a denser template at the host. Reverts the cells if nothing
+   * denser fits. Returns true when a construction site was started.
+   */
+  densify(sim: Simulation, b: Building): boolean {
+    const w = sim.world, lots = w.lots, tpl = TPL[b.tpl];
+    const to = tpl.density + 1;
+    if (to > 2 || !mediumUnlocked(w)) return false;
+    const pool = growablePool('residential', w).filter((p) => p.density === to && p.kind === 0 && p.capacity[0] > 0 && !p.legacy);
+    if (!pool.length) return false; // high density not unlocked yet (tier)
+    const code = (ZoneCode.ResLow + to) as number;
+    const hx = b.host % GRID_SIZE, hz = Math.floor(b.host / GRID_SIZE);
+    const changed: Array<[number, number]> = [];
+    for (let cz = (hz - 1) * 4; cz < (hz + 2) * 4; cz++) for (let cx = (hx - 1) * 4; cx < (hx + 2) * 4; cx++) {
+      if (cx < 0 || cz < 0 || cx >= CELL_GRID || cz >= CELL_GRID) continue;
+      const c = cidx(cx, cz), z = w.cells.zone[c], info = ZONE_CODES[z];
+      const own = w.cells.owner[c];
+      if (info?.zone !== 'residential' || info.density >= to || (own !== 0 && own !== b.id)) continue;
+      changed.push([c, z]);
+      w.cells.zone[c] = code;
+    }
+    const opts = lots.options(w, b.host, pool, new Set([b.id])).filter((o) => o.host === b.host);
+    if (!opts.length) { for (const [c, z] of changed) w.cells.zone[c] = z; return false; }
+    opts.sort((p, q) => scoreOption(q, w.tick, w.seed, w) - scoreOption(p, w.tick, w.seed, w));
+    const best = opts[0];
+    lots.remove(w, b);
+    const nb = lots.place(w, best.tpl, best.ox, best.oz, best.face, best.host, 0, CONSTRUCT_TICKS);
+    nb.redev = true;
+    nb.densified = `${DNAME[tpl.density]} → ${DNAME[to]}`;
+    lots.markDirty(b.host); lots.markAround(hx, hz);
+    this.stats.densified++;
+    sim.events.push(`🏙 Densifying: housing demand is high, so a ${tpl.label.toLowerCase()} is being rebuilt as a ${best.tpl.label.toLowerCase()} — zoning upgraded ${nb.densified} density.`);
+    return true;
   }
 
   /** Demolish b and start a different same-zone building (or a garage) in its place. */

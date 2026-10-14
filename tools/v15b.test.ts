@@ -150,5 +150,49 @@ import { ZoneCode, zoneCode } from '../src/sim/cells';
   check('office jobs lower both commercial and industrial demand', d1.commercial.value < d0.commercial.value && d1.industrial.value < d0.industrial.value, { c: [d0.commercial.value, d1.commercial.value], i: [d0.industrial.value, d1.industrial.value] });
 }
 
+// ---------------------------------------------------------------- large water tower tier
+import { WATER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT } from '../src/sim/rules';
+import { BUILD_COST } from '../src/sim/economy';
+{
+  check('large tower is 4× the basic tower and below the pump station', BIG_TOWER_OUTPUT === 4 * WATER_OUTPUT && BIG_TOWER_OUTPUT < PUMP_STATION_OUTPUT);
+  check('large tower locked < 5,000 people', !isUnlocked('bigWaterTower', 0, 4999) && isUnlocked('bigWaterTower', 0, 5000));
+  check('large tower costs $12k, between tower and pump station', BUILD_COST.bigWaterTower === 12000 && BUILD_COST.waterTower < 12000 && BUILD_COST.pumpStation >= 12000, [BUILD_COST.waterTower, BUILD_COST.pumpStation]);
+  const w = fresh().world; const t = w.tiles[idx(10, 10)];
+  t.structure = 'waterTower'; t.kind = 1;
+  check('kind-1 water tower outputs BIG_TOWER_OUTPUT', output(t, 'water', 1) === BIG_TOWER_OUTPUT);
+  t.kind = 0; check('basic tower still WATER_OUTPUT', output(t, 'water', 1) === WATER_OUTPUT);
+  t.kind = 1; const w2 = loadWorld(saveWorld(w)); check('large tower survives save/load', w2.tiles[idx(10, 10)].kind === 1 && w2.tiles[idx(10, 10)].structure === 'waterTower');
+}
+
+// ---------------------------------------------------------------- demand-driven densification
+import { DENSIFY_MAX } from '../src/sim/redevelop';
+import { ZoneCode as ZC2 } from '../src/sim/cells';
+{
+  const s = town({ seed: 61 }); run(s, 900);
+  const homes = () => [...s.world.lots.buildings.values()].filter((b) => TPL[b.tpl].zone === 'residential' && b.level > 0 && TPL[b.tpl].capacity[0] > 0);
+  const before = homes().length;
+  const hot = (v: number, months: number) => { for (let m = 0; m < months; m++) { s.demand.residential.value = v; s.redevelop.month(s); } };
+  // Locked: below 1,000 people (tier 0) nothing densifies even at max demand.
+  s.world.peakPop = 500; s.world.tier = 0; hot(1, 3);
+  check('densify respects the medium unlock (< 1,000 people: none)', s.redevelop.stats.densified === 0, { before });
+  // Unlocked, demand 0.55 for one month only: not sustained yet.
+  s.world.peakPop = 1500; s.redevelop.hotMonths = 0; hot(0.55, 1);
+  check('one hot month is not "sustained"', s.redevelop.stats.densified === 0);
+  hot(0.55, 1); const low = s.redevelop.stats.densified;
+  check('sustained demand 0.55 densifies 1 lot/month', low === 1, low);
+  hot(0.95, 1); const high = s.redevelop.stats.densified - low;
+  check('frequency scales with demand (0.95 → more per month)', high > 1 && high <= DENSIFY_MAX, high);
+  const d = [...s.world.lots.buildings.values()].filter((b) => b.densified);
+  check('densified sites are medium-density construction sites (crews build them)', d.length === low + high && d.every((b) => TPL[b.tpl].density === 1 && b.construct > 0 && b.redev), d.map((b) => [b.tpl, b.densified, b.construct]));
+  const own = d[0]; let med = 0;
+  for (let cz = own.z0; cz < own.z1; cz++) for (let cx = own.x0; cx < own.x1; cx++) if (s.world.cells.zone[cz * 256 + cx] === ZC2.ResMed) med++;
+  check('zoning cells upgraded to medium under the new building', med > 0, med);
+  check('player notified', s.events.some((e) => e.includes('Densifying')));
+  const n0 = s.redevelop.stats.densified; s.demand.residential.value = 0.3; s.redevelop.month(s);
+  check('demand ≤ 0.5 stops densification', s.redevelop.stats.densified === n0);
+  const w2 = loadWorld(saveWorld(s.world));
+  check('densified tag survives save/load', [...w2.lots.buildings.values()].some((b) => b.densified === own.densified));
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

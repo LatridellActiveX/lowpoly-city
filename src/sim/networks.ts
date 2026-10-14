@@ -31,7 +31,7 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
@@ -52,8 +52,21 @@ function isConduit(t: Tile, kind: Kind): boolean {
  * What one source tile produces. Wind turbines scale with the wind (PR 3):
  * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
  */
+/**
+ * V1.5b (Parker): the COAL plant is a 2×2 building. Like the nuclear plant
+ * the anchor (top-left) tile has part 0 and the other three point at it
+ * (part = anchor + 1). Pre-V1.5b 1×1 coal plants that had no room to grow
+ * stay 1×1 ("legacy"); `isBigCoal` tells the two apart.
+ */
+export function isBigCoal(tiles: Tile[], i: number, N = 64): boolean {
+  const t = tiles[i];
+  if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return false;
+  const r = tiles[i + 1];
+  return i % N < N - 1 && !!r && r.structure === 'powerPlant' && r.part === i + 1;
+}
+
 export function output(t: Tile, kind: Kind, wind: number): number {
-  if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : WATER_OUTPUT;
+  if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : t.kind === 1 ? BIG_TOWER_OUTPUT : WATER_OUTPUT; // V1.5b big tower
   if (t.part) return 0; // non-anchor tile of a 2×2 plant: the anchor counts the output
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
   // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).

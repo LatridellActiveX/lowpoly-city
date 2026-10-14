@@ -170,7 +170,7 @@ export class Shipping {
     let sites = 0;
     refreshRoles(world, operating);
     tiles.forEach((t, i) => {
-      if (t.structure === 'powerPlant') plants.push(i);
+      if (t.structure === 'powerPlant' && !t.part) plants.push(i); // V1.5b: a 2×2 coal plant is fuelled at its anchor
       if (t.structure === 'constructionYard') yards.push(i);
       if (t.zone && t.construct > 0 && t.crew) sites++;
       if (!t.zone || t.level === 0 || t.construct > 0 || !operating(i)) return;

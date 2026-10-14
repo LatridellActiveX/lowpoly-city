@@ -146,6 +146,7 @@ export type ToolId =
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'bigWaterTower' // V1.5b: places a waterTower structure with kind = 1 (3,200 water)
   | 'oilPlant' // V1.5: places a powerPlant structure with kind = PLANT_OIL
   | 'nuclearPlant'
   | 'windTurbine'

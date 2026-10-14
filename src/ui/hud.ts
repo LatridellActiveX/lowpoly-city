@@ -533,7 +533,7 @@ export class Hud {
     const names: Record<string, string> = {
       powerPlant: 'Coal Power Plant',
       windTurbine: 'Wind Turbine',
-      waterTower: 'Water Tower',
+      waterTower: t.kind === 1 ? 'Large Water Tower' : 'Water Tower',
       park: 'Park',
       nuclearPlant: 'Nuclear Power Plant (2×2)',
       pumpStation: 'Pump Station',
@@ -645,6 +645,7 @@ export class Hud {
         if (hb.health === undefined) continue;
         const hp = Math.round(hb.health * 100);
         rows.push(`<div class="row">Health: <b class="${hb.health < 0.3 ? 'bad' : hb.health > 0.6 ? 'ok' : ''}">${hp}%</b>${hb.lowMonths ? ` <span class="bad">· struggling ${hb.lowMonths}/3 months — then it's redeveloped</span>` : ''}${hb.redev && hb.construct > 0 ? ' · 🏗 being redeveloped' : ''}</div>`);
+        if (hb.densified) rows.push(`<div class="row">🏙 Densified (${hb.densified}) by high housing demand</div>`); // V1.5b
         break;
       }
       const pf = sim.world.profits.get(i);

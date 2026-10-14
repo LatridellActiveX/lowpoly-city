@@ -413,6 +413,7 @@ export class CityRenderer {
     // V1.5b services, garbage piles and service-vehicle parts.
     for (const [k, g] of Object.entries(serviceModels())) add(k, g, solid, k === 'garbagePile' ? 512 : k.startsWith('svc') ? 32 : 128);
     add('waterTower', MODELS.waterTower(), solid, 32);
+    add('bigWaterTower', MODELS.bigWaterTower(), solid, 16); // V1.5b kind 1
     add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
     add('pole', poleGeometry(), solid, 512);
@@ -628,7 +629,7 @@ export class CityRenderer {
       }
       if (t.structure === 'waterTower') {
         const st = sim.status(i);
-        P.waterTower.add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
+        (t.kind === 1 ? P.bigWaterTower : P.waterTower).add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
         if (!st.powered) this.markers.push({ pos: center.clone().setY(1.3), color: new THREE.Color(1, 1, 1), kind: 'power', slot: 0 });
       }
       if (t.structure === 'windTurbine') {

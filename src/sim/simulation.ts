@@ -26,8 +26,8 @@
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
 import { coords, World } from './grid';
-import { computeNetworks, NetworkResult } from './networks';
-import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND } from './rules';
+import { computeNetworks, NetworkResult, isBigCoal } from './networks';
+import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND, BIG_TOWER_UPKEEP } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
 import { Building, tileBuildable } from './lots';
@@ -313,7 +313,7 @@ export class Simulation {
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
       if (t.structure === 'service' && !t.part) l.upkeep.service += Math.round((SERVICE_DEFS[t.kind]?.upkeep ?? 0) * upkeepFactor(w.tier)); // V1.5b
-      else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
+      else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : t.structure === 'waterTower' && t.kind === 1 ? BIG_TOWER_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     // V1.5 stage 11: land-value property tax on every operating zoned building.
@@ -329,7 +329,8 @@ export class Simulation {
     const out = [...tiles];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      if (t.structure !== 'nuclearPlant' && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
+      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigCoal(this.world.tiles, z * 64 + x)); // V1.5b
+      if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
       const a = t.part ? t.part - 1 : z * 64 + x;
       const ax = a % 64, az = Math.floor(a / 64);
       for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
@@ -365,7 +366,7 @@ export class Simulation {
   quote(tool: ToolId, tiles: Array<[number, number]>): number {
     let cost = 0;
     // 2×2 plant: one price for the whole footprint.
-    if (tool === 'nuclearPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
+    if (tool === 'nuclearPlant' || tool === 'powerPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
     if (ZONE_TOOLS.has(tool)) return this.zoneQuote(tool, tiles).cost;
     if (tool === 'parkingLot' || tool === 'parkingGarage') return BUILD_COST[tool];
     for (const [x, z] of tiles) {
@@ -493,7 +494,12 @@ export class Simulation {
     // PR 4: tools above the city's tier are locked (progression.ts).
     if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
-    if (tool === 'nuclearPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
+    // V1.5b: coal is 2×2 too. The UI's 2×2 tool sends all four tiles; a
+    // single tile (scripts, tests, old API) still builds the legacy 1×1
+    // coal plant (same output), so nothing next to it gets swallowed.
+    if (tool === 'powerPlant' && tiles.length === 1) {
+      /* fall through to the 1×1 path below */
+    } else if (tool === 'nuclearPlant' || tool === 'powerPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
     if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);

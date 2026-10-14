@@ -53,6 +53,10 @@ export const UNFUELLED_OUTPUT = 500;
 export const WATER_OUTPUT = 800;
 /** PR 4 high-capacity pump station (10,000 people): 5× a tower = 4,000 water (enough for ~7,000 people). */
 export const PUMP_STATION_OUTPUT = 4000;
+/** V1.5b: large elevated (spheroid) water tower — 4× the basic tower, still below the pump station. kind = 1. */
+export const BIG_TOWER_OUTPUT = 3200;
+export const BIG_TOWER_UPKEEP = 600;
+export const BIG_TOWER_POP = 5000;
 
 /**
  * Consumption per building LEVEL. A level-2 house uses twice what a level-1
@@ -203,6 +207,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     }
     case 'powerPlant':
     case 'oilPlant':
+    case 'bigWaterTower':
     case 'nuclearPlant':
     case 'windTurbine':
     case 'waterTower':
@@ -305,6 +310,14 @@ export function applyTool(tool: ToolId, t: Tile): void {
       // V1.5b: one 'service' structure; kind says which (services.ts Svc).
       t.structure = 'service';
       t.kind = SERVICE_BY_TOOL[tool]!.svc;
+      t.farm = 0;
+      t.stock = 0;
+      break;
+    case 'bigWaterTower':
+      // V1.5b: same 'waterTower' structure (pipes, pump power, overlays all
+      // keep working); kind 1 = the large spheroid tower (BIG_TOWER_OUTPUT).
+      t.structure = 'waterTower';
+      t.kind = 1;
       t.farm = 0;
       t.stock = 0;
       break;

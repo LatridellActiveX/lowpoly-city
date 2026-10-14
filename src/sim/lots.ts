@@ -87,6 +87,8 @@ export interface Building {
   lowMonths?: number;
   /** V1.5 stage 12: this site is a redevelopment rebuild (counts toward the concurrent cap). */
   redev?: boolean;
+  /** V1.5b: set when demand-driven densification rebuilt this lot denser, e.g. 'low → medium'. Saved (optional). */
+  densified?: string;
 }
 
 /** A crew must be on site; after the last stage finishes it lingers this many ticks for follow-up work. */
