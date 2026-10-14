@@ -185,3 +185,24 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .update-prompt .warn { color: #ffb36b; }
 .update-prompt .row { display: flex; gap: 8px; justify-content: flex-end; }
 .btn.primary { background: #3d7be0; color: #fff; }
+
+/* ---- V1.5 title screen ---- */
+/* While the title is open, hide the in-game HUD (the 3D city keeps rendering behind). */
+body.title-mode .topbar, body.title-mode .toolbar, body.title-mode .panel:not(.title-card):not(.update-prompt):not(.menu-panel), body.title-mode #zonebar { display: none !important; }
+.title-screen { position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: flex-start; padding-left: 8vw;
+  background: linear-gradient(90deg, rgba(10, 20, 35, 0.55), rgba(10, 20, 35, 0) 55%); }
+.title-card { width: 300px; padding: 22px 24px; }
+.title-card h1 { margin: 0 0 16px; font-size: 30px; letter-spacing: 0.5px; }
+.title-menu { display: flex; flex-direction: column; gap: 8px; }
+.title-menu label { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.btn.big { padding: 10px 14px; font-size: 16px; text-align: left; }
+.btn.slot { text-align: left; }
+.title-version { position: fixed; right: 14px; bottom: 10px; color: #fff; text-shadow: 0 1px 3px #000; font-size: 13px; }
+.update-badge { background: #e0663d; color: #fff; border-radius: 9px; padding: 1px 8px; margin-left: 6px; }
+body.title-mode .menu-panel { z-index: 60; }
+.title-screen .hidden, .update-badge.hidden { display: none !important; }
+.title-card, .update-prompt { background: rgba(22, 30, 44, 0.92); color: #eef; border-radius: 12px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4); }
+.title-card input, .title-card select { background: #233046; color: #eef; border: 1px solid #456; border-radius: 4px; padding: 3px 6px; }
+.title-card .btn { width: 100%; }
+.title-card .small .btn { width: auto; }
+body.title-mode .rci, body.title-mode .hint, body.title-mode .toast, body.title-mode .info, body.title-mode .cost-tip, body.title-mode .notices { display: none !important; }

@@ -18,9 +18,9 @@ import * as THREE from 'three';
 import './style.css';
 import { idx } from './sim/grid';
 import { canPlace } from './sim/rules';
-import { clearSave, downloadSave, hasSave, loadWorld, saveWorld } from './sim/save';
+import { clearSave, downloadSave, importSaveText, hasSave, loadWorld, saveWorld } from './sim/save';
 import { Simulation } from './sim/simulation';
-import { ToolId } from './sim/types';
+import { GRID_SIZE, ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
 import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
 import { createScene } from './render/scene';
@@ -34,7 +34,11 @@ import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
 import { gameLog } from './ui/gameLog';
 import { GameMenu } from './ui/menu';
-import { UpdateChecker } from './ui/updateCheck';
+import { RESUME_KEY, UpdateChecker } from './ui/updateCheck';
+import { NewGameOptions, TitleScreen } from './ui/titleScreen';
+import { buildBackdrop } from './ui/titleBackdrop';
+import { loadSlotIntoMain, saveToSlot } from './sim/slots';
+import { World } from './sim/grid';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
 gameLog.install();
@@ -47,7 +51,19 @@ const preview = new PreviewRenderer(scene);
 // Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
 const dayNight = new DayNight(scene, sun, hemi);
 
-let sim = new Simulation(loadWorld() ?? undefined);
+/**
+ * V1.5 start-up: the simulation now starts ON DEMAND.
+ *  - Normally the title screen opens over a live demo town (`buildBackdrop`)
+ *    and the player's city is only created/loaded when they pick an option.
+ *  - After an in-game update reload, sessionStorage[RESUME_KEY] says whether
+ *    to drop straight back into the saved city ('continue') or a new one
+ *    ('new'), skipping the title.
+ * `inTitle` gates autosave so the demo town is never written to the save.
+ */
+const resume = sessionStorage.getItem(RESUME_KEY);
+sessionStorage.removeItem(RESUME_KEY);
+let inTitle = !resume;
+let sim = inTitle ? buildBackdrop() : new Simulation((resume === 'continue' && loadWorld()) || undefined);
 gameLog.gameDate = () => {
   const w = sim.world;
   const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -72,6 +88,7 @@ const hud = new Hud(app, {
     hud.refresh(sim);
   },
   save: () => {
+    if (inTitle) return;
     saveWorld(sim.world);
     gameLog.event('City saved');
     hud.flash('City saved');
@@ -350,6 +367,12 @@ let hudTimer = 0;
 let lastNoRoute = 0;
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
+  // V1.5 title backdrop: slow orbit (~1 turn / 3 min) and a fast day/night
+  // loop (one full day every 90 s) over the demo town.
+  if (inTitle) {
+    cam.orbit(dt * 12, 0);
+    dayNight.override = ((performance.now() / 1000) / 90 + 0.3) % 1;
+  }
   sim.update(dt);
   cam.update(dt);
   dayNight.update(sim);
@@ -379,17 +402,69 @@ renderer.setAnimationLoop(() => {
 });
 
 // ---- Autosave ----
-setInterval(() => saveWorld(sim.world), 20_000);
-document.addEventListener('visibilitychange', () => document.hidden && saveWorld(sim.world));
-window.addEventListener('beforeunload', () => saveWorld(sim.world));
-if (hasSave()) hud.flash('Welcome back — city loaded');
+// V1.5: never while the title screen's demo town is running.
+const autosave = () => !inTitle && saveWorld(sim.world);
+setInterval(autosave, 20_000);
+document.addEventListener('visibilitychange', () => document.hidden && autosave());
+window.addEventListener('beforeunload', autosave);
+if (resume === 'continue') hud.flash('Updated — welcome back');
+
+// ---- V1.5: title screen ----
+/**
+ * Leave the title screen and run a real city. `kind`:
+ *   'continue' -> the autosave (falls back to a new city if unreadable)
+ *   'new'      -> a fresh city (optionally seeded / dry map) — erases the autosave
+ */
+function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'river' }): void {
+  if (kind === 'new') {
+    clearSave();
+    sim = new Simulation(new World(undefined, opts.seed, { dry: opts.map === 'dry' }));
+    gameLog.event(`New city founded (seed ${sim.world.seed}${opts.map === 'dry' ? ', dry land' : ''})`);
+  } else {
+    const w = loadWorld();
+    sim = new Simulation(w ?? undefined);
+    gameLog.event(w ? 'Saved city loaded' : 'No readable save — new city founded');
+  }
+  inTitle = false;
+  title.hide();
+  dayNight.override = null;
+  cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+  cam.zoomBy(1 / 1.5);
+  sim.speed = lastSpeed;
+  hud.inspect(null);
+  hud.notices.reset(sim);
+  setTool('inspect');
+  saveWorld(sim.world);
+}
+
+const title = new TitleScreen({
+  newGame: (opts) => startGame('new', opts),
+  continueGame: () => startGame('continue'),
+  loadSlot: (i) => (loadSlotIntoMain(i) ? startGame('continue') : alert('That slot is empty or unreadable.')),
+  importSave: (text) => {
+    if (!importSaveText(text)) return false;
+    startGame('continue');
+    return true;
+  },
+  openSettings: () => menu.toggle(true),
+  saveSlot: (i) => saveToSlot(i),
+});
+if (inTitle) {
+  // Frame the demo town (it sits around tiles 18..45 x 19..33) a bit closer.
+  cam.target.set(31, 0, 26);
+  cam.zoomBy(1.5);
+  title.show();
+  gameLog.event('Title screen');
+}
 
 // ---- V1.5: update prompt ----
 // Polls /version.json (every 5 min + on focus) and offers to update.
 const updater = new UpdateChecker({
-  save: () => saveWorld(sim.world),
+  save: autosave,
   exportSave: () => { saveWorld(sim.world); return downloadSave(); },
   clearSave: () => clearSave(),
+  // Title screen shows an "Update available" badge next to the version.
+  onAvailable: () => title.setUpdateBadge(true),
 });
 updater.start();
 
@@ -406,6 +481,13 @@ updater.start();
   },
   setTool,
   updater,
+  /** V1.5: leave the title screen (tests/screenshots). */
+  startGame,
+  title,
+  get inTitle() {
+    return inTitle;
+  },
+  saveToSlot: (i: number) => (autosave(), saveToSlot(i)),
   setOverlay,
   setSpeed,
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
