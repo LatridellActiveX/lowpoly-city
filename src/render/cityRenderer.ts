@@ -506,7 +506,7 @@ export class CityRenderer {
         if (t.construct > 0) {
           this.addConstruction(t, i, x, z, center, seed, has);
           // PR 5: no crew yet → orange cone icon ("Waiting for construction crew", see Inspect).
-          if (!t.crew) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
+          if (!t.crew && st0.operating) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
         } else if (t.level > 0) {
           const st = sim.status(i);
           // Non-operating buildings are drawn dimmed grey so problems stand out.

@@ -232,7 +232,7 @@ export class Simulation {
     this.spawnTraffic();
     // PR 5: farms claim/free their fields, then crews are dispatched.
     updateFarms(w);
-    this.crews.tick(w, this.traffic);
+    this.crews.tick(w, this.traffic, (i) => this.status(i).operating);
     // New-game hint: nothing grows without a Construction Yard.
     if ((w.tick === 3 || w.tick % 240 === 0) && !w.tiles.some((t) => t.structure === 'constructionYard') && w.tiles.some((t) => t.zone !== null))
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');

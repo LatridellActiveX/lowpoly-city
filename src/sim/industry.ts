@@ -38,7 +38,7 @@
  * CONSTRUCTION CREWS
  * ------------------
  * A Construction Yard (structure 'constructionYard') is built instantly and
- * owns a fleet of YARD_FLEET trucks. Every construction site (a zoned lot
+ * owns a fleet of YARD_FLEET (4) trucks. Every construction site (a zoned lot
  * with construct > 0) waits until a crew truck reaches it by road (A* in
  * traffic.findPath) — only then does work progress (simulation.ts). The
  * dispatcher (Crews.tick) serves waiting sites nearest-first, from the
@@ -60,7 +60,7 @@ export const KIND_FOOD_PLANT = 2;
 /** Fields a farm wants at each level (index = level). */
 export const FARM_FIELDS = [0, 2, 4, 6];
 /** Trucks per Construction Yard. */
-export const YARD_FLEET = 3;
+export const YARD_FLEET = 4;
 /** Colour of construction trucks (renderer adds a load of materials on top). */
 export const CREW_TRUCK_COLOR = 0xf28c1d;
 /** Prefix of a construction truck's `purpose` (the renderer keys off it). */
@@ -196,13 +196,15 @@ export class Crews {
    * gives up in a jam still "arrives" (traffic.ts runs onArrive when it is
    * removed), so slots never leak.
    */
-  tick(world: World, traffic: Traffic): void {
+  tick(world: World, traffic: Traffic, serviced: (i: number) => boolean = () => true): void {
     const tiles = world.tiles;
     const yards: number[] = [];
     const sites: number[] = [];
     tiles.forEach((t, i) => {
       if (t.structure === 'constructionYard') yards.push(i);
-      else if (t.zone && t.construct > 0 && !t.crew && !this.enRoute.has(i)) sites.push(i);
+      // Only sites that can actually be worked on (road + power + water):
+      // sending a crew to a site without water would just park a truck there.
+      else if (t.zone && t.construct > 0 && !t.crew && !this.enRoute.has(i) && serviced(i)) sites.push(i);
     });
     // Forget yards that were bulldozed.
     for (const y of [...this.busy.keys()]) if (tiles[y].structure !== 'constructionYard') this.busy.delete(y);
