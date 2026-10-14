@@ -154,6 +154,7 @@ const FLOOR = 0.26; // height of one storey
 // ----------------------------------------------------------------------------
 function residential(k: number, level: number, hi = true): DesignParts {
   if (level === 6) return tower(k % 4, hi); // PR 6 high density
+  if (level === 7) return midrise(k % 4, hi); // V1.5b stage A: medium L6–L7 apartment look
   if (level >= 4) return medium(k % 4, level, hi); // PR 5 medium density (PR 6: 4 variants)
   const b = new Builder(hi);
   const floors = level;
@@ -423,6 +424,72 @@ function industrial(k: number, level: number, hi = true): DesignParts {
 // Three variants each (design k uses variant k % 3). They fill most of the
 // lot (~0.9 wide), front faces +z like every other design.
 // ----------------------------------------------------------------------------
+/**
+ * V1.5b stage A — MID-RISE APARTMENTS (model level 7).
+ *
+ * Medium-density homes that reach template levels 3–4 (city levels L6–L7)
+ * switch from the rowhouse / 5-storey look to a proper 6-storey apartment (L7 stretches it ~20% taller)
+ * building instead of just being stretched taller. Four variants:
+ *   0  balcony slab with a lobby canopy and rooftop water tank
+ *   1  brick "mansion block" with corner bay columns and cornices
+ *   2  modern block: glass stair core, set-back penthouse floor
+ *   3  L-shaped wing block with a stepped rear wing
+ * Unit box is ≈ 0.88 × 0.68 × 1.76 (see roofBox in cityRenderer.ts).
+ */
+function midrise(v: number, hi: boolean): DesignParts {
+  const b = new Builder(hi);
+  const BRICK = 0xa95a43;
+  const floors = 6, w = 0.88, d = 0.68, h = FLOOR * floors + 0.2;
+  // Ground floor: lobby glazing + entrance canopy (shared by every variant).
+  const lobby = () => {
+    b.fix(box(w * 0.5, 0.16, 0.02), 0x9fd7ff, [0, 0.04, d / 2 + 0.006]);
+    b.acc(box(0.3, 0.025, 0.14), [0, 0.22, d / 2 + 0.07]);
+  };
+  if (v === 0) {
+    b.wall(box(w, h, d));
+    b.acc(box(w + 0.03, 0.04, d + 0.03), [0, h, 0]);
+    for (let f = 1; f < floors; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
+    b.sideWindows(3, w, d, 0.12);
+    if (hi) for (let f = 1; f < floors; f++) for (const dx of [-0.3, 0, 0.3]) balcony(b, dx, f * FLOOR + 0.02, d / 2, 0.16);
+    // Rooftop water tank on legs.
+    b.fix(cyl(0.07, 0.12, 10), WOOD, [w * 0.25, h + 0.08, -d * 0.15]);
+    for (const lx of [-0.04, 0.04]) b.fix(box(0.012, 0.08, 0.012), DARK, [w * 0.25 + lx, h, -d * 0.15]);
+  } else if (v === 1) {
+    b.fix(box(w, h, d), BRICK, [0, 0, 0]);
+    for (const sx of [-1, 1]) b.wall(box(0.16, h + 0.06, 0.08), [sx * (w / 2 - 0.08), 0, d / 2 + 0.03]); // corner bays
+    for (let f = 2; f < floors; f += 3) b.acc(box(w + 0.02, 0.025, d + 0.02), [0, f * FLOOR, 0]); // string courses
+    b.acc(box(w + 0.05, 0.05, d + 0.05), [0, h, 0]); // cornice
+    for (let f = 1; f < floors; f++) b.windows(3, w * 0.6, d, 0.1 + f * FLOOR, GLASS, 0.08);
+    b.sideWindows(3, w, d, 0.12);
+    if (hi) for (let f = 1; f < floors; f++) for (const sx of [-1, 1]) b.fix(box(0.1, 0.1, 0.02), GLASS, [sx * (w / 2 - 0.08), 0.1 + f * FLOOR, d / 2 + 0.072]);
+  } else if (v === 2) {
+    b.wall(box(w, h - FLOOR, d));
+    b.wall(box(w * 0.6, FLOOR, d * 0.7), [-w * 0.1, h - FLOOR, -d * 0.1]); // penthouse
+    b.acc(box(w * 0.66, 0.03, d * 0.76), [-w * 0.1, h, -d * 0.1]);
+    b.wall(box(0.18, h + 0.1, 0.12), [w * 0.3, 0, d / 2 - 0.02]); // glass stair core
+    b.fix(box(0.12, h, 0.02), 0x9fd7ff, [w * 0.3, 0.04, d / 2 + 0.042]);
+    for (let f = 1; f < floors - 1; f++) b.fix(box(w * 0.55, 0.11, 0.02), GLASS, [-w * 0.12, 0.09 + f * FLOOR, d / 2 + 0.005]); // ribbon windows
+    if (hi) for (let f = 1; f < floors - 1; f++) balcony(b, -w * 0.12, f * FLOOR + 0.02, d / 2, 0.4);
+    if (hi) b.fix(box(w * 0.3, 0.012, d * 0.3), 0x6f8a5a, [w * 0.2, h - FLOOR, -d * 0.2]); // roof garden
+  } else {
+    b.wall(box(w, h, d * 0.5), [0, 0, d * 0.25]); // front wing
+    b.wall(box(w * 0.45, h - FLOOR * 2, d * 0.5), [-w * 0.275, 0, -d * 0.25]); // stepped rear wing
+    b.acc(box(w + 0.03, 0.04, d * 0.5 + 0.03), [0, h, d * 0.25]);
+    b.acc(box(w * 0.45 + 0.03, 0.04, d * 0.5 + 0.03), [-w * 0.275, h - FLOOR * 2, -d * 0.25]);
+    for (let f = 1; f < floors; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
+    if (hi) for (let f = 1; f < floors; f++) balcony(b, w * 0.3, f * FLOOR + 0.02, d / 2, 0.18);
+  }
+  lobby();
+  if (hi) {
+    acUnit(b, -w * 0.3, h, -d * 0.2, 1.2);
+    acUnit(b, -w * 0.15, h, -d * 0.2, 1.2);
+    shrub(b, -w * 0.35, d / 2 + 0.08, 0.04);
+    shrub(b, w * 0.35, d / 2 + 0.08, 0.04);
+    b.fix(box(w + 0.04, 0.035, d + 0.04), STONE, [0, 0, 0]);
+  }
+  return b.done();
+}
+
 function medium(v: number, level: number, hi: boolean): DesignParts {
   const b = new Builder(hi);
   const BRICK = 0xb5654a;
@@ -554,7 +621,7 @@ export function buildDesigns(lod: 'high' | 'low' = 'high'): Record<ZoneType, Des
   const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3], n = DESIGNS_PER_ZONE) =>
     Array.from({ length: n }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
   // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments); PR 6 adds 6 = towers and 8 designs.
-  return { residential: make(residential, [1, 2, 3, 4, 5, 6], RES_DESIGNS), commercial: make(commercial), industrial: make(industrial) };
+  return { residential: make(residential, [1, 2, 3, 4, 5, 6, 7], RES_DESIGNS), commercial: make(commercial), industrial: make(industrial) };
 }
 
 // ----------------------------------------------------------------------------

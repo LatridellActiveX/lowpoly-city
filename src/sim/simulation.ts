@@ -38,6 +38,8 @@ import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
+import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS } from './services';
+import { Garbage } from './garbage';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
@@ -126,6 +128,10 @@ export class Simulation {
   shipping = new Shipping();
   /** V1.5 stage 12: monthly building health + redevelopment. */
   redevelop = new Redevelopment();
+  /** V1.5b stage E: garbage build-up + dump trucks. */
+  garbage = new Garbage();
+  /** V1.5b: service coverage (garbage, police, health, schools), recomputed every tick with the environment. */
+  cov: Coverage;
   /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
   crews = new Crews();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
@@ -151,6 +157,7 @@ export class Simulation {
   constructor(world = new World()) {
     this.world = world;
     this.net = computeNetworks(world);
+    this.cov = computeCoverage(world);
     this.env = computeEnvironment(world, this.net.service);
     this.demand = this.computeDemand();
   }
@@ -189,6 +196,7 @@ export class Simulation {
     w.tick++;
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
+    this.cov = computeCoverage(w);
     this.env = computeEnvironment(w, this.net.service);
     this.demand = this.computeDemand();
 
@@ -216,6 +224,8 @@ export class Simulation {
     if ((w.tick === 3 || w.tick % 240 === 0) && !w.tiles.some((t) => t.structure === 'constructionYard') && w.tiles.some((t) => t.zone !== null))
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
     this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
+    // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
+    this.garbage.tick(w, this.traffic, (i) => this.status(i).operating);
     // PR 4 progression: announce new tiers (UI drains `events`).
     this.events.push(...updateTier(w, this.stats().population));
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
@@ -283,7 +293,8 @@ export class Simulation {
     const l = emptyLedger();
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
-      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
+      if (t.structure === 'service' && !t.part) l.upkeep.service += Math.round((SERVICE_DEFS[t.kind]?.upkeep ?? 0) * upkeepFactor(w.tier)); // V1.5b
+      else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     // V1.5 stage 11: land-value property tax on every operating zoned building.
@@ -299,7 +310,7 @@ export class Simulation {
     const out = [...tiles];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      if (t.structure !== 'nuclearPlant') continue;
+      if (t.structure !== 'nuclearPlant' && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
       const a = t.part ? t.part - 1 : z * 64 + x;
       const ax = a % 64, az = Math.floor(a / 64);
       for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
@@ -313,7 +324,7 @@ export class Simulation {
   /** Place a 2×2 building whose top-left tile is the first of `tiles`. */
   private applyBig(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
     const w = this.world;
-    if (tiles.length !== 4 || !tiles.every(([x, z]) => canPlace(tool, w.at(x, z)))) return res;
+    if (tiles.length !== 4 || !tiles.every(([x, z]) => canPlace(tool, w.at(x, z)) && !tileHasCells(this, x, z))) return res;
     // The building's price once, plus clearing fees for trees on any of its tiles.
     const cost = placementCost(tool, w.at(tiles[0][0], tiles[0][1])) + tiles.slice(1).reduce((a, [x, z]) => a + (w.at(x, z).deco ? 3 : 0), 0);
     if (cost > w.cash) return { ...res, broke: true };
@@ -463,7 +474,7 @@ export class Simulation {
     // PR 4: tools above the city's tier are locked (progression.ts).
     if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
-    if (tool === 'nuclearPlant') return this.applyBig(tool, tiles, res);
+    if (tool === 'nuclearPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
     if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
@@ -500,6 +511,7 @@ export class Simulation {
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
+      this.cov = computeCoverage(this.world);
       this.env = computeEnvironment(this.world, this.net.service);
       this.version++;
     }

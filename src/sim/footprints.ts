@@ -121,30 +121,30 @@ export const TEMPLATES: Template[] = [
   // "townhouse row 6×3 + rear garages".
   { id: 'townhouse', label: 'Townhouse row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 6, d: 4,
     rects: [R(0, 0, 6, 3, B), R(0, 3, 6, 1, G)], garage: 6, bays: 0,
-    maxLevel: 4, capacity: [40, 55, 80, 120], homes: [6, 8, 12, 18], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 2 },
+    maxLevel: 4, capacity: [40, 55, 80, 120], homes: [6, 8, 12, 18], model: { level: [4, 4, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 2 },
   { id: 'apartment_d', label: 'Small apartment block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 6,
     rects: [R(0, 0, 4, 4, B), R(0, 4, 4, 2, P)], garage: 12, bays: 0,
-    maxLevel: 4, capacity: [40, 65, 100, 145], homes: [16, 26, 39, 57], model: { level: [4, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.5 },
+    maxLevel: 4, capacity: [40, 65, 100, 145], homes: [16, 26, 39, 57], model: { level: [4, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.5 },
   // "apartments 6×6 with integrated garage" (+ a rear surface lot).
   { id: 'apartment', label: 'Apartment block', zone: 'residential', kind: 0, density: 1, tier: 3, w: 6, d: 6,
     rects: [R(0, 0, 6, 4, B), R(0, 4, 6, 2, P)], garage: 20, bays: 0,
-    maxLevel: 4, capacity: [70, 110, 165, 240], homes: [28, 44, 66, 97], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 2 },
+    maxLevel: 4, capacity: [70, 110, 165, 240], homes: [28, 44, 66, 97], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 2 },
   // PR 6 variety pass: 5 more medium footprints (8 total).
   { id: 'townhouse_s', label: 'Short townhouse row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 4,
     rects: [R(0, 0, 4, 3, B), R(0, 3, 4, 1, G)], garage: 4, bays: 0,
-    maxLevel: 4, capacity: [25, 35, 50, 75], homes: [4, 5, 8, 11], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 1.5 },
+    maxLevel: 4, capacity: [25, 35, 50, 75], homes: [4, 5, 8, 11], model: { level: [4, 4, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.5 },
   { id: 'duplex_row', label: 'Duplex row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 6, d: 4,
     rects: [R(0, 0, 6, 1, Gd), R(0, 1, 6, 2, B), R(0, 3, 6, 1, P)], garage: 0, bays: 0,
-    maxLevel: 4, capacity: [30, 45, 70, 100], homes: [6, 8, 12, 18], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
+    maxLevel: 4, capacity: [30, 45, 70, 100], homes: [6, 8, 12, 18], model: { level: [4, 4, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.2 },
   { id: 'walkup', label: 'Walk-up flats', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 5,
     rects: [R(0, 0, 4, 4, B), R(0, 4, 4, 1, P)], garage: 10, bays: 0,
-    maxLevel: 4, capacity: [35, 55, 80, 120], homes: [14, 20, 30, 44], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
+    maxLevel: 4, capacity: [35, 55, 80, 120], homes: [14, 20, 30, 44], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.2 },
   { id: 'courtyard', label: 'Courtyard block', zone: 'residential', kind: 0, density: 1, tier: 3, w: 8, d: 6,
     rects: [R(0, 0, 8, 2, B), R(0, 2, 2, 3, B), R(6, 2, 2, 3, B), R(2, 2, 4, 3, Gd), R(0, 5, 8, 1, P)], garage: 32, bays: 0,
-    maxLevel: 4, capacity: [90, 140, 210, 310], homes: [36, 56, 84, 123], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1 },
+    maxLevel: 4, capacity: [90, 140, 210, 310], homes: [36, 56, 84, 123], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1 },
   { id: 'mansard', label: 'Mansard apartments', zone: 'residential', kind: 0, density: 1, tier: 3, w: 6, d: 5,
     rects: [R(0, 0, 6, 4, B), R(0, 4, 6, 1, G)], garage: 26, bays: 0,
-    maxLevel: 4, capacity: [60, 90, 135, 200], homes: [24, 36, 54, 79], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
+    maxLevel: 4, capacity: [60, 90, 135, 200], homes: [24, 36, 54, 79], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.2 },
   // ---------------- Residential · high (towers, City tier) ----------------
   { id: 'tower', label: 'Residential tower', zone: 'residential', kind: 0, density: 2, tier: 3, w: 6, d: 6,
     rects: [R(0, 0, 6, 5, B), R(0, 5, 6, 1, G)], garage: 64, bays: 0,
@@ -239,6 +239,20 @@ export const TEMPLATES: Template[] = [
   { id: 'mixed_corner', label: 'Mixed-use corner', zone: 'commercial', kind: 3, density: 1, tier: 0, w: 3, d: 4,
     rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 3, B)], garage: 3, bays: 0,
     maxLevel: 1, capacity: [4], residents: [10], homes: [4], model: { level: [1] }, weight: 1.5 },
+  // ---------------- V1.5b stage A: large medium-density footprints ----------------
+  // Parker: "adjacent lots merge more often into larger footprints at higher
+  // levels, with new larger models". These only fit after neighbours merge
+  // (growth.tryMerge); they jump straight to the mid-rise look (model 7) at
+  // L6–L7. Capacity scales with area (~5 residents per cell at L7).
+  { id: 'apt_complex', label: 'Apartment complex', zone: 'residential', kind: 0, density: 1, tier: 2, w: 8, d: 8,
+    rects: [R(0, 0, 8, 5, B), R(0, 5, 8, 1, Gd), R(0, 6, 8, 2, P)], garage: 40, bays: 0,
+    maxLevel: 4, capacity: [110, 170, 255, 370], homes: [44, 68, 102, 150], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.5 },
+  { id: 'twin_midrise', label: 'Twin mid-rise blocks', zone: 'residential', kind: 0, density: 1, tier: 2, w: 10, d: 6,
+    rects: [R(0, 0, 4, 5, B), R(4, 0, 2, 5, Gd), R(6, 0, 4, 5, B), R(0, 5, 10, 1, P)], garage: 44, bays: 0,
+    maxLevel: 4, capacity: [120, 185, 280, 400], homes: [48, 74, 112, 160], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1.2 },
+  { id: 'perimeter', label: 'Perimeter block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 10, d: 8,
+    rects: [R(0, 0, 10, 3, B), R(0, 3, 3, 4, B), R(7, 3, 3, 4, B), R(3, 3, 4, 4, Gd), R(0, 7, 10, 1, P)], garage: 56, bays: 0,
+    maxLevel: 4, capacity: [150, 230, 345, 500], homes: [60, 92, 138, 200], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));

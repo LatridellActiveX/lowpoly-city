@@ -9,8 +9,10 @@
     "preview": "vite preview",
     "tricount": "esbuild tools/tricount.ts --bundle --platform=node --format=esm --outfile=/tmp/tri.mjs --log-level=error && node /tmp/tri.mjs",
     "test:industry": "esbuild tools/industry.test.ts --bundle --platform=node --format=esm --outfile=/tmp/industry-test.mjs --log-level=error && node /tmp/industry-test.mjs",
+    "test:v15b": "esbuild tools/v15b.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-test.mjs --log-level=error && node /tmp/v15b-test.mjs",
     "test:v15": "esbuild tools/v15.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15-test.mjs --log-level=error && node /tmp/v15-test.mjs",
-    "test:cells": "esbuild tools/cells.test.ts --bundle --platform=node --format=esm --outfile=/tmp/cells-test.mjs --log-level=error && node /tmp/cells-test.mjs"
+    "test:cells": "esbuild tools/cells.test.ts --bundle --platform=node --format=esm --outfile=/tmp/cells-test.mjs --log-level=error && node /tmp/cells-test.mjs",
+    "test:v15b-res": "esbuild tools/v15b-res.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-res-test.mjs --log-level=error && node /tmp/v15b-res-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

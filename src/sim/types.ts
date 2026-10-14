@@ -26,7 +26,9 @@ export type ZoneType = 'residential' | 'commercial' | 'industrial';
  * 'building' means a zone lot that has grown a house/shop/factory.
  */
 /** 'park' (PR 3) is a small green space that makes nearby homes more desirable. */
-export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation' | 'constructionYard';
+export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation' | 'constructionYard'
+  /** V1.5b: every city service (garbage, police, health, schools); tile.kind = services.ts Svc. */
+  | 'service';
 
 /** One tile of the map. Kept as a plain object so it serialises to JSON trivially. */
 export interface Tile {
@@ -130,6 +132,8 @@ export interface Tile {
   units: number;
   /** PR 6: ticks a construction crew stays on this site after its last stage (one visit covers the whole site). */
   crewLinger: number;
+  /** V1.5b stage E: garbage waiting for collection at this building (0..G_MAX). */
+  garbage: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
@@ -155,6 +159,14 @@ export type ToolId =
   | 'park'
   | 'parkingLot'
   | 'parkingGarage'
+  // V1.5b services (sim/services.ts)
+  | 'garbageDump'
+  | 'policeStation'
+  | 'clinic'
+  | 'hospital'
+  | 'elementarySchool'
+  | 'highSchool'
+  | 'college'
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */

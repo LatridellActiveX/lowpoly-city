@@ -4,6 +4,7 @@
  * "Can I put X here?" is answered in exactly one place (canPlace) so the
  * green/red preview tint and the actual placement can never disagree.
  */
+import { SERVICE_BY_TOOL } from './services';
 import { StructureType, Tile, ToolId, ZoneType } from './types';
 
 /** How many power units each source produces per tick. */
@@ -208,6 +209,14 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'pumpStation':
     case 'constructionYard':
     case 'park':
+    // V1.5b services
+    case 'garbageDump':
+    case 'policeStation':
+    case 'clinic':
+    case 'hospital':
+    case 'elementarySchool':
+    case 'highSchool':
+    case 'college':
       return isBare(t);
     case 'parkingLot':
     case 'parkingGarage':
@@ -286,6 +295,19 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.stock = tool === 'powerPlant' ? FUEL_MAX : 0;
       t.kind = PLANT_COAL;
       break;
+    case 'garbageDump':
+    case 'policeStation':
+    case 'clinic':
+    case 'hospital':
+    case 'elementarySchool':
+    case 'highSchool':
+    case 'college':
+      // V1.5b: one 'service' structure; kind says which (services.ts Svc).
+      t.structure = 'service';
+      t.kind = SERVICE_BY_TOOL[tool]!.svc;
+      t.farm = 0;
+      t.stock = 0;
+      break;
     case 'oilPlant':
       // V1.5: an oil-fired plant is the same 'powerPlant' structure (so fuel
       // trucks, pollution, smoke and upkeep all keep working) with kind = OIL,
@@ -311,6 +333,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.crew = false;
       t.res = t.jobs = t.units = 0;
       t.crewLinger = 0;
+      t.garbage = 0;
       // PR 5: bulldozing a farm FIELD leaves it fallow so its farm shrinks.
       if (t.farm > 0) t.farm = -t.farm;
       break;

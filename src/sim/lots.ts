@@ -140,7 +140,7 @@ export function codeAllows(tpl: Template, code: number): boolean {
 }
 
 /** Can a building stand on this tile at all (terrain + tile-level stuff)? */
-export const tileBuildable = (t: Tile) => !t.road && !t.water && !t.edge && t.structure !== 'powerPlant' && t.structure !== 'windTurbine' && t.structure !== 'waterTower' && t.structure !== 'park' && t.structure !== 'nuclearPlant' && t.structure !== 'pumpStation' && t.structure !== 'constructionYard' && !t.powerLine && !t.waterPipe;
+export const tileBuildable = (t: Tile) => !t.road && !t.water && !t.edge && t.structure !== 'powerPlant' && t.structure !== 'windTurbine' && t.structure !== 'waterTower' && t.structure !== 'park' && t.structure !== 'nuclearPlant' && t.structure !== 'pumpStation' && t.structure !== 'constructionYard' && t.structure !== 'service' && !t.powerLine && !t.waterPipe;
 
 /** Zone + kind of a building (for host-tile consistency). */
 const hostKey = (tpl: Template) => `${tpl.zone}:${tpl.kind}`;

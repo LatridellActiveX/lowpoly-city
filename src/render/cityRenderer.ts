@@ -45,6 +45,9 @@ import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels } from './industryModels';
+import { serviceModels } from './serviceModels';
+import { SERVICE_DEFS } from '../sim/services';
+import { G_MAX, G_WARN } from '../sim/garbage';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
@@ -70,7 +73,7 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
@@ -81,16 +84,24 @@ const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the o
  * badge is bigger, and it's drawn on top (depthTest off) so tall buildings
  * can't hide it.
  */
-function iconMaterial(kind: 'power' | 'water' | 'crew'): THREE.MeshBasicMaterial {
+function iconMaterial(kind: 'power' | 'water' | 'crew' | 'garbage'): THREE.MeshBasicMaterial {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  const ring = kind === 'power' ? '#ffd21f' : kind === 'crew' ? '#f28c1d' : '#29a3ff';
+  const ring = kind === 'power' ? '#ffd21f' : kind === 'crew' ? '#f28c1d' : kind === 'garbage' ? '#9bd14b' : '#29a3ff';
   g.fillStyle = 'rgba(20,28,40,0.92)';
   g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2); g.fill();
   g.lineWidth = 10; g.strokeStyle = ring; g.stroke();
   g.fillStyle = ring;
   g.beginPath();
+  if (kind === 'garbage') {
+    // V1.5b "garbage piling up": a wheelie bin with a lid, no slash.
+    g.fillRect(42, 46, 44, 54); g.fillRect(36, 34, 56, 10); g.fillRect(56, 26, 16, 8);
+    g.fillStyle = 'rgba(20,28,40,0.92)'; for (const x of [52, 62, 72]) g.fillRect(x, 54, 4, 38);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+  }
   if (kind === 'crew') {
     // PR 5 "Waiting for construction crew": an orange traffic cone, no slash.
     g.moveTo(64, 24); g.lineTo(88, 96); g.lineTo(40, 96); g.closePath(); g.fill();
@@ -128,6 +139,7 @@ function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: numb
   // PR 5: levels 4/5 are the medium-density rowhouses / apartment blocks.
   if (zone === 'residential' && level === 4) return { w: 0.9, d: 0.6, h: 0.26 * 3 + 0.25 };
   if (zone === 'residential' && level === 6) return { w: 0.84, d: 0.64, h: 1.62 }; // PR 6 tower (unit height; stretched by template.tall)
+  if (zone === 'residential' && level === 7) return { w: 0.88, d: 0.68, h: 0.26 * 6 + 0.2 }; // V1.5b mid-rise apartments
   if (zone === 'residential' && level === 5) return { w: 0.88, d: 0.68, h: 0.26 * 5 + 0.2 };
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
   if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
@@ -221,7 +233,7 @@ export class CityRenderer {
   /** PR 5: wind heading (radians, see sim/wind.ts) — set every frame by frame(). */
   windDir = 0;
   /** Positions + colours of warning markers (for bobbing animation). */
-  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water' | 'crew'; slot: number }> = [];
+  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water' | 'crew' | 'garbage'; slot: number }> = [];
   /** Camera rotation, set by main.ts each frame, so icon sprites can face the camera ("billboarding"). */
   cameraQuat = new THREE.Quaternion();
   /** Water pipes are only drawn while the pipe tool or the water overlay is active (PR 3). */
@@ -394,6 +406,10 @@ export class CityRenderer {
     add('constructionYard', constructionYardModel(), solid, 32);
     add('crewLoad', crewLoadModel(), solid, 64);
     add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
+    add('iconGarbage', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('garbage'), 256, false);
+    this.pools.iconGarbage.mesh.renderOrder = 20;
+    // V1.5b services, garbage piles and service-vehicle parts.
+    for (const [k, g] of Object.entries(serviceModels())) add(k, g, solid, k === 'garbagePile' ? 512 : k.startsWith('svc') ? 32 : 128);
     add('waterTower', MODELS.waterTower(), solid, 32);
     add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
@@ -620,6 +636,16 @@ export class CityRenderer {
         // PR 5: the nacelle + rotor yaw into the wind (animate()); keyed by tile.
         this.turbines.push({ i, top: center.clone().setY(1.26) });
       }
+      // V1.5b service buildings (2×2 ones are centred on their block).
+      if (t.structure === 'service' && !t.part) {
+        const big = SERVICE_DEFS[t.kind]?.size === 2;
+        P[`svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+      }
+      // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
+      if (t.zone && t.level > 0 && t.garbage >= G_WARN) {
+        P.garbagePile.add(this.place(center.clone().add(new THREE.Vector3(0.3, 0, 0.3)), hash2(x, z, 77) * 6, 1 + t.garbage / G_MAX));
+        this.markers.push({ pos: center.clone().setY(1.05), color: new THREE.Color(1, 1, 1), kind: 'garbage', slot: 0 });
+      }
       if (t.structure === 'constructionYard') {
         P.constructionYard.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
       }
@@ -630,6 +656,11 @@ export class CityRenderer {
         const r = sim.world.resourceAt(i);
         const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24 }[r as 1];
         if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
+      } else if (this.overlay === 'garbage') {
+        // V1.5b: dump coverage (soft green) and garbage at buildings (yellow → brown).
+        const g = t.garbage / G_MAX, cv = sim.cov.by[0][i];
+        if (g > 0.05) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0x6b3d1f), g));
+        else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84).multiplyScalar(0.5 + cv * 0.5));
       } else if (this.overlay === 'landValue') {
         // V1.5 stage 11: land value 0 → LV_MAX as deep blue → green → gold.
         const v = sim.env.landValue[i] / LV_MAX;
@@ -996,7 +1027,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -1023,7 +1054,9 @@ export class CityRenderer {
         }
         else {
           P.truckCab.add(m);
-          P.truckBox.add(m, this.c.setHex(v.color));
+          // V1.5b: garbage trucks get a compactor body instead of a cargo box.
+          if (v.purpose.startsWith('garbage')) P.garbageBody.add(m);
+          else P.truckBox.add(m, this.c.setHex(v.color));
           // PR 5: construction trucks (orange) carry bricks + pipes on top.
           if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
         }
@@ -1068,7 +1101,7 @@ export class CityRenderer {
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
@@ -1232,8 +1265,8 @@ export class CityRenderer {
     jib.end();
 
     const mk = this.pools.marker;
-    const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew;
-    mk.begin(); ip.begin(); iw.begin(); ic.begin();
+    const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew, ig = this.pools.iconGarbage;
+    mk.begin(); ip.begin(); iw.begin(); ic.begin(); ig.begin();
     // Camera's "right" direction, to put paired icons side by side on screen.
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraQuat);
     for (const { pos, color, kind, slot } of this.markers) {
@@ -1243,10 +1276,10 @@ export class CityRenderer {
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, time * 1.5);
         mk.add(this.m.compose(p, this.q, this.s.set(1, 1.4, 1)), color);
       } else {
-        (kind === 'power' ? ip : kind === 'crew' ? ic : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
+        (kind === 'power' ? ip : kind === 'crew' ? ic : kind === 'garbage' ? ig : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
       }
     }
-    mk.end(); ip.end(); iw.end(); ic.end();
+    mk.end(); ip.end(); iw.end(); ic.end(); ig.end();
   }
 }
 

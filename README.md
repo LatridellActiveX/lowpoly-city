@@ -73,6 +73,16 @@ Version 1.5 is being built on the `version-1.5` branch. So far it includes:
 - **Redevelopment:** struggling buildings are rebuilt based on their health, and shops and garages can swap.
 See the wiki page *Version 1.5* for details.
 
+## Version 1.5b
+
+Version 1.5b is in progress on the same branch:
+* **Residential push:**
+  * Medium homes become mid-rise apartments at L6 and L7.
+  * Neighbours merge more often into new large footprints (apartment complex, twin mid-rise, perimeter block).
+  * Empty residential zoning cools R demand, and new homes raise industrial (and some commercial) job demand.
+* Run `npm run test:v15b-res`.
+* See the wiki page *Version 1.5b*.
+
 ## Roadmap
 - ✅ **Milestones 1–2:** grid, isometric camera, placement tools, utilities, zone growth, save/load, building variety, terrain & trees, money and budget.
 - ✅ **Traffic:** cars on real road graphs, traffic signals, parking, congestion.

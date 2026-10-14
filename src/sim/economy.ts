@@ -20,6 +20,7 @@
  *    until income brings you back up. Bulldozing is always allowed.
  */
 import { sizeUnits } from './rules';
+import { SERVICE_DEFS } from './services';
 import { Tile, ToolId, ZoneType } from './types';
 
 export const STARTING_CASH = 50_000;
@@ -65,6 +66,14 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // $30 surface, $40 decked (you pay for the land you save).
   parkingLot: 480, // V1.5: whole tile (16 spaces) — was $120 for a 2×2-cell quarter
   parkingGarage: 1600,
+  // V1.5b services (sim/services.ts SERVICE_DEFS has the same prices).
+  garbageDump: 6000,
+  policeStation: 5000,
+  clinic: 6000,
+  hospital: 24000,
+  elementarySchool: 4000,
+  highSchool: 9000,
+  college: 30000,
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
@@ -77,7 +86,7 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 3000, pumpStation: 850, constructionYard: 120 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 3000, pumpStation: 850, constructionYard: 120, service: 0 } as const; // V1.5b: 'service' upkeep is per kind (services.ts), booked in projectMonth
 /** Structures that cost upkeep every month. */
 export type UpkeepKind = keyof typeof UPKEEP;
 export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
@@ -124,7 +133,7 @@ export interface Ledger {
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
-  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0, constructionYard: 0 },
+  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0, constructionYard: 0, service: 0 },
   construction: 0,
   refunds: 0,
   trade: { exports: 0, fuel: 0 },
@@ -133,7 +142,7 @@ export const emptyLedger = (): Ledger => ({
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
+  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0) + (l.upkeep.service ?? 0);
   return tax + (l.property ?? 0) + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel + (l.trade.parking ?? 0) - (l.trade.materials ?? 0);
 }
 
@@ -194,7 +203,8 @@ export function bulldozeRefund(t: Tile): number {
   if (t.powerLine) value += BUILD_COST.powerLine;
   if (t.waterPipe && !t.road) value += BUILD_COST.waterPipe; // PR 6: a road's pipe is in the road price
   if (t.zone) value += BUILD_COST[t.zone];
-  if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure];
+  if (t.structure === 'service' && !t.part) value += SERVICE_DEFS[t.kind]?.cost ?? 0; // V1.5b
+  else if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure as Exclude<typeof t.structure, 'service'>];
   return Math.round(value * REFUND_RATE);
 }
 
