@@ -258,6 +258,10 @@ function residential(k: number, level: number, hi = true): DesignParts {
       break;
   }
   if (hi) resDetails(b, k, level, w, h, d, floors);
+  // V1.5b: back / side detail. A-frame (default) and the modern box (2) have
+  // narrower or offset upper walls, so only their ground floor is dressed.
+  const lowWall = k === 4 || (k === 2 && floors > 1);
+  allSides(b, { w: k === 4 ? w * 0.9 : w, d, h: lowWall ? FLOOR + 0.04 : h, floors: lowWall ? 1 : floors, zoff: k === 1 ? -0.04 : 0, cols: 2, vent: !lowWall });
   return b.done();
 }
 const f0 = (level: number) => level === 1;
@@ -480,6 +484,9 @@ function midrise(v: number, hi: boolean): DesignParts {
     if (hi) for (let f = 1; f < floors; f++) balcony(b, w * 0.3, f * FLOOR + 0.02, d / 2, 0.18);
   }
   lobby();
+  // V1.5b: backs + sides (variant 2's top floor is a set-back penthouse,
+  // variant 3's rear wing is lower — dress the full-height part).
+  allSides(b, { w, d: v === 3 ? d * 0.5 : d, zoff: v === 3 ? d * 0.25 : 0, h: v === 2 ? h - FLOOR : v === 3 ? h - FLOOR * 2 : h, floors: v === 2 ? floors - 1 : v === 3 ? floors - 2 : floors, cols: 4, apt: true, right: v !== 0 });
   if (hi) {
     acUnit(b, -w * 0.3, h, -d * 0.2, 1.2);
     acUnit(b, -w * 0.15, h, -d * 0.2, 1.2);
@@ -583,6 +590,10 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
       for (const sx of [-1, 1]) b.fix(box(0.016, h, 0.016), METAL, [sx * (w / 2 - 0.01), 0, d / 2 + 0.01]);
     }
   }
+  // V1.5b: backs + sides. Rowhouses: three back doors/patios via one call
+  // per unit; apartment blocks: back balconies + rear entrance.
+  if (level === 4) for (let u = 0; u < 3; u++) allSides(b, { x: -0.29 + u * 0.29, w: 0.286, d: 0.56, h: FLOOR * 3 + 0.04, floors: 3, cols: 1, left: u === 0, right: u === 2, vent: false });
+  else allSides(b, { w: 0.86, d: 0.66, h: FLOOR * 5 + 0.06, floors: 5, cols: 4, apt: true, right: v !== 0 });
   return b.done();
 }
 
@@ -602,13 +613,26 @@ function tower(v: number, hi: boolean): DesignParts {
     else b.wall(box(tw, th, td), [0, y, 0]);
     if (v === 1 && k === 1) b.fix(box(tw * 0.9, th * 0.96, 0.01), 0x9fd7ff, [0, y + 0.02, td / 2 + 0.005]);
     // window bands
-    for (let f = 0; f < Math.floor(th / 0.09); f++) b.fix(box(tw * 0.86, 0.035, 0.012), GLASS, [0, y + 0.03 + f * 0.09, td / 2 + 0.004]);
+    for (let f = 0; f < Math.floor(th / 0.09); f++) {
+      b.fix(box(tw * 0.86, 0.035, 0.012), GLASS, [0, y + 0.03 + f * 0.09, td / 2 + 0.004]);
+      // V1.5b: window bands on the back and both sides too (lit at night).
+      b.fix(box(tw * 0.86, 0.035, 0.012), GLASS, [0, y + 0.03 + f * 0.09, -td / 2 - 0.004]);
+      for (const sx of [-1, 1]) b.fix(box(0.012, 0.035, td * 0.8), GLASS, [sx * (tw / 2 + 0.004), y + 0.03 + f * 0.09, 0]);
+      if (hi && v !== 1 && f % 2 === 1) b.fix(box(tw * 0.9, 0.01, 0.05), TRIM, [0, y + f * 0.09, -td / 2 - 0.025]); // back balcony slabs
+    }
     if (hi && v !== 1) for (let f = 1; f < Math.floor(th / 0.09); f += 2) b.fix(box(tw * 0.9, 0.01, 0.05), TRIM, [0, y + f * 0.09, td / 2 + 0.025]); // balcony slabs
     y += th;
     b.acc(box(tw + 0.02, 0.025, td + 0.02), [0, y, 0]); // setback terrace edge
   });
   b.acc(box(0.14, 0.12, 0.14), [0, y, 0]); // crown / plant room
-  if (hi) { acUnit(b, 0.1, y, 0.05, 1.2); b.fix(box(0.9, 0.03, 0.7), STONE, [0, 0, 0]); door(b, 0, 0.33, 0x9fd7ff, 0.14, 0.12); }
+  if (hi) {
+    acUnit(b, 0.1, y, 0.05, 1.2); b.fix(box(0.9, 0.03, 0.7), STONE, [0, 0, 0]); door(b, 0, 0.33, 0x9fd7ff, 0.14, 0.12);
+    // V1.5b: rear service door, downpipes, vent.
+    const bd = tiers[0][1] / 2;
+    b.fix(box(0.12, 0.15, 0.02), 0x9fd7ff, [0, 0.03, -bd - 0.006]);
+    for (const sx of [-1, 1]) b.fix(box(0.016, tiers[0][2], 0.016), METAL, [sx * (tiers[0][0] / 2 - 0.02), 0, -bd - 0.01]);
+    vent(b, -0.05, y, -0.04, 0.022);
+  }
   return b.done();
 }
 
@@ -691,6 +715,71 @@ function chimney(b: Builder, x: number, y: number, z: number, ch: number) {
 }
 /** Round shrub (icosahedron). */
 const shrub = (b: Builder, x: number, z: number, r = 0.045) => b.fix(new THREE.IcosahedronGeometry(r, 0).translate(0, r * 0.8, 0), 0x5f8f4a, [x, 0, z]);
+
+/**
+ * V1.5b (Parker): DETAIL ON EVERY SIDE. Residential models used to be dressed
+ * only on the front (+z) face, so from behind a street looked like blank
+ * boxes. `allSides` adds, for a wall box w × d × h (front at z = zoff + d/2):
+ *   ALWAYS (both LODs, cheap and lit at night — GLASS is in LIT):
+ *     back (−z) windows on every floor, left (−x) windows, and right (+x)
+ *     windows unless the design already has them (`right: false`).
+ *   HIGH DETAIL ONLY (the low Detail setting drops these extras):
+ *     houses: back door + steps, or a glazed patio door on wider homes;
+ *     apartments: back balconies on upper floors and a glazed rear entrance;
+ *     downpipes on both back corners, a side AC unit, a roof vent.
+ * Everything merges into the design's existing buckets, so instancing is
+ * unchanged (still one geometry per design + level).
+ */
+interface SideOpts { left?: boolean; x?: number; w: number; d: number; h: number; floors: number; zoff?: number; cols?: number; apt?: boolean; right?: boolean; vent?: boolean }
+function allSides(b: Builder, o: SideOpts): void {
+  // `x` shifts everything sideways (rowhouse units): parts added here are
+  // translated once at the end.
+  const lists = [b.walls, b.accent, b.fixed, b.lights], n0 = lists.map((l) => l.length);
+  sidesAt(b, o);
+  if (o.x) lists.forEach((l, i) => { for (let k = n0[i]; k < l.length; k++) l[k].translate(o.x!, 0, 0); });
+}
+function sidesAt(b: Builder, o: SideOpts): void {
+  const zoff = o.zoff ?? 0, back = zoff - o.d / 2 - 0.005, cols = o.cols ?? Math.max(1, Math.round(o.w / 0.22));
+  const floors = Math.max(1, Math.min(o.floors, Math.floor((o.h - 0.04) / FLOOR)));
+  const sz = 0.085;
+  for (let f = 0; f < floors; f++) {
+    const y = 0.1 + f * FLOOR;
+    for (let k = 0; k < cols; k++) {
+      const x = -o.w / 2 + (o.w * (k + 0.5)) / cols;
+      if (f === 0 && k === (o.apt ? Math.floor(cols / 2) : 0)) continue; // back door goes here
+      b.fix(box(sz, sz * 1.1, 0.02), GLASS, [x, y, back]);
+      if (b.hi) b.fix(box(sz + 0.03, 0.012, 0.035), TRIM, [x, y - 0.012, back - 0.01]); // sill
+    }
+    const sideN = Math.max(1, Math.round(o.d / 0.3));
+    for (let k = 0; k < sideN; k++) {
+      const z = zoff - o.d / 2 + (o.d * (k + 0.5)) / sideN;
+      if (o.left !== false) b.fix(box(0.02, sz * 1.1, sz), GLASS, [-o.w / 2 - 0.005, y, z]);
+      if (o.right !== false) b.fix(box(0.02, sz * 1.1, sz), GLASS, [o.w / 2 + 0.005, y, z]);
+    }
+  }
+  if (!b.hi) return;
+  const dx = o.apt ? -o.w / 2 + (o.w * (Math.floor(cols / 2) + 0.5)) / cols : -o.w / 2 + o.w / (2 * cols);
+  if (o.apt) {
+    b.fix(box(0.14, 0.17, 0.02), 0x9fd7ff, [dx, 0.04, back]); // glazed rear entrance
+    b.acc(box(0.2, 0.02, 0.1), [dx, 0.23, back - 0.05]); // canopy
+    for (let f = 1; f < floors; f++) for (const bx of [-o.w * 0.3, o.w * 0.3]) balconyBack(b, bx, f * FLOOR + 0.02, back, 0.16);
+  } else if (o.w > 0.6) {
+    b.fix(box(0.14, 0.16, 0.02), 0x9fd7ff, [dx, 0.04, back]); // patio door
+    b.fix(box(0.24, 0.02, 0.14), 0xcfc4b0, [dx, 0, back - 0.07]); // patio slab
+  } else {
+    b.fix(box(0.08, 0.16, 0.02), WOOD, [dx, 0.04, back]); // back door
+    b.fix(box(0.12, 0.02, 0.05), 0xcfc8bb, [dx, 0, back - 0.025]); // back step
+  }
+  for (const sx of [-1, 1]) b.fix(box(0.016, Math.min(o.h, floors * FLOOR + 0.06), 0.016), METAL, [sx * (o.w / 2 - 0.02), 0, back - 0.01]); // downpipes
+  acUnit(b, -o.w / 2 - 0.05, 0, zoff - o.d * 0.2);
+  if (o.vent !== false) vent(b, o.w * 0.2, o.h, zoff - o.d * 0.25);
+}
+/** Balcony on the BACK (−z) face. */
+function balconyBack(b: Builder, x: number, y: number, z: number, bw: number) {
+  b.fix(box(bw, 0.018, 0.08), 0xd8dde2, [x, y, z - 0.04]);
+  b.fix(box(bw, 0.012, 0.012), DARK, [x, y + 0.07, z - 0.078]);
+  for (let k = 0; k < 3; k++) b.fix(box(0.008, 0.07, 0.008), DARK, [x - bw / 2 + 0.01 + (k * (bw - 0.02)) / 2, y + 0.018, z - 0.078]);
+}
 
 function resDetails(b: Builder, k: number, level: number, w: number, h: number, d: number, floors: number): void {
   const zoff = k === 1 ? -0.04 : 0;
