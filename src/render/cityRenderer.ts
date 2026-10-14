@@ -43,6 +43,8 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
+import { bigCoalModel, COAL_STACKS } from './coalModel';
+import { isBigCoal } from '../sim/networks';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels } from './industryModels';
 import { officeModels } from './officeModels';
@@ -392,6 +394,12 @@ export class CityRenderer {
     ]), solid, 32);
     add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
+    // V1.5b: the 2×2 coal plant (high + low detail) with night-lit windows.
+    for (const [pre, det] of [['', true], ['lo:', false]] as const) {
+      const cm = bigCoalModel(det);
+      add(`${pre}coalBig`, cm.solid, solid, 16);
+      add(`${pre}coalBig.lights`, cm.lights, this.windowGlow, 16, false);
+    }
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
@@ -608,7 +616,17 @@ export class CityRenderer {
         if (st0.powered && t.level > 0) this.addDropWire(tiles, x, z, this.roadFacing(x, z, has) ?? 0, 1, has, t.zone);
       }
 
-      if (t.structure === 'powerPlant') {
+      if (t.structure === 'powerPlant' && t.part) {
+        // V1.5b: a non-anchor tile of a 2×2 coal plant — drawn by its anchor.
+      } else if (t.structure === 'powerPlant' && isBigCoal(tiles, i)) {
+        // V1.5b: the detailed 2×2 coal plant, centred on its footprint.
+        const c2 = center.clone().add(new THREE.Vector3(0.5, 0, 0.5));
+        const pre = this.lod === 'low' ? 'lo:' : '';
+        P[`${pre}coalBig`].add(this.place(c2));
+        P[`${pre}coalBig.lights`].add(this.place(c2), this.c.setHex(0xffd890));
+        if (t.stock > 0) for (const [sx, sy, sz] of COAL_STACKS) this.stacks.push(new THREE.Vector3(sx, sy, sz).add(c2));
+        this.addGridTie(tiles, x, z, has, false);
+      } else if (t.structure === 'powerPlant') {
         // V1.5: kind 1 = oil-fired plant (own model, same stack position).
         (t.kind === PLANT_OIL ? P.oilPlant : P.powerPlant).add(this.place(center, turn));
         // Smoke from the tall stack at model (−0.32, 1.02, −0.3), only while fuelled.
