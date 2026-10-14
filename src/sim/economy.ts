@@ -19,22 +19,42 @@
  *  - Going below $0 doesn't end the game. It just blocks new construction
  *    until income brings you back up. Bulldozing is always allowed.
  */
+import { sizeUnits } from './rules';
 import { Tile, ToolId, ZoneType } from './types';
 
 export const STARTING_CASH = 50_000;
 
 /** Up-front cost. Per tile for line/area tools, per building for point tools. */
 export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number> = {
-  road: 10,
+  // $10 of asphalt + a $2 surcharge for the street-side power poles that are
+  // built automatically along every road (PR 3 auto power lines).
+  road: 12,
+  // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
+  avenue: 24,
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
   commercial: 25,
   industrial: 30,
   powerPlant: 4000,
-  windTurbine: 600,
-  waterTower: 1500,
+  // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
+  //   PR 5: coal plant 2,000 power (~2,000 people) for $4,000 + $250/mo; nuclear 8,000 (~8,000 people) = $20,000 + $1,250/mo;
+  //   wind turbine 800 × wind (~400 people at average wind) = $1,500 + $60/mo
+  //   water tower 800 water for $4,000 + $200/mo →  pump station 4,000 water (5×) = $16,000 + $850/mo
+  //   (tower capacity raised 80 → 800 in PR 4 so one tower serves ~1,000 people at ~75% load;
+  //   PR 5 re-priced it from $1,500/$80 since it now does 10× the work. The pump station keeps
+  //   the same ratio with a 20% bulk discount — $4 per unit of water vs the tower's $5.)
+  // (Same price per unit; you're paying for density: nuclear is 2×2 tiles but
+  // makes no pollution and needs no fuel trucks; the pump station is 1 tile.)
+  nuclearPlant: 20000,
+  pumpStation: 16000,
+  windTurbine: 1500, // PR 5: was $600 when it made 15 power; now ~400 at average wind
+  waterTower: 4000,
+  park: 150,
 };
+
+/** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
+export const BRIDGE_EXTRA = 48;
 
 /** Fee for automatically clearing a tree, bush or rock when you build on it. */
 export const CLEAR_COST = 3;
@@ -43,16 +63,22 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 30, waterTower: 80 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850 } as const;
+/** Structures that cost upkeep every month. */
+export type UpkeepKind = keyof typeof UPKEEP;
+export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
 
 /** Simulation ticks per in-game month (2 ticks/s at 1x => a month is 15 s). */
 export const MONTH_TICKS = 30;
 
 /**
  * Monthly tax base per building level at a 100% rate. At the default 9% a
- * level-1 house pays $27/month, a level-3 factory $162/month.
+ * level-1 house pays $18/month, a level-3 factory $108/month.
+ * PR 3 retune: cut by a third (was 300/450/600). PR 2's test city netted
+ * +$2.4k/month, which made money meaningless after a few minutes. Parks
+ * and pollution also make dense, high-tax housing harder to reach now.
  */
-export const TAX_BASE: Record<ZoneType, number> = { residential: 300, commercial: 450, industrial: 600 };
+export const TAX_BASE: Record<ZoneType, number> = { residential: 200, commercial: 300, industrial: 400 };
 
 export const DEFAULT_TAX = 0.09;
 export const MAX_TAX = 0.2;
@@ -75,41 +101,48 @@ export interface Ledger {
   upkeep: Record<keyof typeof UPKEEP, number>;
   construction: number;
   refunds: number;
+  /** PR 4 trade: export income (+) and imported power-plant coal (−). */
+  trade: { exports: number; fuel: number };
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
-  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0 },
+  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0 },
   construction: 0,
   refunds: 0,
+  trade: { exports: 0, fuel: 0 },
 });
 
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower;
-  return tax + l.refunds - up - l.construction;
+  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation;
+  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
 }
 
 /** What placing `tool` on tile `t` costs (including clearing a decoration). */
 export function placementCost(tool: ToolId, t: Tile): number {
   if (tool === 'inspect') return 0;
   if (tool === 'bulldoze') return t.deco ? CLEAR_COST : 0; // removing a lone tree
-  return BUILD_COST[tool] + (t.deco ? CLEAR_COST : 0);
+  const bridge = (tool === 'road' || tool === 'avenue') && t.water && !t.road ? BRIDGE_EXTRA : 0;
+  return BUILD_COST[tool] + bridge + (t.deco ? CLEAR_COST : 0);
 }
 
 /** What bulldozing tile `t` refunds: 25% of the value of everything on it. */
 export function bulldozeRefund(t: Tile): number {
   let value = 0;
-  if (t.road) value += BUILD_COST.road;
+  if (t.road) value += t.roadType === 1 ? BUILD_COST.avenue : BUILD_COST.road;
+  if (t.road && t.water) value += BRIDGE_EXTRA;
   if (t.powerLine) value += BUILD_COST.powerLine;
   if (t.waterPipe) value += BUILD_COST.waterPipe;
   if (t.zone) value += BUILD_COST[t.zone];
-  if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower') value += BUILD_COST[t.structure];
+  if (isUpkeepKind(t.structure) && !t.part) value += BUILD_COST[t.structure];
   return Math.round(value * REFUND_RATE);
 }
 
 /** Monthly tax this tile pays right now (0 if not operating). */
 export function monthlyTax(t: Tile, operating: boolean, rates: TaxRates): number {
   if (!t.zone || t.level === 0 || !operating) return 0;
-  return TAX_BASE[t.zone] * t.level * rates[t.zone];
+  // PR 4: a shop with empty shelves (goods.ts) only pays half.
+  const shelves = t.zone === 'commercial' && t.stock <= 0 ? 0.5 : 1;
+  return TAX_BASE[t.zone] * sizeUnits(t) * rates[t.zone] * shelves; // PR 5: homes pay per resident (÷5)
 }

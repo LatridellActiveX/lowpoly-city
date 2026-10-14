@@ -65,7 +65,7 @@ export function decoFor(x: number, z: number, seed: number): Deco {
 /** Fill decorations on every completely empty tile (new city or v1 save). */
 export function scatterDecorations(tiles: Tile[], seed: number): void {
   tiles.forEach((t, i) => {
-    const bare = !t.road && !t.powerLine && !t.waterPipe && t.zone === null && t.structure === 'none';
+    const bare = !t.water && !t.road && !t.powerLine && !t.waterPipe && t.zone === null && t.structure === 'none';
     t.deco = bare ? decoFor(i % GRID_SIZE, Math.floor(i / GRID_SIZE), seed) : Deco.None;
   });
 }

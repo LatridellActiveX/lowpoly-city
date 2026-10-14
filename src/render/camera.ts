@@ -44,6 +44,9 @@ const DISTANCE = 120;
 const ELEVATION = Math.atan(1 / Math.SQRT2);
 export const MIN_ZOOM = 0.45;
 export const MAX_ZOOM = 4;
+/** PR 4 orbit pitch limits (radians): ~22° to ~65° above the horizon. */
+const MIN_PITCH = 0.38;
+const MAX_PITCH = 1.13;
 
 export class IsoCamera {
   readonly camera: THREE.OrthographicCamera;
@@ -54,6 +57,13 @@ export class IsoCamera {
   rotation = 0;
   /** Current animated azimuth in radians; eases toward the rotation step's angle. */
   private azimuth = Math.PI / 4;
+  /**
+   * PR 4 free orbit (middle-mouse drag): an extra yaw added on top of the
+   * 90° rotation steps, and an adjustable elevation (pitch) kept between
+   * MIN_PITCH and MAX_PITCH so you can't look from underground or straight down.
+   */
+  freeYaw = 0;
+  elevation = ELEVATION;
   private aspect = 1;
 
   constructor() {
@@ -71,6 +81,27 @@ export class IsoCamera {
     this.rotation += dir;
   }
 
+  /**
+   * PR 4: orbit by mouse-drag pixels. Horizontal = yaw around the target,
+   * vertical = pitch (clamped). The yaw is applied directly (no easing) so
+   * the view follows the mouse 1:1.
+   */
+  /**
+   * PR 5: player sensitivity multipliers (Settings → Camera rotation / pan
+   * speed, 0.25–2, default 1). main.ts copies them from the settings every
+   * frame so slider changes apply live.
+   */
+  rotateSpeed = 1;
+  panSpeed = 1;
+
+  orbit(dxPixels: number, dyPixels: number): void {
+    // PR 5: base sensitivity halved (was 0.006 / 0.004 rad per pixel — too twitchy).
+    const dYaw = -dxPixels * 0.003 * this.rotateSpeed;
+    this.freeYaw += dYaw;
+    this.azimuth += dYaw; // move now; the easing in update() then has nothing to catch up
+    this.elevation = THREE.MathUtils.clamp(this.elevation + dyPixels * 0.002 * this.rotateSpeed, MIN_PITCH, MAX_PITCH);
+  }
+
   zoomBy(factor: number): void {
     this.zoom = THREE.MathUtils.clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
     this.applyFrustum();
@@ -78,12 +109,12 @@ export class IsoCamera {
 
   /** Pan by a screen-space delta in pixels (drag right => map moves right). */
   panPixels(dx: number, dy: number, canvasHeight: number): void {
-    const worldPerPixel = VIEW_HEIGHT / this.zoom / canvasHeight;
+    const worldPerPixel = (VIEW_HEIGHT / this.zoom / canvasHeight) * this.panSpeed;
     const right = new THREE.Vector3(Math.cos(this.azimuth), 0, -Math.sin(this.azimuth));
     // "Forward" = the ground direction pointing away from the camera (up the screen).
     const forward = new THREE.Vector3(-Math.sin(this.azimuth), 0, -Math.cos(this.azimuth));
     this.target.addScaledVector(right, -dx * worldPerPixel);
-    this.target.addScaledVector(forward, (dy * worldPerPixel) / Math.sin(ELEVATION));
+    this.target.addScaledVector(forward, (dy * worldPerPixel) / Math.sin(this.elevation));
     this.clampTarget();
   }
 
@@ -91,8 +122,8 @@ export class IsoCamera {
   panWorld(rightAmount: number, upAmount: number): void {
     const right = new THREE.Vector3(Math.cos(this.azimuth), 0, -Math.sin(this.azimuth));
     const forward = new THREE.Vector3(-Math.sin(this.azimuth), 0, -Math.cos(this.azimuth));
-    this.target.addScaledVector(right, rightAmount / this.zoom);
-    this.target.addScaledVector(forward, upAmount / this.zoom);
+    this.target.addScaledVector(right, (rightAmount * this.panSpeed) / this.zoom);
+    this.target.addScaledVector(forward, (upAmount * this.panSpeed) / this.zoom);
     this.clampTarget();
   }
 
@@ -114,14 +145,14 @@ export class IsoCamera {
 
   /** Call every frame. Eases rotation and recomputes the camera position. */
   update(dt: number): void {
-    const goal = Math.PI / 4 + (this.rotation * Math.PI) / 2;
+    const goal = Math.PI / 4 + (this.rotation * Math.PI) / 2 + this.freeYaw;
     // Exponential ease: close a fixed fraction of the gap each second.
     const t = dt === 0 ? 1 : 1 - Math.exp(-dt * 10);
     this.azimuth += (goal - this.azimuth) * t;
     const offset = new THREE.Vector3(
-      Math.cos(ELEVATION) * Math.sin(this.azimuth),
-      Math.sin(ELEVATION),
-      Math.cos(ELEVATION) * Math.cos(this.azimuth),
+      Math.cos(this.elevation) * Math.sin(this.azimuth),
+      Math.sin(this.elevation),
+      Math.cos(this.elevation) * Math.cos(this.azimuth),
     ).multiplyScalar(DISTANCE);
     this.camera.position.copy(this.target).add(offset);
     this.camera.lookAt(this.target);

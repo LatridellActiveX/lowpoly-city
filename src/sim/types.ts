@@ -25,7 +25,8 @@ export type ZoneType = 'residential' | 'commercial' | 'industrial';
  * Single-tile "structures". A tile holds at most one structure.
  * 'building' means a zone lot that has grown a house/shop/factory.
  */
-export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building';
+/** 'park' (PR 3) is a small green space that makes nearby homes more desirable. */
+export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation';
 
 /** One tile of the map. Kept as a plain object so it serialises to JSON trivially. */
 export interface Tile {
@@ -55,20 +56,62 @@ export interface Tile {
   variant: number;
   /** Natural decoration on this tile (see terrain.ts `Deco`): 0 = none. */
   deco: number;
+  /**
+   * PR 4: river/lake water (generated once per map, see mapgen.ts). Water is
+   * unbuildable except for ROADS, which become bridges. Bulldozing a bridge
+   * leaves the water in place.
+   */
+  water: boolean;
+  /**
+   * PR 4: this road tile is the OUT-OF-CITY CONNECTION at the map edge. Cars
+   * and trucks enter and leave the map here. It can't be bulldozed.
+   */
+  edge: boolean;
+  /** PR 4: road type when `road` is true. 0 = street, 1 = medium-density avenue (faster, more lanes). */
+  roadType: number;
+  /**
+   * PR 4 construction: ticks of building work left before this lot reaches
+   * its next level (0 = not under construction). Work only progresses while
+   * the lot has road, power and water. See simulation.ts.
+   */
+  construct: number;
+  /**
+   * PR 4 goods: what's in stock. Factories: units of their good waiting for
+   * a truck. Shops: units on the shelves. Power plants: fuel. See goods.ts.
+   */
+  stock: number;
+  /**
+   * PR 4 multi-tile buildings (the 2×2 nuclear plant). 0 = a normal tile or
+   * the ANCHOR (top-left) tile of a big building. For the other tiles of the
+   * footprint it's anchorIndex + 1, so they know which tile "owns" them.
+   * Only the anchor produces power, pays upkeep and gets drawn.
+   */
+  part: number;
+  /**
+   * PR 5: a home that just finished a construction stage is waiting for its
+   * new residents' car (driving in from the highway). While true, the newest
+   * level's residents aren't counted yet — they move in when the car ARRIVES.
+   * Vehicles aren't saved, so loading a save moves everyone in at once.
+   */
+  movingIn: boolean;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
 export type ToolId =
   | 'inspect'
   | 'road'
+  | 'avenue'
   | 'residential'
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'nuclearPlant'
   | 'windTurbine'
   | 'powerLine'
   | 'waterTower'
+  | 'pumpStation'
   | 'waterPipe'
+  | 'park'
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */

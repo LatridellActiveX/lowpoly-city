@@ -31,35 +31,46 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, POWER_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, POWER_OUTPUT, PUMP_STATION_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
 
 function isSource(t: Tile, kind: Kind): boolean {
   return kind === 'power'
-    ? t.structure === 'powerPlant' || t.structure === 'windTurbine'
-    : t.structure === 'waterTower';
+    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant'
+    : t.structure === 'waterTower' || t.structure === 'pumpStation';
 }
 
 function isConduit(t: Tile, kind: Kind): boolean {
-  return isSource(t, kind) || (kind === 'power' ? t.powerLine : t.waterPipe);
+  // PR 3 "auto power lines": every road carries a street-side pole line, so
+  // roads are power conduits too. Connected roads form one power grid.
+  return isSource(t, kind) || (kind === 'power' ? t.powerLine || t.road : t.waterPipe);
 }
 
-function output(t: Tile, kind: Kind): number {
-  return kind === 'power' ? POWER_OUTPUT[t.structure] ?? 0 : WATER_OUTPUT;
+/**
+ * What one source tile produces. Wind turbines scale with the wind (PR 3):
+ * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
+ */
+export function output(t: Tile, kind: Kind, wind: number): number {
+  if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : WATER_OUTPUT;
+  if (t.part) return 0; // non-anchor tile of a 2×2 plant: the anchor counts the output
+  if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
+  // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
+  if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;
+  return POWER_OUTPUT[t.structure] ?? 0;
 }
 
 /** How much of this utility a tile wants right now (0 for non-buildings). */
 export function demandOf(t: Tile, kind: Kind): number {
   if (t.zone === null || t.level === 0) return 0;
-  return DEMAND[t.zone][kind] * t.level;
+  return DEMAND[t.zone][kind] * sizeUnits(t); // PR 5: homes scale per resident
 }
 
 /** A consumer is anything zoned, plus water towers (they need power to pump). */
 function isConsumer(t: Tile, kind: Kind): boolean {
   if (t.zone !== null) return true;
-  return kind === 'power' && t.structure === 'waterTower';
+  return kind === 'power' && (t.structure === 'waterTower' || t.structure === 'pumpStation');
 }
 
 /** Water towers draw a small, fixed amount of power to run their pumps. */
@@ -104,7 +115,7 @@ function solve(
       const t = tiles[i];
       netOf[i] = id;
       served[i] = 1; // conduits and sources are always "live" when part of a network
-      if (isSource(t, kind) && (!pumpsOn || pumpsOn[i])) net.capacity += output(t, kind);
+      if (isSource(t, kind) && (!pumpsOn || pumpsOn[i])) net.capacity += output(t, kind, world.wind);
 
       const [x, z] = coords(i);
       for (const [dx, dz] of NEIGHBOURS) {
@@ -129,10 +140,14 @@ function solve(
     }
 
     // ---- Share capacity out, nearest consumers first ----
+    // PR 4: water pumps (towers / pump stations) are served FIRST. Otherwise a
+    // small power shortage at the end of the line could switch off the pumps
+    // and take the whole city's water down with it.
+    if (kind === 'power') consumers.sort((a, b) => +(tiles[b].structure === 'waterTower' || tiles[b].structure === 'pumpStation') - +(tiles[a].structure === 'waterTower' || tiles[a].structure === 'pumpStation'));
     let remaining = net.capacity;
     for (const c of consumers) {
       const t = tiles[c];
-      const want = kind === 'power' && t.structure === 'waterTower' ? TOWER_PUMP_POWER : demandOf(t, kind);
+      const want = kind === 'power' && t.structure === 'waterTower' ? TOWER_PUMP_POWER : kind === 'power' && t.structure === 'pumpStation' ? TOWER_PUMP_POWER * 5 : demandOf(t, kind);
       net.demand += want;
       if (want <= remaining) {
         remaining -= want;
