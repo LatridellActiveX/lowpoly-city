@@ -63,6 +63,15 @@ Version 1.5 is being built on the `version-1.5` branch. So far it includes:
   they look identical on every reload and for every player.
 - **WASD after returning to the tab:** camera keys work right away after you
   switch back to the game; no click needed.
+- **Update prompt and title screen**, with save slots and export/import.
+- **Power tiers:** coal, oil and nuclear plants.
+- **Parking:** grown parking garages and a coverage overlay.
+- **Housing:** mixed-use blocks and medium-density housing levels 6–7.
+- **Traffic:** right on red, 2×2 roundabouts, and true four-lane avenues where cars pick a lane for their turn and change lanes. Avenues unlock at 250 people.
+- **Industry:** businesses that match their resource patch, and goods chains (lumber, materials, furniture, fuel, plastics, electronics).
+- **Economy:** profit for each building, land value, and a property tax.
+- **Redevelopment:** struggling buildings are rebuilt based on their health, and shops and garages can swap.
+See the wiki page *Version 1.5* for details.
 
 ## Roadmap
 - ✅ **Milestones 1–2:** grid, isometric camera, placement tools, utilities, zone growth, save/load, building variety, terrain & trees, money and budget.
