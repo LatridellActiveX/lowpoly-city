@@ -116,6 +116,9 @@ export function codeAllows(tpl: Template, code: number): boolean {
   const info = ZONE_CODES[code];
   if (tpl.id === 'garden') return true; // fillers go anywhere zoned
   if (tpl.id === 'overflow') return info.zone !== 'residential';
+  // PR 6: farms and food plants GROW on ordinary industrial zoning (growth.ts
+  // weights them by food demand); old Farm / Food plant cells still take them.
+  if (tpl.zone === 'industrial' && info.zone === 'industrial' && tpl.kind !== 0) return info.kind === 0 || info.kind === tpl.kind;
   return info.zone === tpl.zone && info.kind === tpl.kind && info.density >= tpl.density;
 }
 

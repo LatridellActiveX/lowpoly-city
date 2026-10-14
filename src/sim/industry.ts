@@ -123,7 +123,7 @@ export function updateFarms(world: World): void {
         const c = cidx(cx, cz);
         if (owner[c] !== 0) continue;
         const code = zone[c];
-        if (code !== ZoneCode.None && code !== ZoneCode.Farm) continue;
+        if (code !== ZoneCode.None && code !== ZoneCode.Farm && code !== ZoneCode.IndLight && code !== ZoneCode.IndHeavy) continue; // PR 6: fields spread over industrial zoning too
         const tt = world.tiles[tileOfCell(cx, cz)];
         if (!tileBuildable(tt) || (tt.zone !== null && tt.zone !== 'industrial')) continue;
         owner[c] = b.id;

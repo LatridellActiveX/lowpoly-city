@@ -951,7 +951,7 @@ export class CityRenderer {
       // Each pole's single head shows its own approach's phase (axis).
       const glowOn = this.pools.signalGlow.mesh.visible;
       for (const { i, pos: p, yaw, axis } of this.junctions) {
-        const st = lightState(i, sim.world.clock);
+        const st = lightState(i, sim.world.clock, sim.traffic.signals);
         for (const lamp of SIGNAL_LAMPS) {
           const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
           const lit = lamp.slot === active;

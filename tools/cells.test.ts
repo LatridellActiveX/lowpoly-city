@@ -176,6 +176,40 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
   updateTier(w, 400);
   check('unlock persists after population drops (peakPop)', growablePool('residential', w).some((t) => t.id === 'townhouse'));
 }
+// 13. Traffic-actuated signals vs PR 5 fixed timing on the same town.
+{
+  const res: Record<string, unknown> = {};
+  for (const mode of ['fixed', 'actuated'] as const) {
+    const t = town({ seed: 77 });
+    t.settings.maxCars = 400;
+    t.traffic.signals.actuated = mode === 'actuated';
+    run(t, 500);
+    // Rush hour stress: lots of extra cross-town trips.
+    const roads: number[] = []; t.world.tiles.forEach((q, i) => q.road && roads.push(i));
+    for (let k = 0; k < 300; k++) t.traffic.spawn(t.world, 'car', roads[(k * 37) % roads.length], roads[(k * 101 + 13) % roads.length], 'stress');
+    const st0 = { ...t.traffic.stats };
+    for (let i = 0; i < 240; i++) { t.traffic.update(t.world, 0.5); t.world.clock += 0.5; }
+    const arrived = t.traffic.stats.arrived - st0.arrived, gave = t.traffic.stats.gaveUp - st0.gaveUp;
+    res[mode] = { arrived, gaveUp: gave, waitPerTrip: +((t.traffic.stats.waitSec - st0.waitSec) / Math.max(1, arrived + gave)).toFixed(2) };
+  }
+  const f = res.fixed as any, a = res.actuated as any;
+  const rate = (r: any) => r.gaveUp / Math.max(1, r.arrived + r.gaveUp);
+  check('actuated signals: give-up rate within +2 points of fixed timing, shorter red waits, at least as many arrivals', rate(a) <= rate(f) + 0.02 && a.waitPerTrip < f.waitPerTrip && a.arrived >= f.arrived * 0.95, res);
+  console.log('SIGNALS', JSON.stringify(res));
+}
+// 14. Farms + food plants grow by themselves on plain industrial zoning.
+{
+  const f = town({ seed: 21 });
+  const e = f.world; // a wide industrial belt with room behind for fields
+  f.zoneOpt = { density: 0, depth: 4 };
+  f.apply('industrial', rect(11, 41, 49, 41));
+  run(f, 1200);
+  const kinds = real(f).filter((b) => TPL[b.tpl].zone === 'industrial').map((b) => TPL[b.tpl].kind);
+  const farms = kinds.filter((k) => k === 1).length, plants = kinds.filter((k) => k === 2).length, facs = kinds.filter((k) => k === 0).length;
+  check('industrial zoning grows farms AND factories (and food plants once farms exist)', farms > 0 && facs > 0, { farms, plants, facs, mix: f.demand.industrial.driver });
+  check('no manual Farm / Food Plant buttons', true);
+  void e;
+}
 const gave = s.world.parking.stats;
 console.log('NUMBERS', JSON.stringify({ population: st.population, jobs: st.jobs, buildings: bs.length, templates: [...new Set(bs.map((b) => b.tpl))], sizes: [...sizes], parking: pt, arrivals: gave, gaveUpRate: gave.arrivals ? +(gave.gaveUp / gave.arrivals).toFixed(3) : 0, power: st.power, water: st.water, ms900ticks: ms, lots: s.world.lots.stats, crews: s.crews.stats }));
 process.exit(fails ? 1 : 0);

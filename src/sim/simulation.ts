@@ -29,7 +29,7 @@ import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
 import { applyTool, canPlace, residentsOf, TICKS_PER_SECOND } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
-import { bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
+import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
 import { Building } from './lots';
 import { TPL, isFiller } from './footprints';
 import { BUILD_COST } from './economy';
@@ -157,7 +157,10 @@ export class Simulation {
     this.world.tiles.forEach((t, i) => {
       if (t.zone === 'residential') { sum += this.env.desirability[i]; n++; }
     });
-    return computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating);
+    const d = computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating);
+    // PR 6: say what new industry will turn into (farm / food plant / factory).
+    d.industrial.driver += ` · ${industryMix(this).driver}`;
+    return d;
   }
 
   /** Called every frame with real elapsed seconds. Runs 0..n whole ticks. */

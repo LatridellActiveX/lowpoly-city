@@ -24,7 +24,7 @@ import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
-import { cellZoneLabel } from '../sim/growth';
+import { cellZoneLabel, industryMix } from '../sim/growth';
 import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
 import { CONSTRUCT_TICKS, FUEL_MAX } from "../sim/rules";
 
@@ -566,6 +566,7 @@ export class Hud {
         if (bld.arrivals > 0.5) rows.push(`<div class="row${bld.gaveUp / bld.arrivals > 0.3 ? ' bad' : ' muted'}">Drivers who found no space lately: ${Math.round((bld.gaveUp / bld.arrivals) * 100)}%</div>`);
       } else if (!real) rows.push('<div class="row muted">Fills a small leftover gap in the block.</div>');
     } else if (t.zone) {
+      if (t.zone === 'industrial') rows.push(`<div class="row muted">🏭 What grows here next: ${industryMix(sim).driver}</div>`);
       rows.push(`<div class="row muted">Zoned cells here: ${zonedCells(sim, x, z)}/16 · ${cellZoneLabel(sim, x * 4 + 1, z * 4 + 1)}</div>`);
     }
     if (pubLot) rows.push(`<div class="row">🅿️ Public ${pubLot.size === 4 ? 'garage' : 'parking lot'}: <b>${pubLot.parked} / ${pubLot.spaces}</b> parked · ${pubLot.allocated} spaces shared with nearby buildings</div>`);

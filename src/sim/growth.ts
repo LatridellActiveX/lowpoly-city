@@ -28,6 +28,7 @@
  */
 import { CELL_GRID, CELLS_PER_TILE, CellRole, cidx, tileOfCell, ZONE_CODES, ZoneCode, zoneCode } from './cells';
 import { area, isFiller, Template, TEMPLATES, TPL } from './footprints';
+import { localToCell } from './lots';
 import { FIT_BUDGET, MERGE_TICKS, SHRINK_TICKS, capacityAt, growablePool, scoreOption, tileBuildable, refreshTileZone, Building } from './lots';
 import { lotFits } from './parking';
 import { tierOk } from './progression';
@@ -96,8 +97,11 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     if (!opts.length) { fillGaps(sim, i); continue; }
     // Not this tick (demand roll / no service): keep the tile queued.
     if (!ok(i) || !roll(sim, zone, i)) { lots.markDirty(i); continue; }
-    opts.sort((a, b) => scoreOption(b, w.tick, w.seed, w) - scoreOption(a, w.tick, w.seed, w));
-    const best = opts[0];
+    const mix = zone === 'industrial' ? industryMix(sim) : null;
+    const score = (o: (typeof opts)[number]) => scoreOption(o, w.tick, w.seed, w) * (mix ? kindWeight(sim, mix, o) : 1);
+    const scored = opts.map((o) => ({ o, sc: score(o) })).filter((x) => x.sc > 0).sort((a, b) => b.sc - a.sc);
+    if (!scored.length) { lots.markDirty(i); continue; }
+    const best = scored[0].o;
     if (!ok(best.host) || !take(best.host, extraUse(best.tpl, 0, 1))) { lots.markDirty(i); continue; }
     lots.place(w, best.tpl, best.ox, best.oz, best.face, best.host, 0, CONSTRUCT_TICKS);
     lots.stats.founded++;
@@ -153,6 +157,54 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
   // Parking spaces from public lots are re-shared every 5 ticks.
   if (w.tick % 5 === 0) park.allocate(lots);
   lots.aggregate(w);
+}
+
+/**
+ * PR 6 INDUSTRY MIX. Farms and food plants are no longer placed by hand:
+ * when industrial cells develop, growth picks a farm, a food processing
+ * plant or an ordinary factory, weighted by what the city is short of:
+ *   farmNeed  = shortfall of farm output vs food demand. Food demand is one
+ *               farm level per FOOD_PEOPLE residents (shops sell food to them).
+ *   plantNeed = shortfall of processing capacity vs farm output: one plant
+ *               level per PLANT_PER_FARM farm levels (packaged food demand).
+ * Weights: factory 1; farm 0.15 + 3 × farmNeed (×2.5 on a FARMLAND patch);
+ * food plant 0.1 + 3 × plantNeed. A farm also needs ≥ 16 free cells of room
+ * behind its barn for fields, or it isn't considered at all. The seeded
+ * random in scoreOption keeps the choice deterministic per city.
+ */
+export const FOOD_PEOPLE = 180;
+export const PLANT_PER_FARM = 4;
+export interface IndustryMix { farmNeed: number; plantNeed: number; farms: number; plants: number; wantFarms: number; wantPlants: number; driver: string }
+export function industryMix(sim: Simulation): IndustryMix {
+  let pop = 0, farms = 0, plants = 0;
+  for (const b of sim.world.lots.buildings.values()) {
+    const t = TPL[b.tpl];
+    const lv = b.level + (b.construct > 0 ? 1 : 0);
+    if (t.zone === 'residential') pop += capacityAt(t, b.level);
+    else if (t.zone === 'industrial' && t.kind === 1) farms += lv;
+    else if (t.zone === 'industrial' && t.kind === 2) plants += lv;
+  }
+  const wantFarms = pop / FOOD_PEOPLE, wantPlants = farms / PLANT_PER_FARM;
+  const farmNeed = Math.max(0, Math.min(1, (wantFarms - farms) / Math.max(1, wantFarms)));
+  const plantNeed = Math.max(0, Math.min(1, (wantPlants - plants) / Math.max(1, wantPlants)));
+  const driver = farmNeed > 0.3 ? `Food demand: ${Math.round(wantFarms)} farm levels wanted, ${farms} built — new industry favours farms` : plantNeed > 0.3 ? `Farms need processing: ${Math.ceil(wantPlants)} food-plant levels wanted, ${plants} built` : 'Food supply is keeping up — new industry favours factories';
+  return { farmNeed, plantNeed, farms, plants, wantFarms, wantPlants, driver };
+}
+function kindWeight(sim: Simulation, mix: IndustryMix, o: { tpl: Template; ox: number; oz: number; face: number; host: number }): number {
+  if (o.tpl.kind === 0) return 1;
+  if (o.tpl.kind === 2) return 0.1 + 3 * mix.plantNeed;
+  // Farm: needs room for fields behind the barn.
+  const w = sim.world;
+  let room = 0;
+  for (let v = o.tpl.d; v < o.tpl.d + 6 && room < 16; v++) for (let u = -1; u <= o.tpl.w; u++) {
+    const [cx, cz] = localToCell(o.ox, o.oz, o.face, u, v);
+    if (cx < 0 || cz < 0 || cx >= CELL_GRID || cz >= CELL_GRID) continue;
+    const c = cidx(cx, cz);
+    const code = w.cells.zone[c];
+    if (w.cells.owner[c] === 0 && (code === 0 || ZONE_CODES[code].zone === 'industrial') && tileBuildable(w.tiles[tileOfCell(cx, cz)])) room++;
+  }
+  if (room < 16) return 0;
+  return (0.15 + 3 * mix.farmNeed) * (w.resourceAt(o.host) === Resource.Farmland ? 2.5 : 1);
 }
 
 /** Desirability of a tile index (for pool filtering before a building exists). */
