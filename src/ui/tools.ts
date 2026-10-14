@@ -46,7 +46,7 @@ export interface ToolGroupDef {
  */
 export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'parkingLot', 'parkingGarage'] },
-  { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'windTurbine', 'nuclearPlant'] },
+  { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'pumpStation'] },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
   { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard'] },
@@ -60,8 +60,10 @@ export const TOOLS: ToolDef[] = [
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag along a road to zone shops (low: corner shops; high: strip malls and shopping centres). Shops need 1 parking space per 3 jobs.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industry. Factories, FARMS and FOOD PLANTS grow here on their own, weighted by what the city needs (food demand, farms waiting for processing). Farms favour farmland patches and need room behind for fields.', group: 'industry' },
   { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 8 construction trucks (one visit covers every building on a site); new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
-  { id: 'powerPlant', label: 'Coal/Oil Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal or oil delivered by truck. $4,000 + $250/month.', group: 'power' },
-  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 8,000 (about 8,000 people), no fuel or pollution. $20,000 + $1,250/month. Unlocks at 10,000 people.', group: 'power' },
+  { id: 'powerPlant', label: 'Coal Plant', icon: '⚡', key: 'p', shape: 'point', hint: 'Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal delivered by truck. $4,000 + $250/month.', group: 'power' },
+  // V1.5 power tiers: same tier as coal (below nuclear), 4× its output.
+  { id: 'oilPlant', label: 'Oil Plant', icon: '🛢️', key: 'g', shape: 'point', hint: 'Output 8,000 (about 8,000 people). Burns oil delivered by truck. $15,000 + $1,000/month. Unlocks at 2,000 people.', group: 'power' },
+  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 32,000 (about 32,000 people), no fuel or pollution. $60,000 + $3,000/month. Unlocks at 10,000 people.', group: 'power' },
   { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },
   { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '800 × wind power: ~400 people at average wind, up to ~800 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },

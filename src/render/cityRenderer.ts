@@ -47,7 +47,7 @@ import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
 import { Resource } from '../sim/resources';
-import { CONSTRUCT_TICKS } from '../sim/rules';
+import { CONSTRUCT_TICKS, PLANT_OIL } from '../sim/rules';
 import { tileCenter } from './scene';
 import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
@@ -362,6 +362,7 @@ export class CityRenderer {
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
+    add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
@@ -572,7 +573,8 @@ export class CityRenderer {
       }
 
       if (t.structure === 'powerPlant') {
-        P.powerPlant.add(this.place(center, turn));
+        // V1.5: kind 1 = oil-fired plant (own model, same stack position).
+        (t.kind === PLANT_OIL ? P.oilPlant : P.powerPlant).add(this.place(center, turn));
         // Smoke from the tall stack at model (−0.32, 1.02, −0.3), only while fuelled.
         if (t.stock > 0) this.stacks.push(new THREE.Vector3(-0.32, 1.02, -0.3).applyAxisAngle(THREE.Object3D.DEFAULT_UP, turn).add(center));
         // Plants connect to the street grid with a wire from their corner.

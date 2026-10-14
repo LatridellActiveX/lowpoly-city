@@ -141,6 +141,7 @@ export type ToolId =
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'oilPlant' // V1.5: places a powerPlant structure with kind = PLANT_OIL
   | 'nuclearPlant'
   | 'windTurbine'
   | 'powerLine'

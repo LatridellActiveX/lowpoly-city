@@ -499,7 +499,7 @@ export class Hud {
     const [x, z] = coords(i);
     const svc = sim.net.service[i];
     const names: Record<string, string> = {
-      powerPlant: 'Power Plant',
+      powerPlant: 'Coal Power Plant',
       windTurbine: 'Wind Turbine',
       waterTower: 'Water Tower',
       park: 'Park',
@@ -512,6 +512,8 @@ export class Hud {
     };
     let title = 'Empty land';
     if (t.structure !== 'none' && t.structure !== 'building') title = names[t.structure];
+    // V1.5: oil-fired plants share the powerPlant structure (kind 1).
+    if (t.structure === 'powerPlant' && t.kind === 1) title = 'Oil Power Plant';
     else if (t.zone) title = t.level > 0 ? `${names[t.zone]} (level ${t.level})` : `Empty ${t.zone} lot`;
     else if (t.road || t.powerLine || t.waterPipe)
       title = [t.road && 'Road', t.powerLine && 'Power line', t.waterPipe && 'Water pipe'].filter(Boolean).join(' + ');

@@ -27,7 +27,7 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { applyTool, canPlace, residentsOf, TICKS_PER_SECOND } from './rules';
+import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
 import { Building } from './lots';
@@ -250,7 +250,7 @@ export class Simulation {
     const l = emptyLedger();
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
-      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round(UPKEEP[t.structure] * upkeepFactor(w.tier));
+      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     return l;

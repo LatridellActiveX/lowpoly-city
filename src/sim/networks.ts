@@ -31,7 +31,7 @@
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
-import { DEMAND, POWER_OUTPUT, PUMP_STATION_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
+import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 
 type Kind = 'power' | 'water';
@@ -58,6 +58,8 @@ export function output(t: Tile, kind: Kind, wind: number): number {
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
   // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
   if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;
+  // V1.5: an oil-fired plant (kind = PLANT_OIL) makes 4× a coal plant.
+  if (t.structure === 'powerPlant' && t.kind === PLANT_OIL) return OIL_PLANT_OUTPUT;
   return POWER_OUTPUT[t.structure] ?? 0;
 }
 
