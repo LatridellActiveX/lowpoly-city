@@ -48,7 +48,8 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   let pop = 0, shopJobs = 0, factoryJobs = 0, shops = 0, emptyShops = 0;
   world.tiles.forEach((t, i) => {
     if (!t.zone || t.level === 0 || !operating(i)) return;
-    if (t.zone === 'residential') pop += residentsOf(t);
+    pop += residentsOf(t); // V1.5: mixed-use shops house people too
+    if (t.zone === 'residential') { /* homes counted above */ }
     else if (t.zone === 'commercial') {
       shopJobs += JOBS_PER_LEVEL.commercial * t.level;
       shops++;

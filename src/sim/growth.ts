@@ -26,14 +26,18 @@
  * The same rules feed `buildingRequirements()` (the Inspect "Next level"
  * bars), so the panel can't disagree with what the sim checks.
  */
+import { MEDIUM_LEVEL_POP } from './footprints';
+import { zonePromote } from './lots';
+import { mediumUnlocked } from './progression';
 import { CELL_GRID, CELLS_PER_TILE, CellRole, cidx, tileOfCell, ZONE_CODES, ZoneCode, zoneCode } from './cells';
 import { area, isFiller, Template, TEMPLATES, TPL } from './footprints';
 import { localToCell } from './lots';
+import { residentsAt } from './footprints';
 import { FIT_BUDGET, MERGE_TICKS, SHRINK_TICKS, capacityAt, growablePool, scoreOption, tileBuildable, refreshTileZone, Building } from './lots';
 import { lotFits } from './parking';
 import { tierOk } from './progression';
 import { CONSTRUCT_TICKS, DEMAND, DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, GROW_TICKS, MEDIUM_DENSITY } from './rules';
-import { growthFactor } from './economy';
+import { growthFactor, propertyGrowth } from './economy';
 import { hash2 } from './random';
 import { Resource } from './resources';
 import { GRID_SIZE, ToolId, ZoneType } from './types';
@@ -66,13 +70,25 @@ export function levelCap(sim: Simulation, b: Building): number {
     return cap;
   }
   if (tpl.density === 0 && d < DESIRE_FOR_DENSE) return 1;
+  // V1.5 extra medium levels (see footprints MEDIUM_LEVEL_POP): building
+  // levels 3 and 4 of a medium template (= residential levels 6 and 7)
+  // unlock with city population.
+  if (tpl.zone === 'residential' && tpl.density === 1) {
+    let cap = 2;
+    for (const [k, pop] of MEDIUM_LEVEL_POP.entries()) if (sim.world.peakPop >= pop) cap = 3 + k;
+    return Math.min(cap, tpl.maxLevel);
+  }
   return tpl.maxLevel;
 }
 
 /** Seeded growth roll for a zone (same shape as PR 5: tax × demand). */
 function roll(sim: Simulation, zone: ZoneType, salt: number): boolean {
   const w = sim.world;
-  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * sim.demandFactor(zone);
+  // V1.5 mixed use (commercial host tile with kind 3): flats AND a shop, so
+  // whichever of residential / commercial demand is stronger drives it.
+  const mixed = zone === 'commercial' && w.tiles[salt]?.kind === 3;
+  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : sim.demandFactor(zone);
+  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * propertyGrowth(w.propertyRate) * f; // V1.5: property tax too
 }
 
 export function growLots(sim: Simulation, sparePower: number[], spareWater: number[]): void {
@@ -181,6 +197,7 @@ export function industryMix(sim: Simulation): IndustryMix {
     const t = TPL[b.tpl];
     const lv = b.level + (b.construct > 0 ? 1 : 0);
     if (t.zone === 'residential') pop += capacityAt(t, b.level);
+    else if (t.residents) pop += residentsAt(t, b.level); // V1.5 mixed use
     else if (t.zone === 'industrial' && t.kind === 1) farms += lv;
     else if (t.zone === 'industrial' && t.kind === 2) plants += lv;
   }
@@ -219,10 +236,25 @@ const desireOf2 = (sim: Simulation, i: number) => sim.env.desirability[i];
  * construction site (needs a crew like any other).
  */
 function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { power: number; water: number }) => boolean): boolean {
-  const w = sim.world, lots = w.lots;
+  const w = sim.world;
   const tpl = TPL[b.tpl];
-  const bigger = growablePool(tpl.zone, w).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]));
+  // V1.5: a maxed low-density home may become MEDIUM density by itself once
+  // medium housing is unlocked (1,000 people) — no re-zoning needed. The
+  // desirability gate for medium density still applies.
+  const promote = tpl.zone === 'residential' && tpl.density === 0 && mediumUnlocked(w) && desireOf(sim, b) >= DENSITY_DESIRE[1];
+  const bigger = growablePool(tpl.zone, w).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]) && (p.density <= 1 || !promote));
   if (!bigger.length) return false;
+  zonePromote.on = promote;
+  try {
+    return mergeInto(sim, b, tpl, bigger, take, promote);
+  } finally {
+    zonePromote.on = false;
+  }
+}
+
+/** tryMerge body (split out so the zone-promotion flag is always reset). */
+function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template[], take: (host: number, use: { power: number; water: number }) => boolean, promote: boolean): boolean {
+  const w = sim.world, lots = w.lots;
   // Neighbours that may be swallowed: same zone/kind, finished, maxed (or fillers), near b.
   const replace = new Set<number>();
   for (const o of lots.buildings.values()) {
@@ -256,6 +288,12 @@ function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { powe
   for (const id of gone) lots.remove(w, lots.buildings.get(id)!);
   lots.place(w, best.tpl, best.ox, best.oz, best.face, best.host, 0, CONSTRUCT_TICKS);
   lots.stats.merged++;
+  // V1.5: an automatic low → medium step repaints the new building's cells
+  // Residential · medium so it keeps growing (and later saves agree).
+  if (promote && best.tpl.density === 1) {
+    for (let cz = z0; cz < z1; cz++) for (let cx = x0; cx < x1; cx++) if (w.cells.zone[cidx(cx, cz)] === ZoneCode.ResLow) w.cells.zone[cidx(cx, cz)] = ZoneCode.ResMed;
+    sim.events.push(`🏘 A level-3 neighbourhood is growing into medium density: a ${best.tpl.label.toLowerCase()} is going up.`);
+  }
   sim.events.push(`🏗 Redevelopment: ${gone.size} building${gone.size > 1 ? 's' : ''} merging into a ${best.tpl.label.toLowerCase()}.`);
   return true;
 }
@@ -306,7 +344,8 @@ export function codeForTool(sim: Simulation, tool: ToolId, i: number, opt: ZoneO
   if (tool === 'foodPlant') return ZoneCode.FoodPlant;
   const zone = tool as ZoneType;
   if (zone === 'industrial' && opt.density === 0 && sim.world.resourceAt(i) === Resource.Farmland) return ZoneCode.Farm;
-  return zoneCode(zone, zone === 'residential' ? opt.density : Math.min(1, opt.density));
+  // V1.5: commercial accepts density 2 (= Mixed use, cells.ts ComMixed).
+  return zoneCode(zone, zone === 'industrial' ? Math.min(1, opt.density) : opt.density);
 }
 
 /**

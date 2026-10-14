@@ -32,12 +32,15 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   road: 17,
   // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
   avenue: 29, // PR 6: $24 + $5 water main
+  // V1.5 2×2 roundabout: per tile (×4 = $260 incl. island landscaping and mains).
+  roundabout: 65,
   powerLine: 5,
   waterPipe: 5,
   residential: 20,
   commercial: 25,
   industrial: 30,
-  powerPlant: 4000,
+  powerPlant: 4000, // V1.5: coal plant
+  oilPlant: 15000, // V1.5: 8,000 power — cheaper per unit than coal, dearer upkeep
   // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
   //   PR 5: coal plant 2,000 power (~2,000 people) for $4,000 + $250/mo; nuclear 8,000 (~8,000 people) = $20,000 + $1,250/mo;
   //   wind turbine 800 × wind (~400 people at average wind) = $1,500 + $60/mo
@@ -47,7 +50,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   //   the same ratio with a 20% bulk discount — $4 per unit of water vs the tower's $5.)
   // (Same price per unit; you're paying for density: nuclear is 2×2 tiles but
   // makes no pollution and needs no fuel trucks; the pump station is 1 tile.)
-  nuclearPlant: 20000,
+  nuclearPlant: 60000, // V1.5: was $20,000 when it made 8,000; now 32,000 power
   pumpStation: 16000,
   windTurbine: 1500, // PR 5: was $600 when it made 15 power; now ~400 at average wind
   waterTower: 4000,
@@ -60,7 +63,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // PR 6 public parking (Roads flyout): a 2×2-cell surface lot (4 spaces) and
   // a 4×4-cell (one tile) three-deck garage (40 spaces). Priced per space:
   // $30 surface, $40 decked (you pay for the land you save).
-  parkingLot: 120,
+  parkingLot: 480, // V1.5: whole tile (16 spaces) — was $120 for a 2×2-cell quarter
   parkingGarage: 1600,
 };
 
@@ -74,7 +77,7 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850, constructionYard: 120 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 3000, pumpStation: 850, constructionYard: 120 } as const;
 /** Structures that cost upkeep every month. */
 export type UpkeepKind = keyof typeof UPKEEP;
 export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
@@ -113,7 +116,11 @@ export interface Ledger {
   construction: number;
   refunds: number;
   /** PR 4 trade: export income (+) and imported power-plant coal (−). */
-  trade: { exports: number; fuel: number };
+  trade: { exports: number; fuel: number; parking?: number; materials?: number };
+  /** V1.5 stage 11: land-value property tax (all zoned buildings). */
+  property?: number;
+  // V1.5 stage 10: trade.materials = imported building materials for construction (goods.ts).
+  // V1.5: trade.parking = garage fees (parking.ts chargeFees).
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
@@ -127,8 +134,42 @@ export const emptyLedger = (): Ledger => ({
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
   const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
-  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
+  return tax + (l.property ?? 0) + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel + (l.trade.parking ?? 0) - (l.trade.materials ?? 0);
 }
+
+// ============================================================================
+// V1.5 STAGE 11 — PROPERTY TAX + PER-BUILDING PROFIT
+// ============================================================================
+/**
+ * PROPERTY TAX: every operating zoned building pays, per month,
+ *     PROPERTY_BASE × landValue(host tile) × size units × propertyRate
+ * on top of its R/C/I tax. Default rate 5% → a one-unit house on land
+ * value 1.0 pays $1.25; a shop on prime land (2.5) with 6 units pays $18.75.
+ * The rate also nudges growth a little (propertyGrowth), like R/C/I rates.
+ */
+export const PROPERTY_BASE = 25; // tuned so property tax is ~20% of R/C/I tax in a typical town
+export const DEFAULT_PROPERTY = 0.05;
+export const MAX_PROPERTY = 0.15;
+export function propertyTax(t: Tile, operating: boolean, landValue: number, rate: number): number {
+  if (!t.zone || t.level === 0 || !operating) return 0;
+  return PROPERTY_BASE * landValue * Math.max(1, sizeUnits(t)) * rate;
+}
+/** Growth multiplier from the property rate: 1.0 at the default, 1.1 at 0%, ~0.8 at the max. */
+export const propertyGrowth = (rate: number) => Math.max(0.5, 1.1 - (rate / DEFAULT_PROPERTY) * 0.1);
+
+/**
+ * PER-BUILDING PROFIT (shops and industry), booked monthly by simulation.ts:
+ *     profit = sales − inputs − wages − taxes
+ *   sales  = goods.ts Shipping.sales  (shops: retail sales; factories: loads sold/exported)
+ *            + SALES_FLOOR × jobs for a business that's operating (services, walk-ins)
+ *   inputs = goods.ts Shipping.costs  (wholesale buys, premium imports, chips)
+ *   wages  = WAGE × jobs
+ *   taxes  = its zone tax + property tax
+ * Profit feeds building health (stage 12) and the Inspect / budget panels.
+ */
+export const WAGE = 4;
+export const SALES_FLOOR = 12;
+export interface Profit { sales: number; inputs: number; wages: number; taxes: number; net: number }
 
 /** What placing `tool` on tile `t` costs (including clearing a decoration). */
 export function placementCost(tool: ToolId, t: Tile): number {

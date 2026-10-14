@@ -27,22 +27,24 @@
  */
 import { coords, World } from './grid';
 import { computeNetworks, NetworkResult } from './networks';
-import { applyTool, canPlace, residentsOf, TICKS_PER_SECOND } from './rules';
+import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
-import { Building } from './lots';
-import { TPL, isFiller } from './footprints';
+import { Building, tileBuildable } from './lots';
+import { cidx, ZoneCode } from './cells';
+import { TPL, isFiller, residentsAt } from './footprints';
 import { BUILD_COST } from './economy';
 import { hash2 } from './random';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
+import { Redevelopment } from './redevelop';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
-import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
 export interface Requirement {
@@ -122,6 +124,8 @@ export class Simulation {
   demand: Demand;
   /** PR 4: goods production, deliveries, exports and plant fuel (goods.ts). */
   shipping = new Shipping();
+  /** V1.5 stage 12: monthly building health + redevelopment. */
+  redevelop = new Redevelopment();
   /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
   crews = new Crews();
   /** PR 4: player settings (vehicle caps, tick rate, day/night). main.ts loads them. */
@@ -147,7 +151,7 @@ export class Simulation {
   constructor(world = new World()) {
     this.world = world;
     this.net = computeNetworks(world);
-    this.env = computeEnvironment(world);
+    this.env = computeEnvironment(world, this.net.service);
     this.demand = this.computeDemand();
   }
 
@@ -185,7 +189,7 @@ export class Simulation {
     w.tick++;
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w);
+    this.env = computeEnvironment(w, this.net.service);
     this.demand = this.computeDemand();
 
     // Spare capacity per network, decremented as lots grow this tick so that
@@ -193,6 +197,13 @@ export class Simulation {
     const sparePower = this.net.power.map((n) => n.capacity - n.supplied);
     const spareWater = this.net.water.map((n) => n.capacity - n.supplied);
 
+    // V1.5: busy shopping districts grow multi-storey garages (parking.ts),
+    // before lots grow so a garage can claim free frontage first.
+    const grown = w.parking.growGarages(w, w.lots, (x, z) => this.garageTileFree(x, z));
+    if (grown) {
+      this.events.push(`🅿️ Parking was short around the shops, so a ${grown.decks}-deck garage (${grown.spaces} spaces) grew on a commercial lot.`);
+      this.version++;
+    }
     // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
     growLots(this, sparePower, spareWater);
     // Cars park (parking.ts): occupancy for the time of day + commuter claims.
@@ -224,9 +235,31 @@ export class Simulation {
     l.upkeep = m.upkeep;
     const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
     const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
-    w.cash += Math.round(income - upkeep);
+    l.property = m.property;
+    w.cash += Math.round(income + (l.property ?? 0) - upkeep);
+    this.bookProfits();
+    this.redevelop.month(this); // V1.5 stage 12: health → redevelopment
     w.lastLedger = l;
     w.ledger = emptyLedger();
+  }
+
+  /**
+   * V1.5 stage 11: last month's profit for every business host tile (shops
+   * and industry), from the goods flows booked by Shipping (economy.ts Profit).
+   */
+  private bookProfits(): void {
+    const w = this.world, sh = this.shipping;
+    w.profits.clear();
+    w.tiles.forEach((t, i) => {
+      if ((t.zone !== 'commercial' && t.zone !== 'industrial') || t.level === 0) return;
+      const op = this.status(i).operating;
+      const sales = (sh.sales.get(i) ?? 0) + (op ? SALES_FLOOR * t.jobs : 0);
+      const inputs = sh.costs.get(i) ?? 0;
+      const wages = WAGE * t.jobs;
+      const taxes = monthlyTax(t, op, w.taxRates) + propertyTax(t, op, this.env.landValue[i], w.propertyRate);
+      w.profits.set(i, { sales, inputs, wages, taxes, net: sales - inputs - wages - taxes });
+    });
+    sh.resetMonth();
   }
 
   /** Append a stats snapshot, dropping the oldest when the buffer is full. */
@@ -250,9 +283,13 @@ export class Simulation {
     const l = emptyLedger();
     w.tiles.forEach((t, i) => {
       if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
-      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round(UPKEEP[t.structure] * upkeepFactor(w.tier));
+      if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
+    // V1.5 stage 11: land-value property tax on every operating zoned building.
+    let prop = 0;
+    w.tiles.forEach((t, i) => { if (t.zone) prop += propertyTax(t, t.level > 0 && this.status(i).operating, this.env.landValue[i], w.propertyRate); });
+    l.property = Math.round(prop);
     return l;
   }
 
@@ -289,7 +326,7 @@ export class Simulation {
       t.part = k === 0 ? 0 : anchor + 1;
     });
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w);
+    this.env = computeEnvironment(w, this.net.service);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -340,22 +377,69 @@ export class Simulation {
       paintTile(this, x, z, code);
       res.changed += n;
     }
-    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w); this.version++; }
+    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w, this.net.service); this.version++; }
     return res;
+  }
+
+  /**
+   * V1.5: can a grown garage take tile (x, z)? Every cell zoned commercial
+   * and unowned, buildable land, and a road on one side.
+   */
+  garageTileFree(x: number, z: number): boolean {
+    const w = this.world;
+    if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE || !tileBuildable(w.at(x, z))) return false;
+    for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) {
+      const c = cidx(x * 4 + dx, z * 4 + dz);
+      if (w.cells.owner[c] !== 0) return false;
+      const code = w.cells.zone[c];
+      if (code !== ZoneCode.ComLow && code !== ZoneCode.ComHigh) return false;
+    }
+    return [[0, -1], [1, 0], [0, 1], [-1, 0]].some(([ddx, ddz]) => { const nx = x + ddx, nz = z + ddz; return nx >= 0 && nz >= 0 && nx < GRID_SIZE && nz < GRID_SIZE && w.at(nx, nz).road; });
+  }
+
+  /**
+   * V1.5 ROUNDABOUT: all four tiles must accept it (bare land or road, no
+   * building cells, no water), paid together, then become ring tiles.
+   */
+  private applyRoundabout(tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
+    const w = this.world;
+    if (tiles.length !== 4 || !tiles.every(([x, z]) => canPlace('roundabout', w.at(x, z)) && !tileHasCells(this, x, z))) return res;
+    const cost = tiles.reduce((c, [x, z]) => c + placementCost('roundabout', w.at(x, z)), 0);
+    if (cost > w.cash) return { ...res, broke: true };
+    w.cash -= cost;
+    w.ledger.construction += cost;
+    for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
+    this.net = computeNetworks(w);
+    this.env = computeEnvironment(w, this.net.service);
+    this.version++;
+    return { ...res, changed: 4, spent: cost };
+  }
+
+  /** V1.5: ring tiles whose 2×2 block is broken (a tile bulldozed) revert to plain streets. */
+  private fixRings(): void {
+    const t = this.world.tiles, N = GRID_SIZE;
+    const ring = (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N && t[z * N + x].road && t[z * N + x].roadType === 2;
+    t.forEach((q, i) => {
+      if (q.roadType !== 2) return;
+      const x = i % N, z = Math.floor(i / N);
+      const inBlock = [[0, 0], [-1, 0], [0, -1], [-1, -1]].some(([ox, oz]) => ring(x + ox, z + oz) && ring(x + ox + 1, z + oz) && ring(x + ox, z + oz + 1) && ring(x + ox + 1, z + oz + 1));
+      if (!inBlock || !q.road) q.roadType = q.road ? 0 : q.roadType === 2 ? 0 : q.roadType;
+    });
   }
 
   private applyParking(tool: ToolId, tiles: Array<[number, number]>, res: ApplyResult): ApplyResult {
     const w = this.world;
     const [x, z] = tiles[tiles.length - 1] ?? [0, 0];
     if (!canPlace(tool, w.at(x, z))) return res;
-    const size = tool === 'parkingGarage' ? 4 : 2;
+    // V1.5: surface lots fill the whole tile too (16 cells, 16 spaces).
+    const size = 4;
     const spot = parkingSpot(this, x, z, this.pointerFrac[0], this.pointerFrac[1], size);
     const cost = BUILD_COST[tool as 'parkingLot'];
     if (!spot) return res;
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    w.parking.addLot(w, spot[0], spot[1], size);
+    w.parking.addLot(w, spot[0], spot[1], size, tool === 'parkingGarage');
     w.parking.allocate(w.lots);
     this.version++;
     return { ...res, changed: 1, spent: cost };
@@ -377,9 +461,10 @@ export class Simulation {
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
     // PR 4: tools above the city's tier are locked (progression.ts).
-    if (!isUnlocked(tool, w.tier)) return { ...res, locked: true };
+    if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
     if (tool === 'nuclearPlant') return this.applyBig(tool, tiles, res);
+    if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
     if (tool === 'parkingLot' || tool === 'parkingGarage') return this.applyParking(tool, tiles, res);
@@ -411,10 +496,11 @@ export class Simulation {
       res.changed++;
     }
     const changed = res.changed;
+    if (changed && tool === 'bulldoze') this.fixRings();
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
-      this.env = computeEnvironment(this.world);
+      this.env = computeEnvironment(this.world, this.net.service);
       this.version++;
     }
     return res;
@@ -457,6 +543,8 @@ export class Simulation {
       const tpl = TPL[b.tpl];
       if (b.level <= 0 || isFiller(tpl)) continue;
       if (tpl.zone === 'residential') { homes.push(b); pop += tpl.capacity[Math.min(b.level, tpl.maxLevel) - 1]; } else work.push(b);
+      // V1.5 mixed use: its residents commute too (it is also a workplace).
+      if (tpl.residents) { homes.push(b); pop += residentsAt(tpl, b.level); }
     }
     // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
     const tod = timeOfDay(w.clock);
@@ -541,7 +629,7 @@ export class Simulation {
         inactive++;
         return;
       }
-      if (t.zone === 'residential') population += residentsOf(t); // PR 5: per-level table; not until their car arrives
+      population += residentsOf(t); // PR 5: per-level table; not until their car arrives. V1.5: incl. mixed use
       jobs += jobsOf(this.world, i); // PR 5: farms have fewer jobs
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>

@@ -36,7 +36,8 @@ import { localToCell } from './lots';
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
 /** v6 (PR 6): cell grid (zone/owner/role, base64), building entities, public lots; roads gain water mains. */
-export const SAVE_VERSION = 6;
+/** v7 (V1.5): public lots gain garage/decks/grown; whole-tile surface lots; ledger trade.parking. */
+export const SAVE_VERSION = 7;
 
 export function saveWorld(world: World): void {
   const data = {
@@ -46,6 +47,7 @@ export function saveWorld(world: World): void {
     seed: world.seed,
     cash: world.cash,
     taxRates: world.taxRates,
+    propertyRate: world.propertyRate, // V1.5 stage 11
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -98,6 +100,7 @@ export function loadWorld(): World | null {
     } else {
       w.cash = data.cash ?? STARTING_CASH;
       w.taxRates = { ...defaultTaxRates(), ...data.taxRates };
+      if (typeof data.propertyRate === 'number') w.propertyRate = data.propertyRate;
       w.ledger = mergeLedger(data.ledger) ?? emptyLedger();
       w.lastLedger = mergeLedger(data.lastLedger);
     }
@@ -136,7 +139,10 @@ export function loadWorld(): World | null {
       w.cells.owner.set(new Int32Array(b64ToBytes(data.cells.owner).buffer));
       for (const b of data.buildings ?? []) if (TPL[b.tpl]) w.lots.buildings.set(b.id, { ...b, movingIn: false });
       w.lots.nextId = data.nextBuilding ?? w.lots.buildings.size + 1;
-      for (const l of data.lots ?? []) w.parking.lots.set(l.id, { ...l, parked: 0 });
+      // V1.5 (save v7): lots gained garage/decks/grown. PR 6 lots: size 4 was
+      // the garage (3 decks, 40 spaces), size 2 the surface lot (4 spaces);
+      // both keep their size and spaces.
+      for (const l of data.lots ?? []) w.parking.lots.set(l.id, { garage: l.size === 4, decks: 3, grown: false, ...l, parked: 0 });
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
@@ -163,6 +169,7 @@ function mergeLedger(l: Partial<Ledger> | null | undefined): Ledger | null {
     construction: l.construction ?? 0,
     refunds: l.refunds ?? 0,
     trade: { ...e.trade, ...l.trade },
+    property: l.property ?? 0,
   };
 }
 
@@ -230,4 +237,42 @@ export function migrateToCells(w: World): void {
     }
     t.farm = 0;
   });
+}
+
+/**
+ * V1.5: the raw save JSON (or null), for "Export save" in the update prompt
+ * and the title screen. Kept as the exact stored string so a later import is
+ * byte-identical and goes through the normal loadWorld() migrations.
+ */
+export function exportSaveText(): string | null {
+  return localStorage.getItem(KEY);
+}
+
+/**
+ * V1.5: import a previously exported save. Validates that it parses and has
+ * the basic shape; returns false (and leaves the current save alone) if not.
+ */
+export function importSaveText(text: string): boolean {
+  try {
+    const d = JSON.parse(text);
+    if (d.size !== GRID_SIZE || !Array.isArray(d.tiles)) return false;
+    localStorage.setItem(KEY, text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** V1.5: trigger a browser download of the current save as a .json file. */
+export function downloadSave(name = 'lowpoly-city-save'): boolean {
+  const text = exportSaveText();
+  if (!text) return false;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+  a.download = `${name}-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return true;
 }

@@ -137,10 +137,12 @@ export type ToolId =
   | 'inspect'
   | 'road'
   | 'avenue'
+  | 'roundabout' // V1.5: 2×2 ring (roadType 2)
   | 'residential'
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'oilPlant' // V1.5: places a powerPlant structure with kind = PLANT_OIL
   | 'nuclearPlant'
   | 'windTurbine'
   | 'powerLine'

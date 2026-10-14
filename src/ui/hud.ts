@@ -9,9 +9,11 @@
  * The BUDGET PANEL is built once (so the tax sliders don't get recreated
  * while you drag them) and only its numbers are refreshed.
  */
+import { resLevel } from '../sim/footprints';
+import { rangeOf } from '../sim/parking';
 import { Simulation } from '../sim/simulation';
 import { ToolId, ZoneType } from '../sim/types';
-import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from '../sim/economy';
+import { BUILD_COST, growthFactor, ledgerNet, MAX_PROPERTY, MAX_TAX, monthlyTax, propertyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
 import { ToolGroupId, TOOL_GROUPS, TOOLS, toolDef } from './tools';
@@ -22,6 +24,7 @@ import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
 import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
+import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
@@ -44,6 +47,8 @@ export interface HudActions {
   setSpeed(s: number): void;
   setOverlay(o: OverlayMode): void;
   setTax(zone: ZoneType, rate: number): void;
+  /** V1.5 stage 11: property (land-value) tax rate 0..MAX_PROPERTY. */
+  setPropertyTax(rate: number): void;
   rotate(dir: 1 | -1): void;
   zoom(f: number): void;
   save(): void;
@@ -115,6 +120,7 @@ export class Hud {
         ['resources', '🗺 Resources'],
         ['zoning', '🧱 Zoning'],
         ['parking', '🅿️ Parking'],
+        ['landValue', '💎 Land value'], // V1.5 stage 11
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
@@ -211,11 +217,11 @@ export class Hud {
         <thead><tr><th></th><th>This month*</th><th>Last month</th></tr></thead>
         <tbody>
           <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
-          ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}
+          ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}${row('tax.property', '🏡 Property tax (land value)')}
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
           ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
-          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}
+          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -229,10 +235,14 @@ export class Hud {
           <b data-k="rate.${z}"></b></label>`,
         )
         .join('')}
-      <div class="muted small" data-k="growth"></div>`;
+      <label class="tax"><span>🏡 Property</span><input type="range" min="0" max="${MAX_PROPERTY * 100}" step="1" data-prop="1">
+          <b data-k="rate.property"></b></label>
+      <div class="muted small" data-k="growth"></div>
+      <h4>Businesses (last month)</h4>
+      <div class="small" data-k="biz"></div>`;
     (this.budget.querySelector('.close') as HTMLButtonElement).onclick = () => this.budget.classList.add('hidden');
     this.budget.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp) => {
-      inp.oninput = () => actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100);
+      inp.oninput = () => (inp.dataset.prop ? actions.setPropertyTax(Number(inp.value) / 100) : actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100));
     });
   }
 
@@ -256,10 +266,26 @@ export class Hud {
       const inp = this.budget.querySelector<HTMLInputElement>(`input[data-zone="${z}"]`)!;
       if (document.activeElement !== inp) inp.value = String(Math.round(rate * 100));
     }
+    // V1.5 stage 11: property tax + business profit summary.
+    this.setCell('tax.property.now', fmt(now.property ?? 0));
+    this.setCell('tax.property.last', fmt(last?.property));
+    this.setCell('rate.property', `${Math.round(w.propertyRate * 100)}%`);
+    const pin = this.budget.querySelector<HTMLInputElement>('input[data-prop]')!;
+    if (document.activeElement !== pin) pin.value = String(Math.round(w.propertyRate * 100));
+    const biz = { commercial: [] as number[], industrial: [] as number[] };
+    w.profits.forEach((p, i) => { const z = w.tiles[i].zone; if (z === 'commercial' || z === 'industrial') biz[z].push(p.net); });
+    const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+    const line = (l: string, a: number[]) => a.length ? `${l}: ${a.length} · avg profit <b class="${sum(a) < 0 ? 'bad' : 'ok'}">${this.money(Math.round(sum(a) / a.length))}</b>/mo · <span class="${a.filter((x) => x < 0).length ? 'bad' : ''}">${a.filter((x) => x < 0).length} losing money</span>` : `${l}: —`;
+    let lvS = 0, lvN = 0; w.tiles.forEach((t, i) => { if (t.zone) { lvS += sim.env.landValue[i]; lvN++; } });
+    this.setCell('biz', `${line('🏪 Shops', biz.commercial)}<br>${line('🏭 Industry', biz.industrial)}<br>💎 Average land value of zoned land: <b>${lvN ? (lvS / lvN).toFixed(2) : '—'}</b> (overlay: 💎 Land value)`);
     this.setCell('trade.exports.now', fmt(w.ledger.trade.exports));
     this.setCell('trade.exports.last', fmt(last?.trade?.exports));
     this.setCell('trade.fuel.now', fmt(w.ledger.trade.fuel, true));
     this.setCell('trade.fuel.last', fmt(last?.trade?.fuel, true));
+    this.setCell('trade.parking.now', fmt(w.ledger.trade.parking ?? 0));
+    this.setCell('trade.parking.last', fmt(last?.trade?.parking));
+    this.setCell('trade.materials.now', fmt(w.ledger.trade.materials ?? 0, true));
+    this.setCell('trade.materials.last', fmt(last?.trade?.materials, true));
     now.trade = w.ledger.trade;
     for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
@@ -453,7 +479,7 @@ export class Hud {
       const price = BUILD_COST[t.id];
       const poor = cash < price;
       // PR 4: tools above the city's tier show a padlock and the population needed.
-      const locked = !isUnlocked(t.id, sim.world.tier);
+      const locked = !isUnlocked(t.id, sim.world.tier, sim.world.peakPop);
       b.classList.toggle('locked', locked);
       b.classList.toggle('unaffordable', poor && !locked);
       const need = TIERS[TOOL_TIER[t.id] ?? 0];
@@ -499,7 +525,7 @@ export class Hud {
     const [x, z] = coords(i);
     const svc = sim.net.service[i];
     const names: Record<string, string> = {
-      powerPlant: 'Power Plant',
+      powerPlant: 'Coal Power Plant',
       windTurbine: 'Wind Turbine',
       waterTower: 'Water Tower',
       park: 'Park',
@@ -512,7 +538,14 @@ export class Hud {
     };
     let title = 'Empty land';
     if (t.structure !== 'none' && t.structure !== 'building') title = names[t.structure];
-    else if (t.zone) title = t.level > 0 ? `${names[t.zone]} (level ${t.level})` : `Empty ${t.zone} lot`;
+    // V1.5: oil-fired plants share the powerPlant structure (kind 1).
+    if (t.structure === 'powerPlant' && t.kind === 1) title = 'Oil Power Plant';
+    else if (t.zone) {
+      // V1.5: residential levels run 1–7 across densities (footprints.resLevel).
+      let lv = t.level;
+      if (t.zone === 'residential') for (const b of sim.world.lots.buildings.values()) if (b.host === i) lv = Math.max(lv, resLevel(TPL[b.tpl], b.level));
+      title = t.level > 0 ? `${names[t.zone]} (level ${lv})` : `Empty ${t.zone} lot`;
+    }
     else if (t.road || t.powerLine || t.waterPipe)
       title = [t.road && 'Road', t.powerLine && 'Power line', t.waterPipe && 'Water pipe'].filter(Boolean).join(' + ');
 
@@ -531,7 +564,7 @@ export class Hud {
       const tpl = TPL[bld.tpl];
       title = bld.level > 0 ? `${tpl.label}${tpl.capacity[0] > 0 ? ` (level ${bld.level}/${tpl.maxLevel})` : ''}` : `${tpl.label} — construction site`;
     } else if (fieldOf) title = 'Crop field';
-    else if (pubLot) title = pubLot.size === 4 ? 'Public parking garage' : 'Public parking lot';
+    else if (pubLot) title = pubLot.garage ? `${pubLot.grown ? 'Grown' : 'Public'} parking garage (${pubLot.decks} decks)` : 'Public parking lot';
     if (t.edge) title = 'Highway connection';
     else if (t.road && t.water) title = t.roadType === 1 ? 'Avenue bridge' : 'Bridge';
     else if (t.road && t.roadType === 1 && !t.powerLine && !t.waterPipe) title = 'Avenue';
@@ -569,8 +602,18 @@ export class Hud {
       if (t.zone === 'industrial') rows.push(`<div class="row muted">🏭 What grows here next: ${industryMix(sim).driver}</div>`);
       rows.push(`<div class="row muted">Zoned cells here: ${zonedCells(sim, x, z)}/16 · ${cellZoneLabel(sim, x * 4 + 1, z * 4 + 1)}</div>`);
     }
-    if (pubLot) rows.push(`<div class="row">🅿️ Public ${pubLot.size === 4 ? 'garage' : 'parking lot'}: <b>${pubLot.parked} / ${pubLot.spaces}</b> parked · ${pubLot.allocated} spaces shared with nearby buildings</div>`);
-    if (t.zone === 'industrial' && t.level > 0) rows.push(`<div class="row">Makes: <b>${GOOD_NAMES[factoryGood(sim.world, i)]}</b> · in stock ${t.stock.toFixed(1)}</div>`);
+    if (pubLot) {
+      rows.push(`<div class="row">🅿️ Public ${pubLot.garage ? 'garage' : 'parking lot'}: <b>${pubLot.parked} / ${pubLot.spaces}</b> parked · ${pubLot.allocated} spaces shared with nearby buildings</div>`);
+      // V1.5 coverage: how far it reaches, and garage fees.
+      rows.push(`<div class="row muted">Serves buildings within ${rangeOf(pubLot) / 4} tiles${pubLot.garage ? ' · charges drivers a fee (Budget ▸ Garage fees)' : ''}. The Parking overlay shades its coverage.</div>`);
+    }
+    if (t.zone === 'industrial' && t.level > 0) {
+      // V1.5 stage 10: the building's role in the goods chain and its recipe.
+      const role = roleOf(sim.world, i), rec = RECIPES[role];
+      const makes = rec ? rec.outputs.map((g) => GOOD_NAMES[g]).join(' + ') : GOOD_NAMES[factoryGood(sim.world, i)];
+      rows.push(`<div class="row">${ROLE_NAMES[role]}: makes <b>${makes}</b> · in stock ${t.stock.toFixed(1)}</div>`);
+      if (rec && role !== 'foodPlant') rows.push(`<div class="row">Needs: <b>${rec.inputs.map((g) => GOOD_NAMES[g]).join(' or ')}</b> · hopper ${t.input.toFixed(1)}${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 on the way' : ''}</div>`);
+    }
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
     if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);
     if (t.edge) rows.push('<div class="row">Cars and trucks enter and leave the city here. Exports and imports use this road.</div>');
@@ -587,7 +630,18 @@ export class Hud {
       if (t.zone) rows.push(`<div class="row">Road access: ${yes(st.roadAccess)}</div>`);
       rows.push(`<div class="row">Power: ${yes(st.powered)} <span class="muted">(${netLine('power')})</span></div>`);
       if (t.zone) rows.push(`<div class="row">Water: ${yes(st.watered)} <span class="muted">(${netLine('water')})</span></div>`);
-      if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month</div>`);
+      if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month + property <b>${this.money(Math.round(propertyTax(t, st.operating, sim.env.landValue[i], sim.world.propertyRate)))}</b></div>`);
+      // V1.5 stage 11: land value and last month's profit.
+      if (t.zone) rows.push(`<div class="row">Land value: <b>${sim.env.landValue[i].toFixed(2)}</b> <span class="muted">(noise ${sim.env.noise[i].toFixed(1)})</span></div>`);
+      // V1.5 stage 12: building health (monthly) and redevelopment status.
+      for (const hb of sim.world.lots.hostedOn(i)) {
+        if (hb.health === undefined) continue;
+        const hp = Math.round(hb.health * 100);
+        rows.push(`<div class="row">Health: <b class="${hb.health < 0.3 ? 'bad' : hb.health > 0.6 ? 'ok' : ''}">${hp}%</b>${hb.lowMonths ? ` <span class="bad">· struggling ${hb.lowMonths}/3 months — then it's redeveloped</span>` : ''}${hb.redev && hb.construct > 0 ? ' · 🏗 being redeveloped' : ''}</div>`);
+        break;
+      }
+      const pf = sim.world.profits.get(i);
+      if (pf) rows.push(`<div class="row">Profit last month: <b class="${pf.net < 0 ? 'bad' : 'ok'}">${pf.net < 0 ? '-' : ''}${this.money(Math.abs(Math.round(pf.net)))}</b> <span class="muted">(sales ${this.money(Math.round(pf.sales))} − inputs ${this.money(Math.round(pf.inputs))} − wages ${this.money(Math.round(pf.wages))} − tax ${this.money(Math.round(pf.taxes))})</span></div>`);
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);
       if (t.zone === 'residential') {
         // Pollution & desirability (PR 3): explain why a home is stuck.

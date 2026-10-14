@@ -96,6 +96,10 @@ export class World {
   cash = STARTING_CASH;
   /** Tax rate per zone, 0..0.2. */
   taxRates: TaxRates = defaultTaxRates();
+  /** V1.5 stage 11: land-value property tax rate (0..MAX_PROPERTY), saved. */
+  propertyRate = 0.05;
+  /** V1.5 stage 11: last month's profit per business host tile (not saved; rebuilt in a month). */
+  profits = new Map<number, import('./economy').Profit>();
   /** Books for the month in progress, and the last finished month. */
   ledger: Ledger = emptyLedger();
   lastLedger: Ledger | null = null;
@@ -134,14 +138,18 @@ export class World {
    * Pass `tiles` + `seed` when loading a save. With no arguments a fresh city
    * is created: a random seed is chosen and trees/rocks are scattered.
    */
-  constructor(tiles?: Tile[], seed?: number) {
+  /**
+   * V1.5: `opts.dry` (title screen "Dry land" map) skips river/lake
+   * generation for a brand-new map. Ignored when loading a save.
+   */
+  constructor(tiles?: Tile[], seed?: number, opts: { dry?: boolean } = {}) {
     this.seed = seed ?? Math.floor(Math.random() * 1e9);
     this.windDir = hash2(17, 29, this.seed + 5) * Math.PI * 2; // PR 5: same formula as wind.initialWindDir
     this.tiles = tiles ?? Array.from({ length: GRID_SIZE * GRID_SIZE }, emptyTile);
     if (!tiles) {
       // A brand-new map: water first (so trees don't grow in the river),
       // then the highway connection, then trees/rocks on what's left.
-      generateWater(this.tiles, this.seed, false);
+      if (!opts.dry) generateWater(this.tiles, this.seed, false);
       placeEdgeConnection(this.tiles, this.seed);
       scatterDecorations(this.tiles, this.seed);
     }

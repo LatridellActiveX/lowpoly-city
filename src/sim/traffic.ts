@@ -135,7 +135,46 @@ export interface Vehicle {
   acc: number;
   /** PR 5: seconds left before pulling away from a light that just went green. */
   waitGreen: number;
+  /** V1.5 right on red: seconds this car has been stopped at the line on red. */
+  rorWait?: number;
+  /** V1.5: path segment on which this car committed to a right on red (it then keeps going). */
+  rorSeg?: number;
+  /**
+   * V1.5 FOUR-LANE AVENUES: which of the two lanes in its direction this car
+   * is in on an avenue tile — 0 = kerb (right) lane, 1 = inner (left) lane.
+   * Streets have one lane per direction, so it is reset to 0 there.
+   */
+  lane: number;
+  /** V1.5: rendered lateral position 0..1, easing toward `lane` (the lane-change slide). */
+  laneX: number;
+  /** V1.5: seconds until this car may change lanes again. */
+  laneCool: number;
 }
+
+/** V1.5: an avenue tile? (roadType 1). Roundabouts are roadType 2. */
+export const isAvenue = (t: Tile | undefined) => t?.roadType === 1;
+/** V1.5 ROUNDABOUT tiles (roadType 2): a 2×2 ring, no lights, yield on entry. */
+export const isRing = (t: Tile | undefined) => t?.roadType === 2;
+/**
+ * V1.5: which lane a car should be in BEFORE the junction it reaches at path
+ * index `j` (or -1 if none within reach): a right turn needs the kerb lane
+ * (0), a left turn / U-turn the inner lane (1); straight on = no preference.
+ */
+export function laneForTurn(path: number[], j: number): number | -1 {
+  if (j <= 0 || j + 1 >= path.length) return -1;
+  const a = path[j - 1], b = path[j], c = path[j + 1];
+  if (isRightTurn(a, b, c)) return 0;
+  const straight = c - b === b - a;
+  return straight ? -1 : 1;
+}
+/** V1.5 lane change: minimum gap gain (tiles) that makes a discretionary change worth it (MOBIL threshold). */
+export const LANE_GAIN = 0.35;
+/** V1.5: room needed in the target lane — behind (follower) and ahead (leader) — in tiles. */
+export const LANE_SAFE_BACK = 0.45;
+export const LANE_SAFE_FRONT = 0.3;
+/** V1.5: seconds between lane changes, and lateral slide speed (lane widths per second). */
+export const LANE_COOLDOWN = 2.5;
+export const LANE_SLIDE = 1.6;
 
 export const STREET_COST = 1;
 export const AVENUE_COST = 0.6;
@@ -162,6 +201,8 @@ export const LIGHT_CYCLE = 10;
 const GREEN = 4.4;
 
 export const isIntersection = (tiles: Tile[], i: number): boolean => {
+  // V1.5: roundabout tiles are never signalled junctions (cars yield instead).
+  if (tiles[i]?.roadType === 2) return false;
   const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
   let n = 0;
   for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -337,6 +378,9 @@ export function findPath(tiles: Tile[], start: number, goal: number): number[] |
       const n = nz * N + nx;
       const t = tiles[n];
       if (!t.road || closed[n]) continue;
+      // V1.5 roundabouts circulate counter-clockwise (right-hand traffic):
+      // between two ring tiles only the ring direction is allowed.
+      if (isRing(tiles[i]) && isRing(t) && !ringStepOk(tiles, i, n)) continue;
       const cost = g[i] + (t.roadType === 1 ? AVENUE_COST : STREET_COST);
       if (cost < g[n]) {
         g[n] = cost;
@@ -346,6 +390,20 @@ export function findPath(tiles: Tile[], start: number, goal: number): number[] |
     }
   }
   return null;
+}
+
+/**
+ * V1.5: is i → n (both ring tiles of one 2×2 roundabout) the circulating
+ * direction? Counter-clockwise seen from above with north up (x east,
+ * z south): NE → NW (west), NW → SW (south), SW → SE (east), SE → NE (north).
+ * A tile's corner in its block is found from which neighbours are ring tiles.
+ */
+export function ringStepOk(tiles: Tile[], i: number, n: number): boolean {
+  const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
+  const ring = (xx: number, zz: number) => xx >= 0 && zz >= 0 && xx < GRID_SIZE && zz < GRID_SIZE && tiles[zz * GRID_SIZE + xx].roadType === 2;
+  const east = ring(x + 1, z) && ring(x, z + 1) ? 'NW' : ring(x - 1, z) && ring(x, z + 1) ? 'NE' : ring(x + 1, z) && ring(x, z - 1) ? 'SW' : 'SE';
+  const d = n - i;
+  return east === 'NE' ? d === -1 : east === 'NW' ? d === GRID_SIZE : east === 'SW' ? d === 1 : d === -GRID_SIZE;
 }
 
 /** First road tile next to tile i (where a building's driveway meets the street), or -1. */
@@ -360,6 +418,19 @@ export function roadNextTo(tiles: Tile[], i: number): number {
 }
 
 /** Direction index 0..3 (E, W, S, N) of a step between two neighbouring tiles. */
+/**
+ * V1.5 RIGHT ON RED. Is a → j → c a RIGHT turn? Grid x runs east, z runs
+ * south, traffic drives on the right. Heading (dx, dz) turned right is
+ * (−dz, dx): e.g. north (0, −1) → east (1, 0).
+ */
+export function isRightTurn(a: number, j: number, c: number): boolean {
+  const dx = (j % GRID_SIZE) - (a % GRID_SIZE), dz = Math.floor(j / GRID_SIZE) - Math.floor(a / GRID_SIZE);
+  const ex = (c % GRID_SIZE) - (j % GRID_SIZE), ez = Math.floor(c / GRID_SIZE) - Math.floor(j / GRID_SIZE);
+  return ex === -dz && ez === dx;
+}
+/** Full stop required before turning right on red (game seconds). */
+export const ROR_STOP = 1.0;
+
 function dirOf(a: number, b: number): number {
   const d = b - a;
   return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3;
@@ -371,7 +442,9 @@ export class Traffic {
   vehicles: Vehicle[] = [];
   private nextId = 1;
   /** Counters for tests and the info panel. */
-  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0, waitSec: 0 };
+  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0, waitSec: 0, rightOnRed: 0, laneChanges: 0 };
+  /** V1.5: allow right turns on red after a full stop (tests switch it off to compare). */
+  rightOnRed = true;
   /** PR 6 traffic-actuated signal controllers. */
   signals = new Signals();
 
@@ -399,7 +472,7 @@ export class Traffic {
     }
     const id = this.nextId++;
     const traits = traitsFor(id, kind, world.seed);
-    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length], traits, v: 0, acc: 0, waitGreen: 0 });
+    this.vehicles.push({ id, kind, path, seg: 0, t: 0, stuck: 0, purpose, onArrive, color: color ?? CAR_COLORS[id % CAR_COLORS.length], traits, v: 0, acc: 0, waitGreen: 0, lane: 0, laneX: 0, laneCool: 0 });
     return true;
   }
 
@@ -423,13 +496,25 @@ export class Traffic {
   private stepOnce(world: World, dt: number): void {
     const tiles = world.tiles;
     // ---- Bucket vehicles by lane: (tile, direction) -> list of {progress, speed} ----
-    const lanes = new Map<number, Array<{ t: number; v: number }>>();
-    const laneOf = (v: Vehicle, seg: number) => v.path[seg] * 4 + dirOf(v.path[seg], v.path[seg + 1]);
+    // V1.5: the key also carries the LANE (0/1) on avenue tiles — two cars
+    // side by side in different lanes don't follow each other.
+    const lanes = new Map<number, Array<{ t: number; v: number; id: number }>>();
+    const laneKey = (tile: number, dir: number, lane: number) => (tile * 4 + dir) * 2 + (isAvenue(tiles[tile]) ? lane : 0);
+    const laneOf = (v: Vehicle, seg: number) => laneKey(v.path[seg], dirOf(v.path[seg], v.path[seg + 1]), v.lane);
     for (const v of this.vehicles) {
       const k = laneOf(v, v.seg);
       let l = lanes.get(k);
       if (!l) lanes.set(k, (l = []));
-      l.push({ t: v.t, v: v.v });
+      l.push({ t: v.t, v: v.v, id: v.id });
+    }
+    // V1.5 ROUNDABOUT occupancy: ring tile -> cars on it (or about to enter it from the ring).
+    const onRing = new Map<number, Vehicle[]>();
+    for (const v of this.vehicles) {
+      const a = v.path[v.seg], b = v.path[v.seg + 1];
+      if (b === undefined) continue;
+      const put = (k: number) => { let l = onRing.get(k); if (!l) onRing.set(k, (l = [])); l.push(v); };
+      if (isRing(tiles[a])) put(a);
+      if (isRing(tiles[b]) && isRing(tiles[a])) put(b);
     }
     // ---- PR 5: who is inside each intersection right now ----
     // A vehicle is physically inside junction J during the last part of the
@@ -441,9 +526,12 @@ export class Traffic {
       if (!l) inJunction.set(j, (l = []));
       l.push({ id, dir });
     };
+    // V1.5: cars about to enter each junction (for the right-on-red gap check).
+    const approaching = new Map<number, Vehicle[]>();
     for (const v of this.vehicles) {
       const a = v.path[v.seg], b = v.path[v.seg + 1];
       if (b === undefined) continue;
+      if (v.t <= 0.5 && isIntersection(tiles, b)) { let l = approaching.get(b); if (!l) approaching.set(b, (l = [])); l.push(v); }
       // (Physically inside = past the tile edge, t > 0.5 — cars waiting between the stop line and the edge don't hold it.)
       if (v.t > 0.5 && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
       if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a));
@@ -464,6 +552,53 @@ export class Traffic {
       const speed = SPEED[v.kind] * v.traits.cruise * slow * (cur.roadType === 1 && next.roadType === 1 ? AVENUE_SPEED_BONUS : 1);
       const GAP = v.traits.gap;
       const s0 = Math.max(0.06, GAP - CAR_LEN); // bumper-to-bumper standstill gap
+      // ---- V1.5 LANE CHOICE + MOBIL-STYLE LANE CHANGES (avenues) ----
+      // Off an avenue there is one lane each way. On one, a car:
+      //   1. MUST be in the turn lane for the next junction within 2 tiles
+      //      (right turn → kerb lane 0, left turn → inner lane 1);
+      //   2. otherwise MAY change if the other lane has clearly more room
+      //      ahead (gap gain > LANE_GAIN — the MOBIL "incentive"), and
+      //   3. only ever changes if it's SAFE: no car in the target lane within
+      //      LANE_SAFE_BACK behind or LANE_SAFE_FRONT ahead (MOBIL's
+      //      "safety criterion": the new follower needn't brake hard).
+      // Changes happen in the first half of a tile (never inside a junction)
+      // with a cooldown; the renderer slides laneX across.
+      v.laneCool = Math.max(0, v.laneCool - dt);
+      if (!isAvenue(cur)) v.lane = 0;
+      else if (v.t < 0.45 && v.laneCool <= 0 && !isIntersection(tiles, v.path[v.seg])) {
+        let must = -1;
+        for (let k = 1; k <= 2 && must < 0; k++) if (v.seg + k < v.path.length && isIntersection(tiles, v.path[v.seg + k])) { must = laneForTurn(v.path, v.seg + k); if (must < 0) break; }
+        // Gap ahead in a lane on this tile + the next (tiles), from our position.
+        const gapIn = (lane: number) => {
+          let g = 2;
+          const dir = dirOf(v.path[v.seg], v.path[v.seg + 1]);
+          for (const o of lanes.get(laneKey(v.path[v.seg], dir, lane)) ?? []) if (o.id !== v.id && o.t > v.t) g = Math.min(g, o.t - v.t);
+          if (v.seg + 2 < v.path.length && isAvenue(next)) {
+            const d2 = dirOf(v.path[v.seg + 1], v.path[v.seg + 2]);
+            for (const o of lanes.get(laneKey(v.path[v.seg + 1], d2, lane)) ?? []) if (o.id !== v.id) g = Math.min(g, 1 + o.t - v.t);
+          }
+          return g;
+        };
+        const target = 1 - v.lane;
+        const wants = must >= 0 ? must === target : gapIn(target) > gapIn(v.lane) + LANE_GAIN;
+        if (wants) {
+          const dir = dirOf(v.path[v.seg], v.path[v.seg + 1]);
+          const safe = !(lanes.get(laneKey(v.path[v.seg], dir, target)) ?? []).some((o) => o.t > v.t - LANE_SAFE_BACK && o.t < v.t + LANE_SAFE_FRONT);
+          if (safe) {
+            // Move our bucket entry so cars later in this step see us in the new lane.
+            const from = lanes.get(laneKey(v.path[v.seg], dir, v.lane));
+            const idx = from?.findIndex((o) => o.id === v.id) ?? -1;
+            if (from && idx >= 0) from.splice(idx, 1);
+            let to = lanes.get(laneKey(v.path[v.seg], dir, target));
+            if (!to) lanes.set(laneKey(v.path[v.seg], dir, target), (to = []));
+            to.push({ t: v.t, v: v.v, id: v.id });
+            v.lane = target;
+            v.laneCool = LANE_COOLDOWN;
+            this.stats.laneChanges++;
+          }
+        }
+      }
+      v.laneX += Math.sign(v.lane - v.laneX) * Math.min(Math.abs(v.lane - v.laneX), LANE_SLIDE * dt);
       // `limit` = hard "never pass this" position; `obsPos/obsV` = nearest
       // obstacle ahead (a leader's rear bumper or a stop line) and its speed,
       // which feed the IDM car-following model below.
@@ -478,7 +613,7 @@ export class Traffic {
         if (pos < obsPos) { obsPos = pos; obsV = speedAhead; }
       };
       // 1. Vehicle ahead in the same lane on this tile.
-      for (const o of lanes.get(laneOf(v, v.seg))!) if (o.t > v.t + 1e-6) lead(o.t - CAR_LEN, o.v);
+      for (const o of lanes.get(laneOf(v, v.seg)) ?? []) if (o.id !== v.id && o.t > v.t + 1e-6) lead(o.t - CAR_LEN, o.v);
       // ...or just past the tile boundary in the next lane.
       if (v.seg + 2 < v.path.length) {
         const ahead = lanes.get(laneOf(v, v.seg + 1));
@@ -491,10 +626,46 @@ export class Traffic {
         const p = STOP_T + s0;
         if (p < obsPos) { obsPos = p; obsV = 0; }
       };
+      // 1b. V1.5 ROUNDABOUT: YIELD ON ENTRY. A car about to enter a ring
+      //     tile from outside waits at the line while any car on the ring is
+      //     on (or rolling into) that tile — circulating traffic has priority.
+      //     Cars already on the ring just follow each other (lane buckets).
+      if (v.t <= STOP_T && isRing(next) && !isRing(cur)) {
+        const busy = (onRing.get(v.path[v.seg + 1]) ?? []).some((o) => o.id !== v.id && (o.path[o.seg + 1] === v.path[v.seg + 1] ? o.t > 0.15 : o.t < 0.6));
+        if (busy && v.stuck < 10) {
+          limit = Math.min(limit, STOP_T);
+          const p = STOP_T + s0;
+          if (p < obsPos) { obsPos = p; obsV = 0; }
+        }
+      }
       // 2. Red light at the junction we're about to enter (the next tile).
       if (v.t <= STOP_T && isIntersection(tiles, v.path[v.seg + 1])) {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
-        if (lightState(v.path[v.seg + 1], world.clock, this.signals).green !== axis) {
+        const jn = v.path[v.seg + 1];
+        const light = lightState(jn, world.clock, this.signals);
+        // V1.5 RIGHT ON RED: only when this car's own route turns right here
+        // (the path is A*'s, so "where its pathing takes it"). It must first
+        // come to a full stop at the line for ROR_STOP seconds, then go only
+        // on a gap: the junction box empty, no car entering it from the
+        // approach whose light is green (they have right of way), and room
+        // in the exit lane. Works with both fixed and queue-based signals —
+        // the controller still counts this car in its queue until it leaves.
+        const turnsRight = v.seg + 2 < v.path.length && isRightTurn(v.path[v.seg], jn, v.path[v.seg + 2]);
+        let rorGo = v.rorSeg === v.seg && light.green !== axis; // already committed: keep going
+        if (!rorGo && this.rightOnRed && light.green !== axis && turnsRight && light.green !== 'none') {
+          const atLine = v.t > STOP_T - 0.05 && v.v < 0.05;
+          v.rorWait = atLine ? (v.rorWait ?? 0) + dt : 0;
+          if ((v.rorWait ?? 0) >= ROR_STOP) {
+            const boxFree = !(inJunction.get(jn)?.some((h) => h.id !== v.id));
+            const crossing = (approaching.get(jn) ?? []).some((o) => o.id !== v.id && (Math.abs(jn - o.path[o.seg]) === 1 ? 'ew' : 'ns') === light.green && (o.t > 0.25 || o.v > 0.2));
+            const exit = lanes.get(laneOf(v, v.seg + 1));
+            const room = !exit || !exit.some((o) => o.t < 0.6 && o.v < 0.3);
+            rorGo = boxFree && !crossing && room;
+          }
+        } else v.rorWait = 0;
+        if (rorGo) {
+          if (v.rorSeg !== v.seg) { v.rorSeg = v.seg; this.stats.rightOnRed++; }
+        } else if (light.green !== axis) {
           if (v.v < 0.05) this.stats.waitSec += dt; // PR 6: time spent waiting at red (tests)
           stopAt();
           // Waiting at red: arm the reaction delay for when it turns green.

@@ -65,10 +65,19 @@ export interface Template {
   maxLevel: number;
   /** Residents (homes) or jobs (shops/factories) at each level; index = level − 1. */
   capacity: number[];
-  /** Households per level (homes only), for the parking requirement. */
+  /**
+   * V1.5 MIXED USE: residents living above a commercial building, per level
+   * (capacity[] then holds its JOBS). Undefined for every other template.
+   */
+  residents?: number[];
+  /** Households per level (homes AND mixed-use flats), for the parking requirement. */
   homes?: number[];
-  /** Renderer hints: which zone model level to draw, and extra height for towers. */
-  model: { level: number[]; tall?: number };
+  /**
+   * Renderer hints: which zone model level to draw, and extra height for
+   * towers. V1.5 `grow`: per-level height multiplier, so a medium building's
+   * extra levels (residential levels 6 and 7) are drawn taller.
+   */
+  model: { level: number[]; tall?: number; grow?: number[] };
   /** Relative chance of being picked when several templates fit. */
   weight: number;
   /** Only created by save migration (old 1-tile buildings), never grown. */
@@ -112,30 +121,30 @@ export const TEMPLATES: Template[] = [
   // "townhouse row 6×3 + rear garages".
   { id: 'townhouse', label: 'Townhouse row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 6, d: 4,
     rects: [R(0, 0, 6, 3, B), R(0, 3, 6, 1, G)], garage: 6, bays: 0,
-    maxLevel: 2, capacity: [40, 55], homes: [6, 8], model: { level: [4, 4] }, weight: 2 },
+    maxLevel: 4, capacity: [40, 55, 80, 120], homes: [6, 8, 12, 18], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 2 },
   { id: 'apartment_d', label: 'Small apartment block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 6,
     rects: [R(0, 0, 4, 4, B), R(0, 4, 4, 2, P)], garage: 12, bays: 0,
-    maxLevel: 2, capacity: [40, 65], homes: [16, 26], model: { level: [4, 5] }, weight: 1.5 },
+    maxLevel: 4, capacity: [40, 65, 100, 145], homes: [16, 26, 39, 57], model: { level: [4, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.5 },
   // "apartments 6×6 with integrated garage" (+ a rear surface lot).
   { id: 'apartment', label: 'Apartment block', zone: 'residential', kind: 0, density: 1, tier: 3, w: 6, d: 6,
     rects: [R(0, 0, 6, 4, B), R(0, 4, 6, 2, P)], garage: 20, bays: 0,
-    maxLevel: 2, capacity: [70, 110], homes: [28, 44], model: { level: [5, 5] }, weight: 2 },
+    maxLevel: 4, capacity: [70, 110, 165, 240], homes: [28, 44, 66, 97], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 2 },
   // PR 6 variety pass: 5 more medium footprints (8 total).
   { id: 'townhouse_s', label: 'Short townhouse row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 4,
     rects: [R(0, 0, 4, 3, B), R(0, 3, 4, 1, G)], garage: 4, bays: 0,
-    maxLevel: 2, capacity: [25, 35], homes: [4, 5], model: { level: [4, 4] }, weight: 1.5 },
+    maxLevel: 4, capacity: [25, 35, 50, 75], homes: [4, 5, 8, 11], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 1.5 },
   { id: 'duplex_row', label: 'Duplex row', zone: 'residential', kind: 0, density: 1, tier: 2, w: 6, d: 4,
     rects: [R(0, 0, 6, 1, Gd), R(0, 1, 6, 2, B), R(0, 3, 6, 1, P)], garage: 0, bays: 0,
-    maxLevel: 2, capacity: [30, 45], homes: [6, 8], model: { level: [4, 4] }, weight: 1.2 },
+    maxLevel: 4, capacity: [30, 45, 70, 100], homes: [6, 8, 12, 18], model: { level: [4, 4, 4, 4], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
   { id: 'walkup', label: 'Walk-up flats', zone: 'residential', kind: 0, density: 1, tier: 2, w: 4, d: 5,
     rects: [R(0, 0, 4, 4, B), R(0, 4, 4, 1, P)], garage: 10, bays: 0,
-    maxLevel: 2, capacity: [35, 55], homes: [14, 20], model: { level: [5, 5] }, weight: 1.2 },
+    maxLevel: 4, capacity: [35, 55, 80, 120], homes: [14, 20, 30, 44], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
   { id: 'courtyard', label: 'Courtyard block', zone: 'residential', kind: 0, density: 1, tier: 3, w: 8, d: 6,
     rects: [R(0, 0, 8, 2, B), R(0, 2, 2, 3, B), R(6, 2, 2, 3, B), R(2, 2, 4, 3, Gd), R(0, 5, 8, 1, P)], garage: 32, bays: 0,
-    maxLevel: 2, capacity: [90, 140], homes: [36, 56], model: { level: [5, 5] }, weight: 1 },
+    maxLevel: 4, capacity: [90, 140, 210, 310], homes: [36, 56, 84, 123], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1 },
   { id: 'mansard', label: 'Mansard apartments', zone: 'residential', kind: 0, density: 1, tier: 3, w: 6, d: 5,
     rects: [R(0, 0, 6, 4, B), R(0, 4, 6, 1, G)], garage: 26, bays: 0,
-    maxLevel: 2, capacity: [60, 90], homes: [24, 36], model: { level: [5, 5] }, weight: 1.2 },
+    maxLevel: 4, capacity: [60, 90, 135, 200], homes: [24, 36, 54, 79], model: { level: [5, 5, 5, 5], grow: [1, 1, 1.35, 1.7] }, weight: 1.2 },
   // ---------------- Residential · high (towers, City tier) ----------------
   { id: 'tower', label: 'Residential tower', zone: 'residential', kind: 0, density: 2, tier: 3, w: 6, d: 6,
     rects: [R(0, 0, 6, 5, B), R(0, 5, 6, 1, G)], garage: 64, bays: 0,
@@ -220,11 +229,44 @@ export const TEMPLATES: Template[] = [
   { id: 'legacy_food', label: 'Food plant (pre-PR 6 lot)', zone: 'industrial', kind: 2, density: 0, tier: 0, w: 4, d: 4, legacy: true,
     rects: [R(0, 0, 3, 1, P), R(3, 0, 1, 1, Bay), R(0, 1, 4, 3, B)], garage: 3, bays: 1,
     maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 0 },
+  // (Appended LAST so earlier templates keep their index — scoreOption salts by index.)
+  // ---------------- V1.5 Mixed use (Commercial ▸ Mixed) ----------------
+  // Parker: "shop ground floor, homes above — holds 10 people and 1 business".
+  // One business = 4 jobs (a corner shop at level 1). 4 households of flats.
+  { id: 'mixed_use', label: 'Mixed-use block', zone: 'commercial', kind: 3, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 2, bays: 0,
+    maxLevel: 1, capacity: [4], residents: [10], homes: [4], model: { level: [1] }, weight: 2 },
+  { id: 'mixed_corner', label: 'Mixed-use corner', zone: 'commercial', kind: 3, density: 1, tier: 0, w: 3, d: 4,
+    rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 3, B)], garage: 3, bays: 0,
+    maxLevel: 1, capacity: [4], residents: [10], homes: [4], model: { level: [1] }, weight: 1.5 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));
 
 /** Is this template a filler (garden / overflow lot) rather than a real building? */
+/** V1.5: residents living in a (mixed-use) building at `level`; 0 for templates without flats. */
+export const residentsAt = (t: Template, level: number) => (level <= 0 || !t.residents ? 0 : t.residents[Math.min(level, t.maxLevel) - 1]);
+/**
+ * V1.5 RESIDENTIAL LEVEL LADDER (what Inspect calls "level"):
+ *   1–3  low density houses            (5 / 10 / 20 residents)
+ *   4–5  medium density, building lv 1–2 (e.g. townhouse 40 / 55, apartments 70 / 110)
+ *   6    medium building lv 3 ≈ 1.5× lv 2 (apartments ~165) — needs 2,000 people
+ *   7    medium building lv 4 ≈ 2.2× lv 2 (apartments ~240) — needs 5,000 people
+ * After level 3 a house grows into medium density automatically
+ * (growth.tryMerge + lots.zonePromote) once 1,000 people live in the city.
+ */
+export const MEDIUM_LEVEL_POP = [2000, 5000];
+/** Residential level shown to the player for a building at template level `level`. */
+export const resLevel = (t: Template, level: number) => (t.zone !== 'residential' ? level : t.density === 0 ? level : t.density === 1 ? level + 3 : level + 7);
+/**
+ * V1.5: spaces a building of this template supplies at `level`. Medium
+ * homes' extra levels (3–4 = residential 6–7) add an underground deck sized
+ * for their added flats; everything else supplies parkingSupply(t).
+ */
+export function supplyAt(t: Template, level: number): number {
+  const deck = t.zone === 'residential' && t.density === 1 && level > 2 ? parkingRequired(t, level) - parkingRequired(t, 2) : 0;
+  return parkingSupply(t) + Math.max(0, deck);
+}
 export const isFiller = (t: Template) => t.capacity[0] === 0;
 
 /** Surface parking spaces drawn as stalls (1 per Parking cell). */
@@ -244,7 +286,8 @@ export function parkingRequired(t: Template, level: number): number {
   if (level <= 0 || isFiller(t)) return 0;
   const k = Math.min(level, t.maxLevel) - 1;
   if (t.zone === 'residential') return Math.ceil((t.homes?.[k] ?? 1) * SPACES_PER_HOME[t.density]);
-  if (t.zone === 'commercial') return Math.ceil(t.capacity[k] / SHOP_JOBS_PER_SPACE);
+  // V1.5 mixed use: shop spaces + medium-density spaces for the flats above.
+  if (t.zone === 'commercial') return Math.ceil(t.capacity[k] / SHOP_JOBS_PER_SPACE + (t.residents ? (t.homes?.[k] ?? 0) * SPACES_PER_HOME[1] : 0));
   return Math.ceil(t.capacity[k] / FACTORY_JOBS_PER_SPACE);
 }
 

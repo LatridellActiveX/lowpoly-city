@@ -9,7 +9,7 @@ const store = new Map<string, string>();
 
 import { Simulation } from '../src/sim/simulation';
 import { World } from '../src/sim/grid';
-import { TPL, parkingRequired, parkingSupply, TEMPLATES } from '../src/sim/footprints';
+import { TPL, parkingRequired, parkingSupply, supplyAt, TEMPLATES } from '../src/sim/footprints';
 import { loadWorld, saveWorld } from '../src/sim/save';
 import { CellRole } from '../src/sim/cells';
 
@@ -51,7 +51,7 @@ function town(opts: { yard?: boolean; medium?: boolean; seed?: number } = {}): S
 }
 // 2. Templates: parking numbers are sane.
 {
-  const bad = TEMPLATES.filter((t) => t.capacity[0] > 0 && !['corner_shop', 'shop_w', 'workshop'].includes(t.id) && parkingSupply(t) < parkingRequired(t, t.maxLevel));
+  const bad = TEMPLATES.filter((t) => t.capacity[0] > 0 && !['corner_shop', 'shop_w', 'workshop'].includes(t.id) && supplyAt(t, t.maxLevel) < parkingRequired(t, t.maxLevel)); // V1.5: supplyAt adds medium decks
   check('every template except small shops supplies its own parking at max level', !bad.length, bad.map((t) => t.id));
   check('corner shop is short at level 3 (needs a public lot)', parkingSupply(TPL.corner_shop) < parkingRequired(TPL.corner_shop, 3));
 }
@@ -77,7 +77,11 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
     // Put a lot on any free cell quadrant within range: try around the host tile.
     const hx = shop.host % N, hz = Math.floor(shop.host / N);
     let placed = false;
-    for (const [dx, dz] of [[0, 1], [1, 0], [-1, 0], [0, -1], [2, 0], [-2, 0], [1, 1], [-1, 1]]) {
+    // V1.5: lots fill a whole free tile and reach 6 tiles, so search wider.
+    const ring: number[][] = [];
+    for (let dz = -5; dz <= 5; dz++) for (let dx = -5; dx <= 5; dx++) ring.push([dx, dz]);
+    ring.sort((a, b) => Math.abs(a[0]) + Math.abs(a[1]) - Math.abs(b[0]) - Math.abs(b[1]));
+    for (const [dx, dz] of ring) {
       const x = hx + dx, z = hz + dz;
       for (const f of [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]] as const) {
         s.pointerFrac = [f[0], f[1]];
@@ -178,9 +182,12 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
 }
 // 13. Traffic-actuated signals vs PR 5 fixed timing on the same town.
 {
-  const res: Record<string, unknown> = {};
-  for (const mode of ['fixed', 'actuated'] as const) {
-    const t = town({ seed: 77 });
+  // V1.5 stage 10: more truck traffic (goods chains) made a single seed
+  // noisy (one gridlock pocket swings arrivals ±15%), so the comparison now
+  // SUMS four seeded towns per mode.
+  const res: Record<string, any> = {};
+  for (const mode of ['fixed', 'actuated'] as const) for (const seed of [77, 78, 79, 80]) {
+    const t = town({ seed });
     t.settings.maxCars = 400;
     t.traffic.signals.actuated = mode === 'actuated';
     run(t, 500);
@@ -190,7 +197,9 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
     const st0 = { ...t.traffic.stats };
     for (let i = 0; i < 240; i++) { t.traffic.update(t.world, 0.5); t.world.clock += 0.5; }
     const arrived = t.traffic.stats.arrived - st0.arrived, gave = t.traffic.stats.gaveUp - st0.gaveUp;
-    res[mode] = { arrived, gaveUp: gave, waitPerTrip: +((t.traffic.stats.waitSec - st0.waitSec) / Math.max(1, arrived + gave)).toFixed(2) };
+    const r = (res[mode] ??= { arrived: 0, gaveUp: 0, waitSec: 0 });
+    r.arrived += arrived; r.gaveUp += gave; r.waitSec += t.traffic.stats.waitSec - st0.waitSec;
+    r.waitPerTrip = +(r.waitSec / Math.max(1, r.arrived + r.gaveUp)).toFixed(2);
   }
   const f = res.fixed as any, a = res.actuated as any;
   const rate = (r: any) => r.gaveUp / Math.max(1, r.arrived + r.gaveUp);

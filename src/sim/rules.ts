@@ -19,10 +19,24 @@ import { StructureType, Tile, ToolId, ZoneType } from './types';
  *   coal/oil      2,000 → ~2,000 people
  *   nuclear       8,000 → ~8,000 people (2×2, no fuel, no pollution)
  */
+/**
+ * V1.5 POWER TIERS (Parker): "coal and oil power plants are in a tier below
+ * nuclear, oil can power what nuclear could power and nuclear 4× that".
+ *   coal (powerPlant, kind 0)  2,000  — from the start
+ *   oil  (powerPlant, kind 1)  8,000  — Town tier (2,000 people)
+ *   nuclear (2×2)             32,000  — City tier (10,000 people)
+ * Coal and oil share the 'powerPlant' structure; Tile.kind tells them apart.
+ * Old saves have kind 0 on every plant, so they load as coal (no migration needed).
+ */
+export const PLANT_COAL = 0;
+export const PLANT_OIL = 1;
+export const OIL_PLANT_OUTPUT = 8000;
+export const OIL_PLANT_UPKEEP = 1000; // charged instead of the coal plant's 250
+
 export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
-  powerPlant: 2000, // the backbone of the grid (was 120)
+  powerPlant: 2000, // V1.5: this is the COAL plant (the backbone of the grid; was 120)
   windTurbine: 800, // at full wind; output = 800 × wind (was 15)
-  nuclearPlant: 8000, // PR 4 high tier, 2×2 (was 600)
+  nuclearPlant: 32000, // V1.5: 4× the oil plant (PR 5 had 8,000; PR 4 600)
 };
 
 /** PR 4: a power plant out of fuel still makes this much (backup generators) — PR 5: 25% of rated. */
@@ -71,7 +85,8 @@ export function residentsOf(t: Tile): number {
   // PR 6: buildings are entities on the cell grid; their host tile carries
   // the sum of its buildings' residents (lots.ts aggregate), already net of
   // anyone still driving in.
-  return t.zone === 'residential' ? t.res : 0;
+  // V1.5: mixed-use (commercial) hosts also carry residents in t.res.
+  return t.res;
 }
 /**
  * "Size units" of a building for power/water/tax: residents ÷ 5 for homes
@@ -162,6 +177,10 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
   switch (tool) {
     case 'road':
       return noBuilding && !t.road;
+    case 'roundabout':
+      // V1.5: on empty land or over existing streets/avenues (a junction
+      // becomes a roundabout); never on water (no ring bridges).
+      return noBuilding && !t.water && t.roadType !== 2;
     case 'avenue':
       // A new avenue on empty land, or an upgrade of an existing street.
       return noBuilding && (!t.road || t.roadType === 0);
@@ -182,6 +201,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
       return t.zone !== null ? t.structure === 'none' || t.structure === 'building' : isBare(t);
     }
     case 'powerPlant':
+    case 'oilPlant':
     case 'nuclearPlant':
     case 'windTurbine':
     case 'waterTower':
@@ -214,6 +234,15 @@ export function applyTool(tool: ToolId, t: Tile): void {
       // power poles), so connected roads form one water network and anything
       // beside a road gets water. The pipe is part of the road's price.
       t.waterPipe = true;
+      break;
+    case 'roundabout':
+      // V1.5: a ring tile. Like every road it carries power poles (PR 3
+      // auto lines are drawn for any road) and a water main (PR 6), so the
+      // roads, pipes and lines on all four sides join up automatically.
+      t.road = true;
+      t.roadType = 2;
+      t.waterPipe = true;
+      t.deco = 0;
       break;
     case 'avenue':
       t.road = true;
@@ -255,6 +284,16 @@ export function applyTool(tool: ToolId, t: Tile): void {
       t.farm = 0;
       // New power plants arrive with a full fuel bunker (goods.ts).
       t.stock = tool === 'powerPlant' ? FUEL_MAX : 0;
+      t.kind = PLANT_COAL;
+      break;
+    case 'oilPlant':
+      // V1.5: an oil-fired plant is the same 'powerPlant' structure (so fuel
+      // trucks, pollution, smoke and upkeep all keep working) with kind = OIL,
+      // which networks.output() turns into 8,000 power instead of 2,000.
+      t.structure = 'powerPlant';
+      t.kind = PLANT_OIL;
+      t.farm = 0;
+      t.stock = FUEL_MAX;
       break;
     case 'bulldoze':
       // Note: `water` is terrain and stays; bulldozing a bridge leaves the river.

@@ -16,6 +16,7 @@
  * markers) are updated separately in `animate()`, touching only those pools.
  */
 import * as THREE from 'three';
+import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
 import { bodyRect, surfaceSpaces, TPL } from '../sim/footprints';
 import { frame, localToCell, rectAABB } from '../sim/lots';
@@ -43,10 +44,14 @@ import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
+import { roleModels } from './industryModels';
+import { roleOf } from '../sim/chains';
+import { LV_MAX } from '../sim/environment';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
+import { rangeOf } from '../sim/parking';
 import { Resource } from '../sim/resources';
-import { CONSTRUCT_TICKS } from '../sim/rules';
+import { CONSTRUCT_TICKS, PLANT_OIL } from '../sim/rules';
 import { tileCenter } from './scene';
 import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
@@ -64,7 +69,8 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 };
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking';
+/** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
@@ -156,6 +162,36 @@ function haloMaterial(neutral = false): THREE.MeshBasicMaterial {
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   return new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+}
+
+/**
+ * Tileable grayscale "grain" for the solid low-poly material. Every speck is
+ * drawn at its wrapped offsets so the texture tiles seamlessly; each face's
+ * built-in 0..1 UVs then sample a different patch of noise. Three.js
+ * multiplies map x vertex color x instance color, so near-white speckles add
+ * surface variation without changing any model's palette.
+ */
+function grainTexture(size = 128, speckles = 1100): THREE.CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  const g = cv.getContext('2d')!;
+  g.fillStyle = '#f4f4f4';
+  g.fillRect(0, 0, size, size);
+  // Seeded (not Math.random) so the texture is identical across reloads/players.
+  const rnd = seededStream(TEXTURE_SEEDS.grain);
+  for (let i = 0; i < speckles; i++) {
+    const x = rnd() * size, y = rnd() * size;
+    const r = 0.5 + rnd() * 1.7;
+    const v = 224 + Math.floor(rnd() * 31); // 224..255, subtle darkening only
+    g.fillStyle = `rgb(${v},${v},${v})`;
+    for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
+      g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** Scratch colour for lerps. */
@@ -250,7 +286,11 @@ export class CityRenderer {
 
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
-    const solid = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+    // Procedural grain on the shared low-poly material: one 128px tileable
+    // canvas texture adds subtle surface variation to every solid face
+    // (map x vertex color x instance color multiply in the shader).
+    const grain = grainTexture();
+    const solid = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: grain });
     const add = (name: string, geo: THREE.BufferGeometry, mat: THREE.Material = solid, cap = 256, shadows = true) =>
       (this.pools[name] = new InstancePool(this.group, geo, mat, cap, shadows));
 
@@ -271,7 +311,7 @@ export class CityRenderer {
     add('bridgePier', ROADS.bridgePier(), solid, 256);
     add('bridgeRamp', ROADS.bridgeRamp(), solid, 128);
     add('highway', ROADS.highway(), solid, 4);
-    add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
+    add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9, map: grain }), 1024, false);
     add('lot', MODELS.lot(), solid, 4096, false);
     // PR 6 parking: painted stall lines, parked cars and public garages.
     add('stall', merge([part(box(0.012, 0.002, 0.2), 0xf2f2f2, [-0.118, 0, 0])]), solid, 2048, false);
@@ -327,6 +367,17 @@ export class CityRenderer {
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
+    // V1.5 roundabout island: kerb ring, lawn, flower bed and a small tree.
+    add('ringIsland', merge([
+      part(new THREE.CylinderGeometry(0.46, 0.48, 0.07, 24).translate(0, 0.035, 0), 0xc9c6bf),
+      part(new THREE.CylinderGeometry(0.43, 0.43, 0.075, 24).translate(0, 0.04, 0), 0x6fb54f),
+      part(new THREE.CylinderGeometry(0.2, 0.2, 0.08, 16).translate(0, 0.045, 0), 0xb5651d),
+      ...[0, 1, 2, 3, 4, 5].map((k) => part(new THREE.SphereGeometry(0.035, 6, 4), [0xe84a5f, 0xffd166, 0xf8f8ff][k % 3], [Math.cos(k) * 0.14, 0.1, Math.sin(k) * 0.14])),
+      part(new THREE.CylinderGeometry(0.025, 0.03, 0.28, 6).translate(0, 0.14, 0), 0x6b4a2b),
+      part(new THREE.IcosahedronGeometry(0.14, 0).translate(0, 0.36, 0), 0x3f8f3a),
+      ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => part(new THREE.SphereGeometry(0.04, 6, 4), 0x4f9e45, [Math.cos(k * 0.785 + 0.3) * 0.34, 0.09, Math.sin(k * 0.785 + 0.3) * 0.34])),
+    ]), solid, 32);
+    add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
@@ -334,6 +385,8 @@ export class CityRenderer {
     // PR 5 industry + wind (industryModels.ts).
     add('nacelle', nacelleModel(), solid, 64);
     add('farm', farmModel(), solid, 128);
+    // V1.5 stage 10: resource industries and processors (one pool per role).
+    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, g, solid, 64);
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
@@ -537,7 +590,8 @@ export class CityRenderer {
       }
 
       if (t.structure === 'powerPlant') {
-        P.powerPlant.add(this.place(center, turn));
+        // V1.5: kind 1 = oil-fired plant (own model, same stack position).
+        (t.kind === PLANT_OIL ? P.oilPlant : P.powerPlant).add(this.place(center, turn));
         // Smoke from the tall stack at model (−0.32, 1.02, −0.3), only while fuelled.
         if (t.stock > 0) this.stacks.push(new THREE.Vector3(-0.32, 1.02, -0.3).applyAxisAngle(THREE.Object3D.DEFAULT_UP, turn).add(center));
         // Plants connect to the street grid with a wire from their corner.
@@ -576,6 +630,13 @@ export class CityRenderer {
         const r = sim.world.resourceAt(i);
         const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24 }[r as 1];
         if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
+      } else if (this.overlay === 'landValue') {
+        // V1.5 stage 11: land value 0 → LV_MAX as deep blue → green → gold.
+        const v = sim.env.landValue[i] / LV_MAX;
+        if (!t.road && !t.water) {
+          this.c.setHex(0x2f4fb5).lerp(TMP.setHex(0x3ddc84), Math.min(1, v * 2)).lerp(TMP.setHex(0xffc531), Math.max(0, v * 2 - 1));
+          P.overlay.add(this.place(center.clone().setY(0.09)), this.c);
+        }
       } else if (this.overlay === 'pollution') {
         const p = sim.env.pollution[i];
         if (p > 0.15) {
@@ -610,6 +671,16 @@ export class CityRenderer {
     const isRoad = (n: Tile) => n.road;
     const n = has(x, z - 1, isRoad), e = has(x + 1, z, isRoad), s = has(x, z + 1, isRoad), w = has(x - 1, z, isRoad);
     const tint = t.roadType === 1 ? this.c.setRGB(0.78, 0.78, 0.8) : this.c.setRGB(1, 1, 1);
+    // V1.5 ROUNDABOUT tile (roadType 2): plain asphalt + kerbs on open
+    // sides. The landscaped island is added once per 2×2 block (at its
+    // north-west tile) and sits over the four inner corners.
+    if (t.roadType === 2 && !t.water) {
+      P.road.add(this.place(center), tint);
+      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.sidewalk.add(this.place(center, yaw as number)));
+      const ring = (q: Tile) => q.roadType === 2;
+      if (has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), hash2(x, z, 515) * 6));
+      return;
+    }
     if (t.water) {
       // PR 5 bridge tile: deck slab, an edge (sidewalk + parapet) on every
       // side without a road beyond it, and a pier on every other tile of a
@@ -720,7 +791,7 @@ export class CityRenderer {
       if (!code) continue;
       const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
       const info = ZONE_CODES[code];
-      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : ZONE_COLORS[info.zone!];
+      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : ZONE_COLORS[info.zone!];
       if (cells.owner[c] === 0) {
         this.c.setHex(col);
         if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
@@ -735,18 +806,31 @@ export class CityRenderer {
 
     // ---- public lots ----
     for (const l of w.parking.lots.values()) {
-      if (l.size === 4) {
-        const c0 = new THREE.Vector3((l.cx + 2) * Q, 0, (l.cz + 2) * Q);
-        P.parkDeck.add(this.place(c0, 0));
-        if (ov === 'parking') P.overlay.add(this.place(c0.clone().setY(0.62), 0, 1, 1, 1), occColor(l.parked, l.spaces));
+      if (l.garage) {
+        // V1.5: grown garages can have 3–5 decks; the 3-deck model is
+        // stretched vertically (decks / 3) instead of keeping 3 models.
+        const c0 = new THREE.Vector3(l.cx * Q + (l.size * Q) / 2, 0, l.cz * Q + (l.size * Q) / 2);
+        P.parkDeck.add(this.place(c0, 0, 1, l.decks / 3, 1));
+        if (ov === 'parking') P.overlay.add(this.place(c0.clone().setY(0.62 * (l.decks / 3)), 0, 1, 1, 1), occColor(l.parked, l.spaces));
         continue;
       }
+      // Surface lot: V1.5 lots fill the whole tile (size 4); PR 6 saves may hold 2×2 ones.
       let k = 0;
-      for (let z = l.cz; z < l.cz + 2; z++) for (let x = l.cx; x < l.cx + 2; x++, k++) {
+      for (let z = l.cz; z < l.cz + l.size; z++) for (let x = l.cx; x < l.cx + l.size; x++, k++) {
         P.lot.add(this.place(cellPos(x, z), 0, Q, 1, Q), this.c.setHex(ASPHALT));
         P.stall.add(this.place(cellPos(x, z, 0.031), 0));
         if (k < l.parked) parkCar(x, z, Math.PI / 2, 300);
         if (ov === 'parking') P.overlay.add(this.place(cellPos(x, z, 0.09), 0, Q, 1, Q), occColor(l.parked, l.spaces));
+      }
+    }
+    // V1.5 coverage: in the Parking overlay, tint every tile that some public
+    // lot / garage reaches (rangeOf, Manhattan in cells) with a pale blue.
+    if (ov === 'parking' && w.parking.lots.size) {
+      const lotsArr = [...w.parking.lots.values()];
+      for (let tz = 0; tz < GRID_SIZE; tz++) for (let tx = 0; tx < GRID_SIZE; tx++) {
+        const cx = tx * 4 + 2, cz = tz * 4 + 2;
+        if (!lotsArr.some((l) => Math.abs(cx - (l.cx + l.size / 2)) + Math.abs(cz - (l.cz + l.size / 2)) <= rangeOf(l))) continue;
+        P.overlay.add(this.place(new THREE.Vector3(tx + 0.5, 0.05, tz + 0.5), 0, 1, 0.3, 1), this.c.setHex(0x7fb8ff));
       }
     }
 
@@ -806,6 +890,9 @@ export class CityRenderer {
       let centre = new THREE.Vector3(), bw = 0, bd = 0, sx = 1, sy = 1, sz = 1, mlv = 1, body = bodyRect(tpl);
       const farm = tpl.zone === 'industrial' && tpl.kind === 1;
       const food = tpl.zone === 'industrial' && tpl.kind === 2;
+      // V1.5: a plain factory whose role (chains.ts) has its own model.
+      const role = tpl.zone === 'industrial' && tpl.kind === 0 && b.level > 0 ? roleOf(this.sim!.world, b.host) : 'factory';
+      const special = P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -813,13 +900,13 @@ export class CityRenderer {
       bw = body.w * Q; bd = body.d * Q; // along-road width, depth
       const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
       mlv = tpl.model.level[lvIdx];
-      if (farm || food) {
+      if (farm || food || special) {
         sx = sz = Math.min(bw, bd) * 0.95; sy = sx;
       } else {
         const rb = roofBox(tpl.zone, mlv);
         sx = (bw * 0.9) / rb.w; sz = (bd * 0.9) / rb.d;
         if (tpl.zone === 'residential' && tpl.density === 0) sx = sz = Math.min(sx, sz); // houses keep their proportions
-        sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1);
+        sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1) * (tpl.model.grow?.[lvIdx] ?? 1); // V1.5 taller extra levels
       }
       const progress = b.construct > 0 ? 1 - b.construct / CONSTRUCT_TICKS : 1;
       const look = pickLook(tpl.zone, b.ox + bi * 3, b.oz, seed, tpl.zone === 'residential' && mlv <= 3 ? RES_DESIGNS : undefined);
@@ -827,6 +914,8 @@ export class CityRenderer {
       const m = this.place(centre, yaw, sx, sy * (b.construct > 0 ? Math.max(0.06, progress) : 1), sz);
       const raw = b.construct > 0 ? 0.75 : 0;
       if (farm) P.farm.add(m, this.c.setScalar(dim));
+      else if (special && bi === 0) P[special].add(m, this.c.setScalar(dim));
+      else if (special) { /* one role model per building */ }
       else if (food) P[`foodPlant${Math.floor(hash2(b.ox, b.oz, seed + 61) * 3)}`].add(m, this.c.setScalar(dim));
       else {
         P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw).multiplyScalar(dim));
@@ -840,9 +929,25 @@ export class CityRenderer {
         const on = b.construct === 0 && st.operating && lit < 0.92 && late < bedtime;
         const hue = hash2(b.ox, b.oz, seed + 405);
         P[`${key}.lights`].add(m, on ? this.c.setHex(hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+        // V1.5 MIXED USE: the shop model is the ground floor; stack a
+        // two-storey home design on top of it (same footprint scale) so it
+        // reads as "shop below, flats above". Built only once construction ends.
+        if (tpl.residents && b.construct === 0) {
+          const rl = pickLook('residential', b.ox, b.oz + 5, seed, RES_DESIGNS);
+          const rkey = `${this.lod === 'low' ? 'lo:' : ''}residential.${rl.design}.2`;
+          const rb = roofBox('residential', 2);
+          const shopTop = roofBox('commercial', mlv).h * sy;
+          const fx = (bw * 0.86) / rb.w, fz = (bd * 0.8) / rb.d;
+          const fy = Math.min(1.1, Math.min(fx, fz));
+          const up = this.place(centre.clone().setY(shopTop), yaw, fx, fy, fz);
+          P[`${rkey}.walls`]?.add(up, this.c.setHex(rl.wall).multiplyScalar(dim));
+          P[`${rkey}.accent`]?.add(up, this.c.setHex(rl.accent).multiplyScalar(dim));
+          P[`${rkey}.fixed`]?.add(up, this.c.setScalar(dim));
+          P[`${rkey}.lights`]?.add(up, on ? this.c.setHex(0xffd890).multiplyScalar(1.3) : this.c.setScalar(0));
+        }
       }
       }
-      const h = (farm || food ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
+      const h = (farm || food || special ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
       if (ov === 'parking') {
         const need = this.sim!.world.parking.required(b), have = this.sim!.world.parking.available(b);
         P.overlay.add(this.place(centre.clone().setY(h + 0.05), 0, bw, 1, bd), this.c.setHex(have >= need ? 0x3ddc84 : 0xff3b30));

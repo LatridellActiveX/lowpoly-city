@@ -24,8 +24,9 @@ export function part(
   rot: [number, number, number] = [0, 0, 0],
 ): THREE.BufferGeometry {
   // toNonIndexed so every part has the same attribute layout and can be merged.
+  // UVs are KEPT (not deleted): primitive UVs let canvas textures sample each
+  // face, and Three.js multiplies map x vertex color x instance color.
   const g = geo.index ? geo.toNonIndexed() : geo;
-  g.deleteAttribute('uv');
   g.rotateX(rot[0]);
   g.rotateY(rot[1]);
   g.rotateZ(rot[2]);
@@ -76,6 +77,28 @@ export const MODELS = {
   roadDash: () => merge([part(box(0.22, 0.012, 0.05), 0xf2e6a0, [-0.25, 0.04, 0]), part(box(0.22, 0.012, 0.05), 0xf2e6a0, [0.25, 0.04, 0])]),
   /** Zoned lot: a flat white slab; the instance colour tints it per zone. */
   lot: () => merge([part(box(0.94, 0.03, 0.94), 0xffffff)]),
+
+  /**
+   * V1.5 oil-fired power plant: same footprint as coal, but with two white
+   * crude tanks, a turbine hall, a slim stack and a small gas flare.
+   */
+  oilPlant: () =>
+    merge([
+      part(box(0.94, 0.12, 0.94), 0x9aa0a6),
+      part(box(0.46, 0.34, 0.36), 0x5a7fa6, [-0.18, 0.12, 0.22]), // turbine hall
+      part(box(0.48, 0.04, 0.38), 0x3d4f63, [-0.18, 0.46, 0.22]), // roof
+      ...[[0.24, -0.22], [0.24, 0.16]].flatMap(([x, z]) => [
+        part(new THREE.CylinderGeometry(0.17, 0.17, 0.26, 12).translate(0, 0.13, 0), 0xeeeeea, [x, 0.12, z]),
+        part(new THREE.CylinderGeometry(0.175, 0.175, 0.02, 12).translate(0, 0.26, 0), 0x9aa0a6, [x, 0.12, z]),
+      ]),
+      part(new THREE.CylinderGeometry(0.035, 0.045, 0.85, 6).translate(0, 0.42, 0), 0x55595e, [-0.32, 0.12, -0.3]), // stack
+      part(box(0.04, 0.04, 0.04), 0xc23b2f, [-0.32, 0.95, -0.3]),
+      part(new THREE.CylinderGeometry(0.015, 0.015, 0.5, 6).translate(0, 0.25, 0), 0x7d848b, [-0.05, 0.12, -0.35]), // flare
+      part(new THREE.ConeGeometry(0.035, 0.08, 6).translate(0, 0.04, 0), 0xff8a2a, [-0.05, 0.62, -0.35]),
+      part(new THREE.CylinderGeometry(0.02, 0.02, 0.4, 8).rotateZ(Math.PI / 2), 0x8d8f91, [0.05, 0.3, -0.02]), // pipe
+      ...[-0.45, -0.15, 0.15, 0.45].map((x) => part(box(0.014, 0.08, 0.014), 0x7d848b, [x, 0.12, 0.46])),
+      part(box(0.92, 0.006, 0.006), 0x7d848b, [0, 0.19, 0.46]),
+    ]),
 
   powerPlant: () =>
     merge([
