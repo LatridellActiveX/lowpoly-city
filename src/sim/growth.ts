@@ -29,6 +29,7 @@
 import { CELL_GRID, CELLS_PER_TILE, CellRole, cidx, tileOfCell, ZONE_CODES, ZoneCode, zoneCode } from './cells';
 import { area, isFiller, Template, TEMPLATES, TPL } from './footprints';
 import { localToCell } from './lots';
+import { residentsAt } from './footprints';
 import { FIT_BUDGET, MERGE_TICKS, SHRINK_TICKS, capacityAt, growablePool, scoreOption, tileBuildable, refreshTileZone, Building } from './lots';
 import { lotFits } from './parking';
 import { tierOk } from './progression';
@@ -72,7 +73,11 @@ export function levelCap(sim: Simulation, b: Building): number {
 /** Seeded growth roll for a zone (same shape as PR 5: tax × demand). */
 function roll(sim: Simulation, zone: ZoneType, salt: number): boolean {
   const w = sim.world;
-  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * sim.demandFactor(zone);
+  // V1.5 mixed use (commercial host tile with kind 3): flats AND a shop, so
+  // whichever of residential / commercial demand is stronger drives it.
+  const mixed = zone === 'commercial' && w.tiles[salt]?.kind === 3;
+  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : sim.demandFactor(zone);
+  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * f;
 }
 
 export function growLots(sim: Simulation, sparePower: number[], spareWater: number[]): void {
@@ -181,6 +186,7 @@ export function industryMix(sim: Simulation): IndustryMix {
     const t = TPL[b.tpl];
     const lv = b.level + (b.construct > 0 ? 1 : 0);
     if (t.zone === 'residential') pop += capacityAt(t, b.level);
+    else if (t.residents) pop += residentsAt(t, b.level); // V1.5 mixed use
     else if (t.zone === 'industrial' && t.kind === 1) farms += lv;
     else if (t.zone === 'industrial' && t.kind === 2) plants += lv;
   }
@@ -306,7 +312,8 @@ export function codeForTool(sim: Simulation, tool: ToolId, i: number, opt: ZoneO
   if (tool === 'foodPlant') return ZoneCode.FoodPlant;
   const zone = tool as ZoneType;
   if (zone === 'industrial' && opt.density === 0 && sim.world.resourceAt(i) === Resource.Farmland) return ZoneCode.Farm;
-  return zoneCode(zone, zone === 'residential' ? opt.density : Math.min(1, opt.density));
+  // V1.5: commercial accepts density 2 (= Mixed use, cells.ts ComMixed).
+  return zoneCode(zone, zone === 'industrial' ? Math.min(1, opt.density) : opt.density);
 }
 
 /**

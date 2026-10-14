@@ -65,7 +65,12 @@ export interface Template {
   maxLevel: number;
   /** Residents (homes) or jobs (shops/factories) at each level; index = level − 1. */
   capacity: number[];
-  /** Households per level (homes only), for the parking requirement. */
+  /**
+   * V1.5 MIXED USE: residents living above a commercial building, per level
+   * (capacity[] then holds its JOBS). Undefined for every other template.
+   */
+  residents?: number[];
+  /** Households per level (homes AND mixed-use flats), for the parking requirement. */
   homes?: number[];
   /** Renderer hints: which zone model level to draw, and extra height for towers. */
   model: { level: number[]; tall?: number };
@@ -220,11 +225,23 @@ export const TEMPLATES: Template[] = [
   { id: 'legacy_food', label: 'Food plant (pre-PR 6 lot)', zone: 'industrial', kind: 2, density: 0, tier: 0, w: 4, d: 4, legacy: true,
     rects: [R(0, 0, 3, 1, P), R(3, 0, 1, 1, Bay), R(0, 1, 4, 3, B)], garage: 3, bays: 1,
     maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 0 },
+  // (Appended LAST so earlier templates keep their index — scoreOption salts by index.)
+  // ---------------- V1.5 Mixed use (Commercial ▸ Mixed) ----------------
+  // Parker: "shop ground floor, homes above — holds 10 people and 1 business".
+  // One business = 4 jobs (a corner shop at level 1). 4 households of flats.
+  { id: 'mixed_use', label: 'Mixed-use block', zone: 'commercial', kind: 3, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 2, bays: 0,
+    maxLevel: 1, capacity: [4], residents: [10], homes: [4], model: { level: [1] }, weight: 2 },
+  { id: 'mixed_corner', label: 'Mixed-use corner', zone: 'commercial', kind: 3, density: 1, tier: 0, w: 3, d: 4,
+    rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 3, B)], garage: 3, bays: 0,
+    maxLevel: 1, capacity: [4], residents: [10], homes: [4], model: { level: [1] }, weight: 1.5 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));
 
 /** Is this template a filler (garden / overflow lot) rather than a real building? */
+/** V1.5: residents living in a (mixed-use) building at `level`; 0 for templates without flats. */
+export const residentsAt = (t: Template, level: number) => (level <= 0 || !t.residents ? 0 : t.residents[Math.min(level, t.maxLevel) - 1]);
 export const isFiller = (t: Template) => t.capacity[0] === 0;
 
 /** Surface parking spaces drawn as stalls (1 per Parking cell). */
@@ -244,7 +261,8 @@ export function parkingRequired(t: Template, level: number): number {
   if (level <= 0 || isFiller(t)) return 0;
   const k = Math.min(level, t.maxLevel) - 1;
   if (t.zone === 'residential') return Math.ceil((t.homes?.[k] ?? 1) * SPACES_PER_HOME[t.density]);
-  if (t.zone === 'commercial') return Math.ceil(t.capacity[k] / SHOP_JOBS_PER_SPACE);
+  // V1.5 mixed use: shop spaces + medium-density spaces for the flats above.
+  if (t.zone === 'commercial') return Math.ceil(t.capacity[k] / SHOP_JOBS_PER_SPACE + (t.residents ? (t.homes?.[k] ?? 0) * SPACES_PER_HOME[1] : 0));
   return Math.ceil(t.capacity[k] / FACTORY_JOBS_PER_SPACE);
 }
 

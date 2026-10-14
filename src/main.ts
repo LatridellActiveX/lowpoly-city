@@ -130,7 +130,7 @@ function renderZoneBar(): void {
   const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant';
   zoneBar.classList.toggle('hidden', !show);
   if (!show) return;
-  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High'] : ['Light', 'Heavy'];
+  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed'] : ['Light', 'Heavy'];
   const d = Math.min(sim.zoneOpt.density, names.length - 1);
   zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
     <span class="muted" style="margin-left:10px">Depth</span> ${[1, 2, 3, 4].map((k) => `<button class="btn${k === sim.zoneOpt.depth ? ' active' : ''}" data-depth="${k}">${k}</button>`).join('')} <span class="muted">tiles</span>`;

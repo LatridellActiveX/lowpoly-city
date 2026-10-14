@@ -42,6 +42,7 @@
  * building model's left too — no mirroring.
  *     cell(u, v) = origin + u·A + v·D
  */
+import { residentsAt } from './footprints';
 import { CELL_GRID, CellRole, CELLS_PER_TILE, cellInBounds, cidx, FACES, tileOfCell, ZONE_CODES, ZoneCode } from './cells';
 import { area, bodyRect, isFiller, parkingRequired, parkingSupply, Template, TEMPLATES, TPL } from './footprints';
 import { World } from './grid';
@@ -306,6 +307,7 @@ export class Lots {
       if (t.structure === 'building') t.structure = 'none';
     }
     const next = new Set<number>();
+    const mixedUnits = new Map<number, number>();
     for (const b of this.buildings.values()) {
       const tpl = TPL[b.tpl];
       if (isFiller(tpl)) continue;
@@ -327,6 +329,13 @@ export class Lots {
           t.units += capacityAt(tpl, b.level) / 5; // power/water reserved for the full building
           t.level = Math.max(t.level, b.level);
         } else {
+          // V1.5 mixed use: flats above the shop. Residents live on the
+          // (commercial) host tile; their power/water units are added after
+          // the shop level is derived from units below.
+          if (tpl.residents) {
+            t.res += residentsAt(tpl, lvNow);
+            mixedUnits.set(b.host, (mixedUnits.get(b.host) ?? 0) + residentsAt(tpl, b.level) / 5);
+          }
           const jobs = capacityAt(tpl, b.level);
           t.jobs += jobs;
           t.units += jobs / (tpl.zone === 'commercial' ? 4 : tpl.kind === 1 ? 3 : 8);
@@ -336,6 +345,7 @@ export class Lots {
     for (const h of next) {
       const t = tiles[h];
       if (t.zone !== 'residential' && t.units > 0) t.level = Math.max(1, Math.round(t.units));
+      t.units += mixedUnits.get(h) ?? 0;
       if (t.construct === 0 && t.crewLinger > 0) t.crewLinger--;
       if (t.construct === 0 && t.crewLinger === 0) t.crew = false;
     }
@@ -349,10 +359,10 @@ export class Lots {
 export function refreshTileZone(world: World, i: number): void {
   const t = world.tiles[i];
   const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
-  const count = new Array(10).fill(0);
+  const count = new Array(ZONE_CODES.length).fill(0); // V1.5: was 10 (before Mixed use)
   for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) count[world.cells.zone[cidx(x * 4 + dx, z * 4 + dz)]]++;
   let best = 0;
-  for (let c = 1; c < 10; c++) if (count[c] > 0 && (best === 0 || count[c] > count[best])) best = c;
+  for (let c = 1; c < ZONE_CODES.length; c++) if (count[c] > 0 && (best === 0 || count[c] > count[best])) best = c;
   if (best === 0) { if (t.structure === 'none' || t.structure === 'building') t.zone = null; t.kind = 0; return; }
   t.zone = ZONE_CODES[best].zone;
   t.kind = ZONE_CODES[best].kind;

@@ -758,7 +758,7 @@ export class CityRenderer {
       if (!code) continue;
       const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
       const info = ZONE_CODES[code];
-      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : ZONE_COLORS[info.zone!];
+      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : ZONE_COLORS[info.zone!];
       if (cells.owner[c] === 0) {
         this.c.setHex(col);
         if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
@@ -891,6 +891,22 @@ export class CityRenderer {
         const on = b.construct === 0 && st.operating && lit < 0.92 && late < bedtime;
         const hue = hash2(b.ox, b.oz, seed + 405);
         P[`${key}.lights`].add(m, on ? this.c.setHex(hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+        // V1.5 MIXED USE: the shop model is the ground floor; stack a
+        // two-storey home design on top of it (same footprint scale) so it
+        // reads as "shop below, flats above". Built only once construction ends.
+        if (tpl.residents && b.construct === 0) {
+          const rl = pickLook('residential', b.ox, b.oz + 5, seed, RES_DESIGNS);
+          const rkey = `${this.lod === 'low' ? 'lo:' : ''}residential.${rl.design}.2`;
+          const rb = roofBox('residential', 2);
+          const shopTop = roofBox('commercial', mlv).h * sy;
+          const fx = (bw * 0.86) / rb.w, fz = (bd * 0.8) / rb.d;
+          const fy = Math.min(1.1, Math.min(fx, fz));
+          const up = this.place(centre.clone().setY(shopTop), yaw, fx, fy, fz);
+          P[`${rkey}.walls`]?.add(up, this.c.setHex(rl.wall).multiplyScalar(dim));
+          P[`${rkey}.accent`]?.add(up, this.c.setHex(rl.accent).multiplyScalar(dim));
+          P[`${rkey}.fixed`]?.add(up, this.c.setScalar(dim));
+          P[`${rkey}.lights`]?.add(up, on ? this.c.setHex(0xffd890).multiplyScalar(1.3) : this.c.setScalar(0));
+        }
       }
       }
       const h = (farm || food ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;

@@ -85,7 +85,8 @@ export function residentsOf(t: Tile): number {
   // PR 6: buildings are entities on the cell grid; their host tile carries
   // the sum of its buildings' residents (lots.ts aggregate), already net of
   // anyone still driving in.
-  return t.zone === 'residential' ? t.res : 0;
+  // V1.5: mixed-use (commercial) hosts also carry residents in t.res.
+  return t.res;
 }
 /**
  * "Size units" of a building for power/water/tax: residents ÷ 5 for homes

@@ -32,7 +32,7 @@ import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
 import { Building, tileBuildable } from './lots';
 import { cidx, ZoneCode } from './cells';
-import { TPL, isFiller } from './footprints';
+import { TPL, isFiller, residentsAt } from './footprints';
 import { BUILD_COST } from './economy';
 import { hash2 } from './random';
 import { stepWind } from './wind';
@@ -482,6 +482,8 @@ export class Simulation {
       const tpl = TPL[b.tpl];
       if (b.level <= 0 || isFiller(tpl)) continue;
       if (tpl.zone === 'residential') { homes.push(b); pop += tpl.capacity[Math.min(b.level, tpl.maxLevel) - 1]; } else work.push(b);
+      // V1.5 mixed use: its residents commute too (it is also a workplace).
+      if (tpl.residents) { homes.push(b); pop += residentsAt(tpl, b.level); }
     }
     // PR 5: commuter volume follows the clock — rush hours full, nights quiet.
     const tod = timeOfDay(w.clock);
@@ -566,7 +568,7 @@ export class Simulation {
         inactive++;
         return;
       }
-      if (t.zone === 'residential') population += residentsOf(t); // PR 5: per-level table; not until their car arrives
+      population += residentsOf(t); // PR 5: per-level table; not until their car arrives. V1.5: incl. mixed use
       jobs += jobsOf(this.world, i); // PR 5: farms have fewer jobs
     });
     const sum = (ns: { capacity: number; demand: number; outages: number }[]) =>

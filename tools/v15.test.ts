@@ -12,6 +12,7 @@ import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
 import { TPL } from '../src/sim/footprints';
+import { growablePool } from '../src/sim/lots';
 
 let fails = 0;
 const check = (name: string, ok: boolean, info: unknown = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info !== '' ? '  ' + JSON.stringify(info) : ''}`); if (!ok) fails++; };
@@ -95,6 +96,21 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   run(s, 300);
   check('garages earn fees', (s.world.ledger.trade.parking ?? 0) + (s.world.lastLedger?.trade.parking ?? 0) > 0);
   console.log('NUMBERS parking', JSON.stringify({ pop: s.stats().population, maxRatio: +maxRatio.toFixed(2), grown: grownN, fees: s.world.ledger.trade.parking ?? 0, totals: p.totals(s.world.lots) }));
+}
+
+// ---------------------------------------------------------------- stage 5: mixed use
+{
+  const s = town();
+  s.zoneOpt = { density: 2, depth: 1 }; // Commercial ▸ Mixed
+  s.apply('commercial', rect(11, 18, 29, 18));
+  const z10 = () => { let n = 0, o = 0; s.world.cells.zone.forEach((c, i) => { if (c === 10) { n++; if (s.world.cells.owner[i]) o++; } }); return [n, o]; };
+  run(s, 700);
+  const mixed = [...s.world.lots.buildings.values()].filter((b) => TPL[b.tpl].residents && b.level > 0);
+  const tile = mixed[0] ? s.world.tiles[mixed[0].host] : null;
+  check('mixed-use blocks grow on Mixed zoning', mixed.length > 0, mixed.length);
+  check('mixed use: 10 residents + 1 business (4 jobs) each', !!tile && TPL[mixed[0].tpl].residents![0] === 10 && TPL[mixed[0].tpl].capacity[0] === 4 && tile.res >= 10, tile && { res: tile.res, jobs: tile.jobs });
+  const st = s.stats();
+  check('mixed-use residents count toward population', st.population >= mixed.length * 10, { pop: st.population, mixed: mixed.length });
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
