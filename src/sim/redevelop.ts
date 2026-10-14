@@ -51,6 +51,7 @@ import { RECIPES, roleOf } from './chains';
 import { CONSTRUCT_TICKS } from './rules';
 import { GRID_SIZE } from './types';
 import { occupancyDemand } from './demand';
+import { healthWithSafety } from './safety';
 
 export const REDEV_HEALTH = 0.3;
 export const REDEV_MONTHS = 3;
@@ -94,7 +95,10 @@ export class Redevelopment {
     const frustrated = b.arrivals > 3 && b.gaveUp / b.arrivals > 0.5;
     const park = frustrated ? 0.4 : w.parking.shortfall(b) > 0 ? 0.7 : 1;
     const access = (st.roadAccess && st.powered && st.watered ? 1 : 0.3) * park;
-    return clamp01(TYPE_WEIGHT * type + (1 - TYPE_WEIGHT) * (lv + clean + access) / 3);
+    const h = clamp01(TYPE_WEIGHT * type + (1 - TYPE_WEIGHT) * (lv + clean + access) / 3);
+    // V1.5b stage F: crime hurts, clinic/hospital coverage helps (safety.ts).
+    const sf = sim.safety;
+    return sf && sf.crime.length ? healthWithSafety(h, sf.crime[b.host], sf.care[b.host]) : h;
   }
 
   /** The monthly pass: update health, pick candidates, rebuild a few. */

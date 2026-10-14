@@ -56,6 +56,8 @@ export enum ZoneCode {
   FoodPlant = 9,
   /** V1.5: mixed-use (shops on the ground floor, homes above) — Commercial ▸ Mixed. */
   ComMixed = 10,
+  /** V1.5b stage H: offices (Commercial ▸ Office) — law firms, telecoms, data centres. */
+  ComOffice = 11,
 }
 
 /** Static facts about each zone code (index = code). */
@@ -80,13 +82,15 @@ export const ZONE_CODES: ZoneCodeInfo[] = [
   { zone: 'industrial', density: 0, kind: 2, label: 'Food plant' },
   // V1.5: commercial kind 3 = mixed-use. Density 1 so only mixed templates fit.
   { zone: 'commercial', density: 1, kind: 3, label: 'Mixed use' },
+  // V1.5b: commercial kind 4 = office.
+  { zone: 'commercial', density: 1, kind: 4, label: 'Office' },
 ];
 
 /** The zone code for a zone + density (+ industrial kind). */
 export function zoneCode(zone: ZoneType, density: number, kind = 0): ZoneCode {
   if (zone === 'residential') return (ZoneCode.ResLow + Math.min(2, density)) as ZoneCode;
   // V1.5: commercial "density" 2 in the zone bar = Mixed use.
-  if (zone === 'commercial') return density >= 2 ? ZoneCode.ComMixed : ((ZoneCode.ComLow + Math.min(1, density)) as ZoneCode);
+  if (zone === 'commercial') return density >= 3 ? ZoneCode.ComOffice : density >= 2 ? ZoneCode.ComMixed : ((ZoneCode.ComLow + Math.min(1, density)) as ZoneCode);
   if (kind === 1) return ZoneCode.Farm;
   if (kind === 2) return ZoneCode.FoodPlant;
   return (ZoneCode.IndLight + Math.min(1, density)) as ZoneCode;

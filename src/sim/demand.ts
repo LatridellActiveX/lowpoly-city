@@ -66,17 +66,36 @@ export interface ZoneDemand {
 }
 /** V1.5b: demand as seen by EXISTING buildings (ignores the empty-zoning penalty). */
 export const occupancyDemand = (d: ZoneDemand) => d.value + (d.zoned ?? 0);
-export type Demand = Record<ZoneType, ZoneDemand>;
+/**
+ * V1.5b stage G — WORKFORCE EDUCATION (Parker).
+ * Residents on a tile with elementary coverage (services.ts edu ≥ 1) are
+ * "educated" workers; the rest are "uneducated". Everyone keeps a baseline
+ * EDU_BASELINE share of educated workers (commuters, home schooling), so a
+ * school-less village still works.
+ *   Commercial jobs need EDU_SHARE_COM of their staff educated (offices,
+ *   stage H, need EDU_SHARE_OFFICE); industry mostly uses uneducated workers.
+ *   If educated workers fall short of what shops need, commercial demand
+ *   loses up to EDU_PENALTY and its tooltip says so.
+ */
+export const EDU_BASELINE = 0.25, EDU_SHARE_COM = 0.5, EDU_SHARE_OFFICE = 0.9, EDU_PENALTY = 0.45;
+export interface Workforce { educated: number; uneducated: number; needEducated: number }
+export type Demand = Record<ZoneType, ZoneDemand> & { workforce?: Workforce };
 
 const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 
-export function computeDemand(world: World, desirabilityAvg: number, operating: (i: number) => boolean): Demand {
+export function computeDemand(world: World, desirabilityAvg: number, operating: (i: number) => boolean, edu?: Uint8Array): Demand {
+  let officeJobs = 0;
+  let covered = 0;
   let pop = 0, shopJobs = 0, factoryJobs = 0, shops = 0, emptyShops = 0;
   world.tiles.forEach((t, i) => {
     if (!t.zone || t.level === 0 || !operating(i)) return;
     pop += residentsOf(t); // V1.5: mixed-use shops house people too
+    if (edu && edu[i] >= 1) covered += residentsOf(t);
     if (t.zone === 'residential') { /* homes counted above */ }
-    else if (t.zone === 'commercial') {
+    else if (t.zone === 'commercial' && t.kind === 4) {
+      // V1.5b stage H: office jobs count half as shop jobs, half as industry jobs.
+      officeJobs += t.jobs; shopJobs += t.jobs / 2; factoryJobs += t.jobs / 2;
+    } else if (t.zone === 'commercial') {
       shopJobs += JOBS_PER_LEVEL.commercial * t.level;
       shops++;
       if (t.stock <= 0) emptyShops++;
@@ -109,7 +128,15 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   // V1.5b: households without enough jobs push industry (and a little retail).
   const homesPush = Math.max(0, Math.min(1, workers / Math.max(20, jobs) - 1));
   const c = clamp(0.35 + HOMES_TO_COM * homesPush + (wantShop - shopJobs) / Math.max(40, pop * 0.3) - shelves + tax('commercial'));
-  const cDriver = shelves > 0.15 ? `${emptyShops} shop${emptyShops > 1 ? 's have' : ' has'} empty shelves — need goods` : wantShop > shopJobs + 2 ? 'Residents want more places to shop' : pop < 20 ? 'Not enough customers yet' : 'Shops are keeping up with customers';
+  // V1.5b stage G: educated workforce vs what shops (and offices) need.
+  const coveredShare = pop > 0 ? covered / pop : 0;
+  const educated = workers * (EDU_BASELINE + (1 - EDU_BASELINE) * coveredShare);
+  const needEducated = (shopJobs - officeJobs / 2) * EDU_SHARE_COM + officeJobs * EDU_SHARE_OFFICE;
+  const eduShort = needEducated > 10 ? Math.max(0, 1 - educated / needEducated) : 0;
+  const cEdu = EDU_PENALTY * eduShort;
+  const cFinal = clamp(c - cEdu);
+  const cDriver0 = shelves > 0.15 ? `${emptyShops} shop${emptyShops > 1 ? 's have' : ' has'} empty shelves — need goods` : wantShop > shopJobs + 2 ? 'Residents want more places to shop' : pop < 20 ? 'Not enough customers yet' : 'Shops are keeping up with customers';
+  const cDriver = eduShort > 0.15 ? `Not enough educated workers (${Math.round(educated)} of ${Math.round(needEducated)} needed) — build schools` : cDriver0;
 
   // Industrial: idle workers + shops waiting for goods + export market.
   const idle = Math.max(0, workers - jobs);
@@ -117,7 +144,7 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   const i = clamp(0.2 + HOMES_TO_IND * homesPush + idle / Math.max(20, pop * 0.2) + shelves * 1.3 + exportBonus - factoryJobs / Math.max(40, pop * 1.2) + tax('industrial'));
   const iDriver = idle > 5 ? `${Math.round(idle)} workers looking for factory jobs` : shelves > 0.15 ? 'Shops are waiting for goods' : world.edgeIndex < 0 ? 'No highway connection for exports' : 'Export market keeps factories busy';
 
-  return { residential: { value: r, driver: rDriver, zoned: Math.min(rZoned, r + 1) }, commercial: { value: c, driver: cDriver }, industrial: { value: i, driver: iDriver } };
+  return { residential: { value: r, driver: rDriver, zoned: Math.min(rZoned, r + 1) }, commercial: { value: cFinal, driver: cDriver }, industrial: { value: i, driver: iDriver }, workforce: { educated, uneducated: Math.max(0, workers - educated), needEducated } };
 }
 
 /** Growth multiplier for a demand value (see top of file). */

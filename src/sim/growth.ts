@@ -26,7 +26,7 @@
  * The same rules feed `buildingRequirements()` (the Inspect "Next level"
  * bars), so the panel can't disagree with what the sim checks.
  */
-import { MEDIUM_LEVEL_POP } from './footprints';
+import { MEDIUM_LEVEL_POP, resLevel } from './footprints';
 import { zonePromote } from './lots';
 import { mediumUnlocked } from './progression';
 import { occupancyDemand } from './demand';
@@ -88,7 +88,9 @@ function roll(sim: Simulation, zone: ZoneType, salt: number): boolean {
   // V1.5 mixed use (commercial host tile with kind 3): flats AND a shop, so
   // whichever of residential / commercial demand is stronger drives it.
   const mixed = zone === 'commercial' && w.tiles[salt]?.kind === 3;
-  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : sim.demandFactor(zone);
+  // V1.5b stage H: offices grow on BOTH commercial and industrial demand.
+  const office = zone === 'commercial' && w.tiles[salt]?.kind === 4;
+  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : office ? (sim.demandFactor('commercial') + sim.demandFactor('industrial')) / 2 : sim.demandFactor(zone);
   return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * propertyGrowth(w.propertyRate) * f; // V1.5: property tax too
 }
 
@@ -158,7 +160,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     if (!serviced) { b.happy = 0; continue; }
     // Parking shortfall / give-ups slow growth to half speed.
     if (!(short || frustrated) || w.tick % 2 === 0) b.happy++;
-    const need = tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+    const need = (tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS) * eduSlow(sim, b);
     if (b.happy < need) continue;
     const cap = levelCap(sim, b);
     if (b.level < Math.min(cap, tpl.maxLevel)) {
@@ -248,6 +250,21 @@ const desireOf2 = (sim: Simulation, i: number) => sim.env.desirability[i];
  * template level MED_MERGE_START so the street doesn't lose most of its
  * residents during the rebuild.
  */
+/**
+ * V1.5b stage G — EDUCATION AND HOME LEVELS. Homes still grow without
+ * schools, but slower: the next level L4–L5 needs elementary coverage
+ * (edu ≥ 1) and L6–L7 high-school coverage (edu ≥ 2), else growth takes
+ * EDU_SLOW_ELEM / EDU_SLOW_HIGH × as long.
+ */
+export const EDU_SLOW_ELEM = 1.4, EDU_SLOW_HIGH = 1.6;
+export function eduSlow(sim: Simulation, b: Building): number {
+  const tpl = TPL[b.tpl];
+  if (tpl.zone !== 'residential' || !sim.cov) return 1;
+  const next = resLevel(tpl, b.level + 1), e = sim.cov.edu[b.host] ?? 0;
+  if (next >= 6 && e < 2) return EDU_SLOW_HIGH;
+  if (next >= 4 && e < 1) return EDU_SLOW_ELEM;
+  return 1;
+}
 export const MED_MERGE_DEMAND = 0.1;
 export const MED_MERGE_START = 2;
 const medRes = (t: Template) => t.zone === 'residential' && t.density === 1 && !t.legacy;
@@ -521,7 +538,7 @@ export function buildingRequirements(sim: Simulation, b: Building): Requirement[
   const sp = s.powerNet >= 0 ? sim.net.power[s.powerNet].capacity - sim.net.power[s.powerNet].supplied : 0;
   const sw = s.waterNet >= 0 ? sim.net.water[s.waterNet].capacity - sim.net.water[s.waterNet].supplied : 0;
   add('Spare power & water capacity', +(sp >= use.power) + +(sw >= use.water), 2, 'Build another power plant or water tower');
-  const need = tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+  const need = (tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS) * eduSlow(sim, b);
   add('Settled (happy ticks)', Math.min(b.happy, need), need, park.shortfall(b) > 0 ? 'Short of parking: growing at half speed' : 'Just wait — growth takes a few seconds');
   return rows;
 }

@@ -253,6 +253,28 @@ export const TEMPLATES: Template[] = [
   { id: 'perimeter', label: 'Perimeter block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 10, d: 8,
     rects: [R(0, 0, 10, 3, B), R(0, 3, 3, 4, B), R(7, 3, 3, 4, B), R(3, 3, 4, 4, Gd), R(0, 7, 10, 1, P)], garage: 56, bays: 0,
     maxLevel: 4, capacity: [150, 230, 345, 500], homes: [60, 92, 138, 200], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1 },
+  // ---------------- V1.5b stage H: offices (Commercial ▸ Office, kind 4) ----------------
+  // Parker: "counts toward both commercial and industrial demand and jobs".
+  // capacity = jobs. Offices want educated workers (demand.ts EDU_SHARE_OFFICE).
+  // `special` models: render/officeModels.ts (key office.<id>).
+  { id: 'law_firm', label: 'Law firm', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 10, bays: 0,
+    maxLevel: 3, capacity: [10, 18, 28], model: { level: [1, 2, 3] }, weight: 1.5 },
+  { id: 'cable_co', label: 'Cable company', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 10, bays: 0,
+    maxLevel: 3, capacity: [12, 20, 30], model: { level: [1, 2, 3] }, weight: 1.2 },
+  { id: 'internet_co', label: 'Internet company', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 6, d: 4,
+    rects: [R(0, 0, 6, 1, P), R(0, 1, 6, 3, B)], garage: 8, bays: 0,
+    maxLevel: 3, capacity: [16, 28, 42], model: { level: [1, 2, 3] }, weight: 1.2 },
+  { id: 'data_center', label: 'Data center', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 8, d: 8,
+    rects: [R(0, 0, 8, 1, P), R(0, 1, 8, 7, B)], garage: 17, bays: 0,
+    maxLevel: 3, capacity: [20, 34, 50], model: { level: [1, 2, 3] }, weight: 0.8 },
+  { id: 'cell_tower', label: 'Cell tower', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 3, d: 3,
+    rects: [R(0, 0, 3, 3, B)], garage: 1, bays: 0,
+    maxLevel: 1, capacity: [2], model: { level: [1] }, weight: 0.6 },
+  { id: 'radio_station', label: 'Radio station', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 3, bays: 0,
+    maxLevel: 2, capacity: [8, 14], model: { level: [1, 2] }, weight: 0.8 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));

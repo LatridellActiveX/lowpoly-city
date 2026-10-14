@@ -124,6 +124,9 @@ export class Hud {
         ['parking', '🅿️ Parking'],
         ['landValue', '💎 Land value'], // V1.5 stage 11
         ['garbage', '🗑 Garbage'], // V1.5b stage E
+        ['crime', '🚓 Crime'], // V1.5b stage F
+        ['health', '🩺 Health care'], // V1.5b stage F
+        ['education', '🎓 Education'], // V1.5b stage G
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
@@ -682,12 +685,20 @@ export class Hud {
     if (t.structure === 'service') {
       const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
       rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${d.size === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      if (d.svc === Svc.Police || d.svc === Svc.Clinic || d.svc === Svc.Hospital) rows.push(`<div class="row">${d.svc === Svc.Police ? 'Patrol cars' : 'Ambulances'} out: <b>${sim.responders.outOf(a)} / ${d.fleet}</b></div>`);
       if (d.svc === Svc.Dump) rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
     if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Garbage Dump nearby' : ''}</div>`);
     if (t.zone) {
       const c = sim.cov.by;
+      // V1.5b stage G: workforce education.
+      const wf = sim.demand.workforce;
+      if (t.zone === 'residential' && t.res > 0) rows.push(`<div class="row">🎓 Workers here are <b>${sim.cov.edu[i] >= 1 ? 'educated' : 'uneducated'}</b>${sim.cov.edu[i] >= 1 ? '' : ' — no elementary school in range'}</div>`);
+      if (wf && (t.zone === 'commercial' || t.zone === 'industrial')) rows.push(`<div class="row muted">City workforce: ${Math.round(wf.educated)} educated · ${Math.round(wf.uneducated)} uneducated · ${t.zone === 'commercial' ? `shops/offices need ${Math.round(wf.needEducated)} educated` : 'industry mostly hires uneducated workers'}</div>`);
+      // V1.5b stage F: crime on this tile (police coverage lowers it).
+      const cr = sim.safety.crime[i] ?? 0;
+      if (cr > 0.02) rows.push(`<div class="row">🚓 Crime: <b class="${cr > 0.4 ? 'bad' : ''}">${Math.round(cr * 100)}%</b>${c[Svc.Police][i] < 0.3 && cr > 0.2 ? ' — build a Police Station nearby' : ''}</div>`);
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
     }

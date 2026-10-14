@@ -40,6 +40,8 @@ import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
 import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS } from './services';
 import { Garbage } from './garbage';
+import { applyServiceEffects, computeSafety, Responders, Safety } from './safety';
+import { LV_MAX } from './environment';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
@@ -130,6 +132,9 @@ export class Simulation {
   redevelop = new Redevelopment();
   /** V1.5b stage E: garbage build-up + dump trucks. */
   garbage = new Garbage();
+  /** V1.5b stage F: crime + health care fields and responder vehicles. */
+  safety: Safety = { crime: new Float32Array(0), care: new Float32Array(0) };
+  responders = new Responders();
   /** V1.5b: service coverage (garbage, police, health, schools), recomputed every tick with the environment. */
   cov: Coverage;
   /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
@@ -158,17 +163,29 @@ export class Simulation {
     this.world = world;
     this.net = computeNetworks(world);
     this.cov = computeCoverage(world);
-    this.env = computeEnvironment(world, this.net.service);
+    this.env = this.envWithServices(world);
     this.demand = this.computeDemand();
   }
 
   /** RCI demand from the current city (average desirability over homes). */
+  /**
+   * V1.5b: environment + service effects. Coverage must be current; crime
+   * and care (safety.ts) are folded into land value here, so every caller
+   * that used to call computeEnvironment directly gets them.
+   */
+  private envWithServices(w: World): ReturnType<typeof computeEnvironment> {
+    const env = computeEnvironment(w, this.net.service);
+    this.safety = computeSafety(w, this.cov);
+    applyServiceEffects(env.landValue, this.safety, LV_MAX);
+    return env;
+  }
+
   private computeDemand(): Demand {
     let sum = 0, n = 0;
     this.world.tiles.forEach((t, i) => {
       if (t.zone === 'residential') { sum += this.env.desirability[i]; n++; }
     });
-    const d = computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating);
+    const d = computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating, this.cov?.edu);
     // PR 6: say what new industry will turn into (farm / food plant / factory).
     d.industrial.driver += ` · ${industryMix(this).driver}`;
     return d;
@@ -197,7 +214,7 @@ export class Simulation {
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
     this.cov = computeCoverage(w);
-    this.env = computeEnvironment(w, this.net.service);
+    this.env = this.envWithServices(w);
     this.demand = this.computeDemand();
 
     // Spare capacity per network, decremented as lots grow this tick so that
@@ -226,6 +243,8 @@ export class Simulation {
     this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
     // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
     this.garbage.tick(w, this.traffic, (i) => this.status(i).operating);
+    // V1.5b stage F: police patrols + ambulance runs.
+    this.responders.tick(w, this.traffic, this.safety);
     // PR 4 progression: announce new tiers (UI drains `events`).
     this.events.push(...updateTier(w, this.stats().population));
     if (w.tick % MONTH_TICKS === 0) this.bookMonth();
@@ -337,7 +356,7 @@ export class Simulation {
       t.part = k === 0 ? 0 : anchor + 1;
     });
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w, this.net.service);
+    this.env = this.envWithServices(w);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -388,7 +407,7 @@ export class Simulation {
       paintTile(this, x, z, code);
       res.changed += n;
     }
-    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w, this.net.service); this.version++; }
+    if (res.changed) { this.net = computeNetworks(w); this.env = this.envWithServices(w); this.version++; }
     return res;
   }
 
@@ -421,7 +440,7 @@ export class Simulation {
     w.ledger.construction += cost;
     for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w, this.net.service);
+    this.env = this.envWithServices(w);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -512,7 +531,7 @@ export class Simulation {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
       this.cov = computeCoverage(this.world);
-      this.env = computeEnvironment(this.world, this.net.service);
+      this.env = this.envWithServices(this.world);
       this.version++;
     }
     return res;

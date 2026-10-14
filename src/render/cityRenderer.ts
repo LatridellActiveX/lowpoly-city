@@ -45,6 +45,7 @@ import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels } from './industryModels';
+import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
 import { SERVICE_DEFS } from '../sim/services';
 import { G_MAX, G_WARN } from '../sim/garbage';
@@ -399,6 +400,7 @@ export class CityRenderer {
     add('farm', farmModel(), solid, 128);
     // V1.5 stage 10: resource industries and processors (one pool per role).
     for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, g, solid, 64);
+    for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
@@ -661,6 +663,18 @@ export class CityRenderer {
         const g = t.garbage / G_MAX, cv = sim.cov.by[0][i];
         if (g > 0.05) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0x6b3d1f), g));
         else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84).multiplyScalar(0.5 + cv * 0.5));
+      } else if (this.overlay === 'crime') {
+        // V1.5b stage F: crime (yellow → red); police coverage tinted blue.
+        const cr = sim.safety.crime[i] ?? 0, pc = sim.cov.by[1][i];
+        if (cr > 0.03) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0xff3b30), Math.min(1, cr * 1.5)));
+        else if (pc > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3d7bdc).multiplyScalar(0.5 + pc * 0.5));
+      } else if (this.overlay === 'health') {
+        const hc = Math.min(1, sim.cov.by[2][i] + sim.cov.by[3][i]);
+        if (hc > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xff6b81).lerp(TMP.setHex(0xffffff), 1 - hc));
+      } else if (this.overlay === 'education') {
+        // V1.5b stage G: education level 0..3 (none / elementary / high / college).
+        const ed = sim.cov.edu[i];
+        if (ed > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex([0, 0x9ad0ff, 0x4a8cff, 0x7a3fd1][ed]));
       } else if (this.overlay === 'landValue') {
         // V1.5 stage 11: land value 0 → LV_MAX as deep blue → green → gold.
         const v = sim.env.landValue[i] / LV_MAX;
@@ -822,7 +836,7 @@ export class CityRenderer {
       if (!code) continue;
       const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
       const info = ZONE_CODES[code];
-      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : ZONE_COLORS[info.zone!];
+      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : code === ZoneCode.ComOffice ? 0x3fb6c9 /* V1.5b office: teal */ : ZONE_COLORS[info.zone!];
       if (cells.owner[c] === 0) {
         this.c.setHex(col);
         if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
@@ -923,7 +937,9 @@ export class CityRenderer {
       const food = tpl.zone === 'industrial' && tpl.kind === 2;
       // V1.5: a plain factory whose role (chains.ts) has its own model.
       const role = tpl.zone === 'industrial' && tpl.kind === 0 && b.level > 0 ? roleOf(this.sim!.world, b.host) : 'factory';
-      const special = P[`role.${role}`] ? `role.${role}` : '';
+      // V1.5b stage H: offices use their own model (officeModels.ts).
+      const OFFICE: Record<string, string> = { law_firm: 'law', cable_co: 'cable', internet_co: 'isp', data_center: 'data', cell_tower: 'cell', radio_station: 'radio' };
+      const special = OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -1050,12 +1066,14 @@ export class CityRenderer {
         const m = this.m.compose(pos, this.q, one);
         if (v.kind === 'car') {
           P.car.add(m, this.c.setHex(v.color));
-          P.carRoof.add(m, this.c.setHex(roofColor(v.id, v.color))); // PR 5 two-tone roofs
+          P.carRoof.add(m, this.c.setHex(v.purpose.startsWith('police') ? 0x1d2a44 : roofColor(v.id, v.color))); // PR 5 two-tone roofs
+          if (v.purpose.startsWith('police')) P.lightBar.add(m); // V1.5b stage F
         }
         else {
           P.truckCab.add(m);
           // V1.5b: garbage trucks get a compactor body instead of a cargo box.
           if (v.purpose.startsWith('garbage')) P.garbageBody.add(m);
+          else if (v.purpose.startsWith('ambulance')) { P.ambulanceBody.add(m); P.lightBar.add(m); } // V1.5b stage F
           else P.truckBox.add(m, this.c.setHex(v.color));
           // PR 5: construction trucks (orange) carry bricks + pipes on top.
           if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
