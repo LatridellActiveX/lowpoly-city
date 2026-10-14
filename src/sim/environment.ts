@@ -71,6 +71,8 @@ export interface Environment {
  */
 export const LV_MAX = 3;
 export const LV_ACCESS = 0.8, LV_ACCESS_FADE = 0.2, LV_AVENUE = 0.15, LV_SERVICE = 0.2, LV_PARK = 0.8;
+/** V1.5b: full garbage (G_MAX = 60) costs this much land value on its tile. */
+export const LV_GARBAGE = 0.8;
 export const LV_COMMERCE = 0.02, LV_COMMERCE_MAX = 0.9, LV_POLLUTION = 0.3, LV_NOISE = 0.35;
 /** Noise sources: (strength, radius). */
 const NOISE_AVENUE: [number, number] = [0.35, 1], NOISE_PLANT: [number, number] = [1.2, 3], NOISE_IND_PER_LEVEL: [number, number] = [0.25, 2];
@@ -106,6 +108,7 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
     if (service) v += (service[i].powered ? LV_SERVICE : 0) + (service[i].watered ? LV_SERVICE : 0);
     v += LV_PARK * env.parks[i] + Math.min(LV_COMMERCE_MAX, LV_COMMERCE * commerce[i]);
     v -= LV_POLLUTION * env.pollution[i] + LV_NOISE * noise[i];
+    v -= LV_GARBAGE * Math.min(1, t.garbage / 60); // V1.5b stage E
     out[i] = Math.max(0, Math.min(LV_MAX, v));
   }
   return { noise, landValue: out };

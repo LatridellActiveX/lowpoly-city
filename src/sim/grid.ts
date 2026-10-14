@@ -45,6 +45,7 @@ export function emptyTile(): Tile {
     jobs: 0,
     units: 0,
     crewLinger: 0,
+    garbage: 0,
   };
 }
 

@@ -22,7 +22,9 @@ import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
-import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
+import { SERVICE_DEFS, serviceAnchors, Svc } from '../sim/services';
+import { G_MAX, G_WARN } from '../sim/garbage';
+import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
@@ -69,7 +71,7 @@ export class Hud {
   private readonly groupButtons = new Map<ToolGroupId, HTMLButtonElement>();
   private readonly flyouts = new Map<ToolGroupId, HTMLDivElement>();
   /** Last tool used in each group; the group button shows and re-selects it. */
-  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe', industry: 'industrial' };
+  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe', industry: 'industrial', services: 'garbageDump' };
   /** Which flyout is open right now (null = none). Number keys pick inside it. */
   openGroup: ToolGroupId | null = null;
   private readonly speedButtons: HTMLButtonElement[] = [];
@@ -121,6 +123,7 @@ export class Hud {
         ['zoning', '🧱 Zoning'],
         ['parking', '🅿️ Parking'],
         ['landValue', '💎 Land value'], // V1.5 stage 11
+        ['garbage', '🗑 Garbage'], // V1.5b stage E
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
@@ -219,7 +222,7 @@ export class Hud {
           <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
           ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}${row('tax.property', '🏡 Property tax (land value)')}
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
-          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}
+          ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}${row('up.service', '🏛️ Services')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
           ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
@@ -287,7 +290,7 @@ export class Hud {
     this.setCell('trade.materials.now', fmt(w.ledger.trade.materials ?? 0, true));
     this.setCell('trade.materials.last', fmt(last?.trade?.materials, true));
     now.trade = w.ledger.trade;
-    for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation'] as const) {
+    for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation', 'service'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
       this.setCell(`up.${u}.last`, fmt(last?.upkeep[u], true));
     }
@@ -482,7 +485,7 @@ export class Hud {
       const locked = !isUnlocked(t.id, sim.world.tier, sim.world.peakPop);
       b.classList.toggle('locked', locked);
       b.classList.toggle('unaffordable', poor && !locked);
-      const need = TIERS[TOOL_TIER[t.id] ?? 0];
+      const need = { pop: unlockPop(t.id), name: TIERS.filter((q) => q.pop <= unlockPop(t.id)).pop()?.name ?? '' }; // V1.5b: services unlock by population
       // PR 5: flyout rows show the price (or the tier needed) as text.
       const priceEl = b.querySelector('.price');
       if (priceEl) priceEl.textContent = `${this.money(price)}${t.shape === 'line' ? '/tile' : ''}`;
@@ -538,6 +541,7 @@ export class Hud {
     };
     let title = 'Empty land';
     if (t.structure !== 'none' && t.structure !== 'building') title = names[t.structure];
+    if (t.structure === 'service') title = SERVICE_DEFS[t.kind]?.label ?? 'Service'; // V1.5b
     // V1.5: oil-fired plants share the powerPlant structure (kind 1).
     if (t.structure === 'powerPlant' && t.kind === 1) title = 'Oil Power Plant';
     else if (t.zone) {
@@ -673,6 +677,19 @@ export class Hud {
     if (t.structure === 'constructionYard') {
       rows.push(`<div class="row">Trucks out: <b>${sim.crews.out(i)} / ${YARD_FLEET}</b></div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP.constructionYard)}/month</div>`);
+    }
+    // V1.5b services: the building itself, then garbage + coverage on any tile.
+    if (t.structure === 'service') {
+      const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
+      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${d.size === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      if (d.svc === Svc.Dump) rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+      if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
+    }
+    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Garbage Dump nearby' : ''}</div>`);
+    if (t.zone) {
+      const c = sim.cov.by;
+      const pct = (v: number) => `${Math.round(v * 100)}%`;
+      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
     // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).

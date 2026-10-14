@@ -89,7 +89,8 @@ export class Redevelopment {
       type = (occupancy + clamp01(env.desirability[b.host] / 1.2)) / 2;
     }
     const lv = clamp01(env.landValue[b.host] / LV_GOOD);
-    const clean = clamp01(1 - env.pollution[b.host] / 4);
+    // V1.5b: uncollected garbage counts against cleanliness too.
+    const clean = clamp01(1 - env.pollution[b.host] / 4 - t.garbage / 90);
     const frustrated = b.arrivals > 3 && b.gaveUp / b.arrivals > 0.5;
     const park = frustrated ? 0.4 : w.parking.shortfall(b) > 0 ? 0.7 : 1;
     const access = (st.roadAccess && st.powered && st.watered ? 1 : 0.3) * park;
