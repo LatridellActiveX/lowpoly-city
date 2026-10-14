@@ -9,6 +9,7 @@
  * The BUDGET PANEL is built once (so the tax sliders don't get recreated
  * while you drag them) and only its numbers are refreshed.
  */
+import { resLevel } from '../sim/footprints';
 import { rangeOf } from '../sim/parking';
 import { Simulation } from '../sim/simulation';
 import { ToolId, ZoneType } from '../sim/types';
@@ -517,7 +518,12 @@ export class Hud {
     if (t.structure !== 'none' && t.structure !== 'building') title = names[t.structure];
     // V1.5: oil-fired plants share the powerPlant structure (kind 1).
     if (t.structure === 'powerPlant' && t.kind === 1) title = 'Oil Power Plant';
-    else if (t.zone) title = t.level > 0 ? `${names[t.zone]} (level ${t.level})` : `Empty ${t.zone} lot`;
+    else if (t.zone) {
+      // V1.5: residential levels run 1–7 across densities (footprints.resLevel).
+      let lv = t.level;
+      if (t.zone === 'residential') for (const b of sim.world.lots.buildings.values()) if (b.host === i) lv = Math.max(lv, resLevel(TPL[b.tpl], b.level));
+      title = t.level > 0 ? `${names[t.zone]} (level ${lv})` : `Empty ${t.zone} lot`;
+    }
     else if (t.road || t.powerLine || t.waterPipe)
       title = [t.road && 'Road', t.powerLine && 'Power line', t.waterPipe && 'Water pipe'].filter(Boolean).join(' + ');
 

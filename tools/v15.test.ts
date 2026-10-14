@@ -11,7 +11,7 @@ import { loadWorld, saveWorld } from '../src/sim/save';
 import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
-import { TPL } from '../src/sim/footprints';
+import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
 
 let fails = 0;
@@ -111,6 +111,22 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   check('mixed use: 10 residents + 1 business (4 jobs) each', !!tile && TPL[mixed[0].tpl].residents![0] === 10 && TPL[mixed[0].tpl].capacity[0] === 4 && tile.res >= 10, tile && { res: tile.res, jobs: tile.jobs });
   const st = s.stats();
   check('mixed-use residents count toward population', st.population >= mixed.length * 10, { pop: st.population, mixed: mixed.length });
+}
+
+// ---------------------------------------------------------------- stage 6: residential levels
+{
+  const s = town(); // residential zoned LOW density only
+  s.world.peakPop = 6000; // medium housing + both extra medium levels unlocked
+  // Parks raise desirability (medium needs 1.2); extra industry keeps resident demand up.
+  for (let x = 12; x < 50; x += 3) { s.apply('park', [[x, 16]]); s.apply('park', [[x, 30]]); }
+  s.zoneOpt = { density: 0, depth: 4 }; s.apply('industrial', rect(11, 41, 29, 41));
+  run(s, 3000);
+  const bs = [...s.world.lots.buildings.values()].filter((b) => TPL[b.tpl].zone === 'residential');
+  const med = bs.filter((b) => TPL[b.tpl].density === 1);
+  const maxLv = Math.max(0, ...bs.map((b) => resLevel(TPL[b.tpl], b.level)));
+  check('level-3 houses grow into medium density on LOW zoning automatically', med.length > 0, { medium: med.length, merged: s.world.lots.stats.merged });
+  check('medium buildings reach residential level 6+', maxLv >= 6, maxLv);
+  check('L6/L7 capacities ~1.5x / ~2.2x of L5 (apartment 165 / 240)', TPL['apartment'].capacity[2] === 165 && TPL['apartment'].capacity[3] === 240);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

@@ -25,7 +25,7 @@ export interface Tier {
 export const TIERS: Tier[] = [
   { pop: 0, name: 'Hamlet', unlocks: 'Roads, zones, power, water, parks, farms, food plants and the Construction Yard' },
   { pop: 500, name: 'Village', unlocks: 'Avenues (medium-density roads)' },
-  { pop: 2000, name: 'Town', unlocks: 'Oil power plant (8,000 power); factories on forest, quarry or oil patches make raw goods' },
+  { pop: 2000, name: 'Town', unlocks: 'Oil power plant (8,000 power); level-6 homes (taller medium buildings); factories on forest, quarry or oil patches make raw goods' },
   { pop: 10000, name: 'City', unlocks: 'Nuclear power plant (2×2, 32,000 power), high-capacity pump station and +25% export prices' },
   { pop: 20000, name: 'Metropolis', unlocks: '10% cheaper upkeep on every utility' },
 ];
@@ -55,7 +55,7 @@ export const tierOk = (world: World, tier: number, zone: string = 'residential')
 /** Raise world.tier if the population passed a threshold. Returns the messages to announce. */
 export function updateTier(world: World, population: number): string[] {
   const out: string[] = [];
-  if (population >= MEDIUM_HOUSING_POP && world.peakPop < MEDIUM_HOUSING_POP && world.tier < 2) out.push('🏘 1,000 people! Medium-density housing unlocked: townhouses, duplex rows and walk-up flats can now grow (zone Residential · Medium, needs desirability 1.2).');
+  if (population >= MEDIUM_HOUSING_POP && world.peakPop < MEDIUM_HOUSING_POP && world.tier < 2) out.push('🏘 1,000 people! Medium-density housing unlocked: level-3 houses now grow into townhouses and flats by themselves, and Residential · Medium zoning works (needs desirability 1.2). Levels 6 and 7 follow at 2,000 and 5,000 people.');
   world.peakPop = Math.max(world.peakPop, population);
   while (world.tier + 1 < TIERS.length && population >= TIERS[world.tier + 1].pop) {
     world.tier++;

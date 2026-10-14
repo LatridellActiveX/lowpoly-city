@@ -33,7 +33,7 @@
  *   lowers its happiness. Counters decay so they describe recent history.
  */
 import { CELL_GRID, CellRole, cidx, tileOfCell } from './cells';
-import { parkingRequired, parkingSupply, TPL } from './footprints';
+import { parkingRequired, supplyAt, TPL } from './footprints';
 import { World } from './grid';
 import type { Building, Lots } from './lots';
 import { DAY_SECONDS, timeOfDay } from './traffic';
@@ -155,8 +155,9 @@ export class Parking {
     return [...this.lots.values()].filter((l) => manhattan(c, lotCentre(l)) <= rangeOf(l) + (b.x1 - b.x0 + b.z1 - b.z0) / 2).sort((p, q) => manhattan(c, lotCentre(p)) - manhattan(c, lotCentre(q)));
   }
 
-  own(b: Building): number {
-    return parkingSupply(TPL[b.tpl]);
+  own(b: Building, level = b.level): number {
+    // V1.5: medium homes' extra levels bring their own deck (footprints.supplyAt).
+    return supplyAt(TPL[b.tpl], level);
   }
   required(b: Building, level = b.level): number {
     return parkingRequired(TPL[b.tpl], level);
@@ -168,7 +169,7 @@ export class Parking {
   /** Could b's parking support `level` (own + share + unallocated public spaces nearby)? */
   canSupport(b: Building, level: number): boolean {
     const need = this.required(b, level);
-    let have = this.available(b);
+    let have = this.own(b, level) + b.publicShare;
     if (have >= need) return true;
     for (const l of this.inRange(b)) have += Math.max(0, l.spaces - l.allocated);
     return have >= need;

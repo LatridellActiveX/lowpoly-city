@@ -9,7 +9,7 @@ const store = new Map<string, string>();
 
 import { Simulation } from '../src/sim/simulation';
 import { World } from '../src/sim/grid';
-import { TPL, parkingRequired, parkingSupply, TEMPLATES } from '../src/sim/footprints';
+import { TPL, parkingRequired, parkingSupply, supplyAt, TEMPLATES } from '../src/sim/footprints';
 import { loadWorld, saveWorld } from '../src/sim/save';
 import { CellRole } from '../src/sim/cells';
 
@@ -51,7 +51,7 @@ function town(opts: { yard?: boolean; medium?: boolean; seed?: number } = {}): S
 }
 // 2. Templates: parking numbers are sane.
 {
-  const bad = TEMPLATES.filter((t) => t.capacity[0] > 0 && !['corner_shop', 'shop_w', 'workshop'].includes(t.id) && parkingSupply(t) < parkingRequired(t, t.maxLevel));
+  const bad = TEMPLATES.filter((t) => t.capacity[0] > 0 && !['corner_shop', 'shop_w', 'workshop'].includes(t.id) && supplyAt(t, t.maxLevel) < parkingRequired(t, t.maxLevel)); // V1.5: supplyAt adds medium decks
   check('every template except small shops supplies its own parking at max level', !bad.length, bad.map((t) => t.id));
   check('corner shop is short at level 3 (needs a public lot)', parkingSupply(TPL.corner_shop) < parkingRequired(TPL.corner_shop, 3));
 }

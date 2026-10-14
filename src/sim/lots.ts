@@ -112,8 +112,18 @@ export function rectAABB(ox: number, oz: number, face: number, u: number, v: num
 }
 
 /** May template `tpl` use a cell zoned `code`? */
+/**
+ * V1.5 AUTOMATIC MEDIUM DENSITY: while true, low-density residential cells
+ * also accept medium-density homes. growth.tryMerge switches it on only for
+ * a maxed (level 3) house once medium housing is unlocked, so "after level 3
+ * homes grow into medium density" without the player re-zoning; the new
+ * building's cells are then repainted Residential · medium.
+ */
+export const zonePromote = { on: false };
+
 export function codeAllows(tpl: Template, code: number): boolean {
   if (code === ZoneCode.None) return false;
+  if (zonePromote.on && code === ZoneCode.ResLow && tpl.zone === 'residential' && tpl.density === 1) return true;
   const info = ZONE_CODES[code];
   if (tpl.id === 'garden') return true; // fillers go anywhere zoned
   if (tpl.id === 'overflow') return info.zone !== 'residential';

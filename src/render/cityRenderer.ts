@@ -870,7 +870,7 @@ export class CityRenderer {
         const rb = roofBox(tpl.zone, mlv);
         sx = (bw * 0.9) / rb.w; sz = (bd * 0.9) / rb.d;
         if (tpl.zone === 'residential' && tpl.density === 0) sx = sz = Math.min(sx, sz); // houses keep their proportions
-        sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1);
+        sy = Math.min(1.25, Math.min(sx, sz)) * (tpl.model.tall ?? 1) * (tpl.model.grow?.[lvIdx] ?? 1); // V1.5 taller extra levels
       }
       const progress = b.construct > 0 ? 1 - b.construct / CONSTRUCT_TICKS : 1;
       const look = pickLook(tpl.zone, b.ox + bi * 3, b.oz, seed, tpl.zone === 'residential' && mlv <= 3 ? RES_DESIGNS : undefined);
