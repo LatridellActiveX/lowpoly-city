@@ -125,3 +125,51 @@ export function industrialAtlas(): THREE.CanvasTexture {
   atlas.anisotropy = 4;
   return atlas;
 }
+
+/**
+ * V1.5b: pick a surface from a vertex colour (used on MERGED models where
+ * per-part tags are gone). Reds/terracotta → brick, orange-browns → rust,
+ * saturated yellows → hazard stripes, greys by lightness → roof (dark) /
+ * corrugated metal (mid) / concrete (light), pale blues → glass, else plain.
+ */
+const HSL = { h: 0, s: 0, l: 0 };
+export function skinForColor(c: THREE.Color): Skin {
+  c.getHSL(HSL, THREE.SRGBColorSpace); // judge in display (sRGB) space
+  const { h, s, l } = HSL;
+  if (s > 0.55 && l > 0.4 && h > 0.1 && h < 0.17) return Skin.Hazard;
+  if (s > 0.25 && l > 0.2 && l < 0.6 && (h < 0.045 || h > 0.96)) return Skin.Brick;
+  if (s > 0.3 && l > 0.15 && l < 0.5 && h >= 0.045 && h <= 0.1) return Skin.Rust;
+  if (s > 0.35 && l > 0.6 && h > 0.53 && h < 0.62) return Skin.Glass;
+  if (s < 0.14) return l < 0.4 ? Skin.Roof : l < 0.64 ? Skin.Metal : l < 0.9 ? Skin.Concrete : Skin.Plain;
+  return Skin.Plain;
+}
+
+/**
+ * V1.5b: texture a merged geometry in place — every triangle gets the
+ * surface of its (first) vertex colour, or `force` for all of it (zone
+ * designs whose white walls are painted by the instance colour).
+ * Non-indexed geometry only (part()/merge() output). Returns the geometry.
+ */
+export function autoSkin(g: THREE.BufferGeometry, force?: Skin): THREE.BufferGeometry {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  const col = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!uv || g.index) return g;
+  const c = new THREE.Color();
+  for (let t = 0; t + 2 < uv.count; t += 3) {
+    let s = force;
+    if (s === undefined) { if (!col) s = Skin.Plain; else { c.setRGB(col.getX(t), col.getY(t), col.getZ(t)); s = skinForColor(c); } }
+    const cx = s % COLS, row = Math.floor(s / COLS);
+    for (let k = t; k < t + 3; k++) {
+      const u = Math.min(1, Math.max(0, uv.getX(k))), v = Math.min(1, Math.max(0, uv.getY(k)));
+      uv.setXY(k, (cx + INSET + u * (1 - 2 * INSET)) / COLS, (ROWS - 1 - row + INSET + v * (1 - 2 * INSET)) / ROWS);
+    }
+  }
+  uv.needsUpdate = true;
+  return g;
+}
+
+let indMat: THREE.MeshLambertMaterial | null = null;
+/** The shared textured industrial material (atlas × vertex colour × instance colour). */
+export function industrialMaterial(): THREE.MeshLambertMaterial {
+  return (indMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: industrialAtlas() }));
+}

@@ -73,6 +73,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   clinic: 6000,
   hospital: 24000,
   elementarySchool: 4000,
+  shippingDepot: 15000, // V1.5b stage C
   highSchool: 9000,
   college: 30000,
 };

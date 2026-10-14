@@ -222,6 +222,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'elementarySchool':
     case 'highSchool':
     case 'college':
+    case 'shippingDepot':
       return isBare(t);
     case 'parkingLot':
     case 'parkingGarage':
@@ -307,6 +308,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'elementarySchool':
     case 'highSchool':
     case 'college':
+    case 'shippingDepot':
       // V1.5b: one 'service' structure; kind says which (services.ts Svc).
       t.structure = 'service';
       t.kind = SERVICE_BY_TOOL[tool]!.svc;

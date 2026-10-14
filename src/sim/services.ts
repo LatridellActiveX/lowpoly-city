@@ -19,7 +19,7 @@
 import { GRID_SIZE, Tile, ToolId } from './types';
 import type { World } from './grid';
 
-export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6 }
+export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7 }
 
 export interface ServiceDef {
   svc: Svc;
@@ -45,6 +45,10 @@ export const SERVICE_DEFS: ServiceDef[] = [
   { svc: Svc.Elementary, tool: 'elementarySchool', label: 'Elementary School', size: 1, cost: 4000, upkeep: 200, unlockPop: 0, radius: 9, fleet: 0 },
   { svc: Svc.High, tool: 'highSchool', label: 'High School', size: 1, cost: 9000, upkeep: 450, unlockPop: 1000, radius: 14, fleet: 0 },
   { svc: Svc.College, tool: 'college', label: 'College (2×2)', size: 2, cost: 30000, upkeep: 1400, unlockPop: 2500, radius: 24, fleet: 0 },
+  // V1.5b stage C: the SHIPPING DEPOT (2×2 industrial building). Its
+  // "coverage" is its CATCHMENT: industry and shops inside it ship through
+  // the depot (goods.ts) instead of driving to the highway edge.
+  { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 15000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
 ];
 export const SERVICE_BY_TOOL: Partial<Record<ToolId, ServiceDef>> = Object.fromEntries(SERVICE_DEFS.map((d) => [d.tool, d]));
 export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;

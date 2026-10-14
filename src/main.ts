@@ -1,3 +1,4 @@
+import { TPL } from './sim/footprints';
 /**
  * main.ts — wires the three layers together and runs the game loop.
  *
@@ -485,6 +486,8 @@ updater.start();
     hud.notices.reset(sim);
   },
   setTool,
+  /** V1.5b: template table (screenshots place showcase buildings). */
+  TPL,
   updater,
   /** V1.5: leave the title screen (tests/screenshots). */
   startGame,

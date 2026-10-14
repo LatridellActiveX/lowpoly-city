@@ -19,8 +19,53 @@ const WIN = 0x9fc4e8, CONC = 0xc8c3b8, BRICK = 0xb5543c, ROOFD = 0x4d5560, GRASS
 const windows = (n: number, w: number, y: number, z: number, x0 = 0, c = WIN) =>
   Array.from({ length: n }, (_, k) => part(box(w / (n * 1.8), 0.05, 0.008), c, [x0 - w / 2 + (w * (k + 0.5)) / n, y, z]));
 
+/**
+ * V1.5b stage C: SHIPPING DEPOT (2×2, svc7). Concrete yard with a
+ * cross-dock warehouse (truck doors on both long sides), a rail-mounted
+ * gantry crane over stacked shipping containers, a reach stacker, a gate
+ * house with a barrier, light masts and a company sign.
+ */
+function depotModel(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), 0xa9a69e)];
+  // Warehouse (north half), corrugated metal + dark roof, dock doors.
+  p.push(part(box(1.5, 0.32, 0.6), 0x8f989f, [-0.1, 0.012, -0.55]));
+  p.push(part(box(1.54, 0.025, 0.64), 0x4b535b, [-0.1, 0.332, -0.55]));
+  for (let k = 0; k < 7; k++) {
+    p.push(part(box(0.12, 0.2, 0.008), 0xd0d4d8, [-0.7 + k * 0.2, 0.03, -0.246]));
+    p.push(part(box(0.14, 0.012, 0.06), 0x4a525a, [-0.7 + k * 0.2, 0.25, -0.22]));
+    p.push(part(box(0.13, 0.012, 0.02), 0xf2c230, [-0.7 + k * 0.2, 0.012, -0.2]));
+  }
+  for (let k = 0; k < 4; k++) p.push(part(box(0.1, 0.05, 0.07), 0xb8bec4, [-0.6 + k * 0.35, 0.357, -0.6]));
+  p.push(part(box(0.5, 0.09, 0.012), 0x2f6fb0, [0.3, 0.2, -0.246]));
+  p.push(part(box(0.36, 0.025, 0.014), 0xffffff, [0.3, 0.23, -0.24]));
+  // Container stacks (south half) in shipping-line colours.
+  const cols = [0xc23b2e, 0x2f6fb0, 0x2f9a4c, 0xe0a32a, 0x6d757b, 0xd8d8d8];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 4; c++) for (let h = 0; h < 1 + ((r + c) % 3); h++)
+    p.push(part(box(0.3, 0.1, 0.12), cols[(r * 5 + c * 3 + h) % cols.length], [-0.55 + c * 0.34, 0.012 + h * 0.105, 0.2 + r * 0.17]));
+  // Rail-mounted gantry crane spanning the stacks.
+  for (const x of [-0.82, 0.62]) {
+    p.push(part(box(0.012, 0.012, 0.75), 0x5a524a, [x, 0.012, 0.37]));
+    for (const z of [0.05, 0.7]) p.push(part(box(0.04, 0.55, 0.04), 0xe0a32a, [x, 0.012, z]));
+  }
+  for (const z of [0.05, 0.7]) p.push(part(box(1.5, 0.05, 0.05), 0xe0a32a, [-0.1, 0.56, z]));
+  p.push(part(box(0.16, 0.08, 0.7), 0xd9952a, [0.1, 0.52, 0.37]));
+  p.push(part(box(0.1, 0.08, 0.1), 0x4b535b, [0.1, 0.44, 0.37]));
+  p.push(part(box(0.006, 0.2, 0.006), 0x3a3a3a, [0.1, 0.25, 0.37]));
+  // Reach stacker + gate house + barrier + light masts.
+  p.push(part(box(0.16, 0.06, 0.08), 0xe0c22a, [0.8, 0.012, 0.15]));
+  p.push(part(box(0.2, 0.012, 0.012), 0x3a3a3a, [0.7, 0.1, 0.15], [0, 0, 0.5]));
+  p.push(part(box(0.14, 0.12, 0.12), 0xe8e4da, [0.85, 0.012, 0.85]));
+  p.push(part(box(0.14, 0.012, 0.012), 0xd02c2c, [0.7, 0.07, 0.92]));
+  for (const [x, z] of [[-0.9, -0.15], [0.9, -0.15], [-0.9, 0.9]]) {
+    p.push(part(new THREE.CylinderGeometry(0.01, 0.014, 0.7, 6).translate(0, 0.35, 0), 0x7b8288, [x, 0.012, z]));
+    p.push(part(box(0.08, 0.02, 0.04), 0xf2f2ee, [x, 0.71, z]));
+  }
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
+    svc7: depotModel(), // V1.5b stage C
     // Garbage dump: fenced yard, two big waste mounds, a compactor shed and a parked truck.
     svc0: merge([
       part(box(0.96, 0.012, 0.96), 0x8f8676),

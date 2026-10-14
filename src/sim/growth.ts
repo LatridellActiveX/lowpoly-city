@@ -169,7 +169,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
       if (!take(b.host, extraUse(tpl, b.level, b.level + 1))) continue;
       b.construct = CONSTRUCT_TICKS; // next stage; needs a crew on site again unless one is lingering
       b.happy = 0;
-    } else if (mergeReady(tpl, b, cap) && b.happy >= mergeTicks(tpl) && dem > (medRes(tpl) ? MED_MERGE_DEMAND : 0.3) && (b.id + w.tick) % (medRes(tpl) ? 5 : 10) === 0) {
+    } else if (mergeReady(tpl, b, cap) && b.happy >= mergeTicks(tpl) && dem > (medRes(tpl) ? MED_MERGE_DEMAND : 0.3) && (b.id + w.tick) % mergeEvery(tpl) === 0) {
       tryMerge(sim, b, take);
     }
   }
@@ -268,7 +268,10 @@ export function eduSlow(sim: Simulation, b: Building): number {
 export const MED_MERGE_DEMAND = 0.1;
 export const MED_MERGE_START = 2;
 const medRes = (t: Template) => t.zone === 'residential' && t.density === 1 && !t.legacy;
-const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : MERGE_TICKS);
+/** V1.5b stage B: industry merges ~1.5× more often (shorter wait, checked more often). */
+export const IND_MERGE_RATE = 1.5;
+const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : t.zone === 'industrial' ? Math.round(MERGE_TICKS / IND_MERGE_RATE) : MERGE_TICKS);
+const mergeEvery = (t: Template) => (medRes(t) ? 5 : t.zone === 'industrial' ? Math.round(10 / IND_MERGE_RATE) : 10);
 /** Ready to merge: maxed out, or (medium homes) L6+ and at the population cap. */
 export function mergeReady(t: Template, b: Building, cap = t.maxLevel): boolean {
   if (b.level >= t.maxLevel) return true;

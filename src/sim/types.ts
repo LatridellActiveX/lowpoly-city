@@ -168,6 +168,7 @@ export type ToolId =
   | 'elementarySchool'
   | 'highSchool'
   | 'college'
+  | 'shippingDepot' // V1.5b stage C
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */

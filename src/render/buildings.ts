@@ -419,7 +419,19 @@ function industrial(k: number, level: number, hi = true): DesignParts {
       b.windows(2, w * 0.85, d * 0.85, h * 0.6, 0xffd98a);
       break;
   }
+  // V1.5b stage B: levels 4–5 add an annex wing and (L5) a second plant block.
+  if (level >= 4) {
+    b.wall(box(w * 0.32, h * 0.7, d * 0.4), [-w / 2 - w * 0.12, 0, d * 0.18]);
+    b.acc(box(w * 0.34, 0.03, d * 0.42), [-w / 2 - w * 0.12, h * 0.7, d * 0.18]);
+    b.fix(new THREE.CylinderGeometry(0.07, 0.07, h * 1.2, 10).translate(0, h * 0.6, 0), 0x8f989f, [w / 2 + 0.06, 0, d * 0.3]);
+  }
+  if (level >= 5) {
+    b.wall(box(w * 0.4, h * 1.3, d * 0.35), [w * 0.15, 0, -d / 2 - d * 0.12]);
+    b.fix(new THREE.CylinderGeometry(0.035, 0.05, h + 0.7, 8).translate(0, (h + 0.7) / 2, 0), 0xb9b2a6, [w * 0.32, 0, -d / 2 - d * 0.2]);
+    b.fix(new THREE.CylinderGeometry(0.052, 0.052, 0.05, 8).translate(0, h + 0.6, 0), 0xc23b2e, [w * 0.32, 0, -d / 2 - d * 0.2]);
+  }
   if (hi) indDetails(b, k, level, w, h, d);
+  if (hi) indRevamp(b, k, level, w, h, d);
   return b.done();
 }
 
@@ -645,7 +657,7 @@ export function buildDesigns(lod: 'high' | 'low' = 'high'): Record<ZoneType, Des
   const make = (fn: (k: number, level: number, hi: boolean) => DesignParts, levels = [1, 2, 3], n = DESIGNS_PER_ZONE) =>
     Array.from({ length: n }, (_, k) => levels.map((lv) => fn(k, lv, hi)));
   // PR 5: homes have 5 levels (4 = rowhouses, 5 = apartments); PR 6 adds 6 = towers and 8 designs.
-  return { residential: make(residential, [1, 2, 3, 4, 5, 6, 7], RES_DESIGNS), commercial: make(commercial), industrial: make(industrial) };
+  return { residential: make(residential, [1, 2, 3, 4, 5, 6, 7], RES_DESIGNS), commercial: make(commercial), industrial: make(industrial, [1, 2, 3, 4, 5]) }; // V1.5b stage B: industry L5
 }
 
 // ----------------------------------------------------------------------------
@@ -869,6 +881,28 @@ function comDetails(b: Builder, k: number, level: number, w: number, h: number, 
   }
 }
 
+/**
+ * V1.5b stage B revamp (high detail only): hazard-striped kerb + bollards at
+ * the door, rooftop HVAC row, a company sign board, a rust-streak panel and
+ * gutter downpipes. Colours chosen so the industrial texture atlas lands the
+ * right surface (textures.ts skinForColor).
+ */
+function indRevamp(b: Builder, k: number, level: number, w: number, h: number, d: number): void {
+  const HAZ = 0xf2c230;
+  const roofY = k === 2 ? 0 : k === 3 ? h * 1.15 : h;
+  const front = k === 2 ? d * 0.34 : d / 2;
+  b.fix(box(0.26, 0.012, 0.03), HAZ, [-w / 5, 0, front + 0.03]);
+  for (const s of [-1, 1]) b.fix(new THREE.CylinderGeometry(0.012, 0.012, 0.07, 8).translate(0, 0.035, 0), HAZ, [-w / 5 + s * 0.13, 0, front + 0.05]);
+  if (k !== 2) for (let n = 0; n < Math.min(4, 1 + level); n++) {
+    b.fix(box(0.08, 0.045, 0.06), 0xb8bec4, [-w * 0.3 + n * 0.12, roofY, -d * 0.25]);
+    b.fix(new THREE.CylinderGeometry(0.018, 0.018, 0.006, 8), 0x3a3f44, [-w * 0.3 + n * 0.12, roofY + 0.048, -d * 0.25]);
+  }
+  const signCol = [0x2f6fb0, 0xd02c2c, 0x1f7a3d, 0xe07a1f, 0x7d2f6b][k % 5];
+  b.fix(box(Math.min(0.3, w * 0.4), 0.05, 0.01), signCol, [w * 0.15, Math.max(0.12, roofY * 0.8), front + 0.012]);
+  b.fix(box(0.08, roofY * 0.5, 0.004), 0x8a4f26, [w * 0.38, roofY * 0.3, front + 0.004]); // rust streak
+  for (const s of [-1, 1]) b.fix(box(0.014, roofY, 0.014), 0x6d757b, [s * (w / 2 - 0.02), 0, front + 0.01]);
+}
+
 function indDetails(b: Builder, k: number, level: number, w: number, h: number, d: number): void {
   const front = [d / 2, d / 2, d * 0.34, d / 2, d * 0.425][k];
   const back = -[d / 2, d / 2, d * 0.46, d / 2, d * 0.425][k];
@@ -908,7 +942,7 @@ function indDetails(b: Builder, k: number, level: number, w: number, h: number, 
     b.fix(cyl(0.05, 0.16, 10), 0x5e8f6e, [w / 2 + 0.03, 0, -d * 0.35]);
     b.fix(cyl(0.052, 0.012, 10), METAL, [w / 2 + 0.03, 0.16, -d * 0.35]);
   }
-  if (level === 3) for (let n = 0; n < 3; n++) b.fix(box(0.09, 0.025, 0.09), 0xa77b4a, [-w / 2 + 0.06, n * 0.03, d / 2 + 0.12]);
+  if (level >= 3) for (let n = 0; n < 3; n++) b.fix(box(0.09, 0.025, 0.09), 0xa77b4a, [-w / 2 + 0.06, n * 0.03, d / 2 + 0.12]);
 }
 
 

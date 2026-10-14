@@ -49,7 +49,7 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'bigWaterTower', 'pumpStation'] },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
-  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard'] },
+  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard', 'shippingDepot'] },
   // V1.5b city services (sim/services.ts).
   { id: 'services', label: 'Services', icon: '🏛️', tools: ['garbageDump', 'policeStation', 'clinic', 'hospital', 'elementarySchool', 'highSchool', 'college'] },
 ];
@@ -72,6 +72,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'water' },
+  { id: 'shippingDepot', label: 'Shipping Depot', icon: '📦', key: 'f', shape: 'point', hint: '2×2. Industry and shops within 20 tiles ship through it: exports pay +15% and leave sooner, imports come from the depot instead of the highway (shorter trips). $15,000 + $500/month. Unlocks at 2,000 people.', group: 'industry' },
   { id: 'garbageDump', label: 'Garbage Dump', icon: '🗑️', key: '4', shape: 'point', hint: 'Sends 6 garbage trucks along the roads to empty bins within 16 tiles. Uncollected garbage piles up, lowers land value and building health. $6,000 + $300/month. Unlocks at 1,000 people.', group: 'services' },
   { id: 'policeStation', label: 'Police Station', icon: '🚓', key: '5', shape: 'point', hint: 'Cuts crime within 10 tiles (crime lowers land value and health); patrol cars drive the streets. $5,000 + $250/month. Unlocks at 1,000 people.', group: 'services' },
   { id: 'clinic', label: 'Health Clinic', icon: '🩺', key: '6', shape: 'point', hint: 'Healthcare within 8 tiles; uncovered homes are less healthy and worth less. $6,000 + $300/month. Unlocks at 2,500 people.', group: 'services' },
@@ -98,7 +99,7 @@ export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: n
   // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
   // V1.5: the roundabout is 2×2 too (hovered tile = top-left).
   // V1.5b: the hospital and the college are 2×2 as well.
-  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'roundabout' || id === 'hospital' || id === 'college') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
+  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

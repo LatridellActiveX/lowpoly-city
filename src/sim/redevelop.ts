@@ -57,6 +57,8 @@ import { mediumUnlocked } from './progression';
 
 export const REDEV_HEALTH = 0.3;
 export const REDEV_MONTHS = 3;
+/** V1.5b stage B: industry redevelops ~1.5× more often (2 struggling months instead of 3). */
+export const IND_REDEV_MONTHS = 2;
 export const REDEV_MAX = 3;
 export const REDEV_DEMAND = -0.6;
 export const TYPE_WEIGHT = 0.55;
@@ -143,7 +145,7 @@ export class Redevelopment {
       b.lowMonths = h < REDEV_HEALTH ? (b.lowMonths ?? 0) + 1 : 0;
       if (h < REDEV_HEALTH) this.stats.low++;
       this.stats.checked++;
-      if ((b.lowMonths ?? 0) >= REDEV_MONTHS || (occupancyDemand(sim.demand[tpl.zone]) < REDEV_DEMAND && h < 0.6)) cands.push(b);
+      if ((b.lowMonths ?? 0) >= (tpl.zone === 'industrial' ? IND_REDEV_MONTHS : REDEV_MONTHS) || (occupancyDemand(sim.demand[tpl.zone]) < REDEV_DEMAND && h < 0.6)) cands.push(b);
     }
     let active = 0;
     for (const b of lots.buildings.values()) if (b.redev && b.construct > 0) active++;

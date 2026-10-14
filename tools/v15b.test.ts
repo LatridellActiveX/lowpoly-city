@@ -17,7 +17,7 @@ import { roleOf } from '../src/sim/chains';
 import { REDEV_MAX, REDEV_MONTHS } from '../src/sim/redevelop';
 import { Resource } from '../src/sim/resources';
 import { resLevel, TPL } from '../src/sim/footprints';
-import { growablePool } from '../src/sim/lots';
+import { growablePool, parkingRequired as parkingRequiredOf } from '../src/sim/lots';
 
 let fails = 0;
 const check = (name: string, ok: boolean, info: unknown = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info !== '' ? '  ' + JSON.stringify(info) : ''}`); if (!ok) fails++; };
@@ -161,7 +161,7 @@ import { BUILD_COST } from '../src/sim/economy';
   t.structure = 'waterTower'; t.kind = 1;
   check('kind-1 water tower outputs BIG_TOWER_OUTPUT', output(t, 'water', 1) === BIG_TOWER_OUTPUT);
   t.kind = 0; check('basic tower still WATER_OUTPUT', output(t, 'water', 1) === WATER_OUTPUT);
-  t.kind = 1; const w2 = loadWorld(saveWorld(w)); check('large tower survives save/load', w2.tiles[idx(10, 10)].kind === 1 && w2.tiles[idx(10, 10)].structure === 'waterTower');
+  t.kind = 1; const w2 = (saveWorld(w), loadWorld()!); check('large tower survives save/load', w2.tiles[idx(10, 10)].kind === 1 && w2.tiles[idx(10, 10)].structure === 'waterTower');
 }
 
 // ---------------------------------------------------------------- demand-driven densification
@@ -190,8 +190,60 @@ import { ZoneCode as ZC2 } from '../src/sim/cells';
   check('player notified', s.events.some((e) => e.includes('Densifying')));
   const n0 = s.redevelop.stats.densified; s.demand.residential.value = 0.3; s.redevelop.month(s);
   check('demand ≤ 0.5 stops densification', s.redevelop.stats.densified === n0);
-  const w2 = loadWorld(saveWorld(s.world));
+  const w2 = (saveWorld(s.world), loadWorld()!);
   check('densified tag survives save/load', [...w2.lots.buildings.values()].some((b) => b.densified === own.densified));
+}
+
+// ---------------------------------------------------------------- stage B: industry revamp + growth
+import { truckBody } from '../src/sim/truckBodies';
+import { IND_MERGE_RATE } from '../src/sim/growth';
+import { IND_REDEV_MONTHS } from '../src/sim/redevelop';
+import { isBigCoal } from '../src/sim/networks';
+import { skinForColor, Skin } from '../src/render/textures';
+import * as THREE from 'three';
+{
+  const ids = ['warehouse', 'chemical_plant', 'steel_mill', 'textile_mill', 'bottling_plant', 'assembly_plant'];
+  check('six new industry types (kind 0 industrial)', ids.every((id) => TPL[id]?.zone === 'industrial' && TPL[id].kind === 0));
+  check('industry reaches level 5 with bigger footprints and more workers', TPL.factory.maxLevel === 5 && TPL.steel_mill.maxLevel === 5 && TPL.steel_mill.w * TPL.steel_mill.d > TPL.factory.w * TPL.factory.d && TPL.assembly_plant.capacity[4] > TPL.factory.capacity[2]);
+  check('every template capacity/model array matches its maxLevel', Object.values(TPL).every((t) => t.capacity.length === t.maxLevel && t.model.level.length === t.maxLevel), Object.values(TPL).filter((t) => t.capacity.length !== t.maxLevel).map((t) => t.id));
+  check('L5 industry can park its workforce', ids.concat('factory').every((id) => { const t = TPL[id]; return parkingRequiredOf(t, t.maxLevel) <= t.rects.reduce((a, r) => a + (r.role === 2 ? r.w * r.d : 0), 0) + t.garage; }));
+  check('industry merges/redevelops ~1.5× more often', IND_MERGE_RATE === 1.5 && IND_REDEV_MONTHS === 2);
+  check('tankers for oil/fuel/plastics, dump trucks for stone/coal, boxes otherwise', truckBody('fuel: oil') === 'tanker' && truckBody('delivery: plastics to Electronics plant') === 'tanker' && truckBody('export: stone') === 'dump' && truckBody('fuel: imported coal') === 'dump' && truckBody('delivery: goods') === 'box' && truckBody('garbage: collecting') === 'box');
+  check('texture skins by colour (brick / hazard / metal / roof)', skinForColor(new THREE.Color(0x9a4a35)) === Skin.Brick && skinForColor(new THREE.Color(0xf2c230)) === Skin.Hazard && skinForColor(new THREE.Color(0x8f989f)) === Skin.Metal && skinForColor(new THREE.Color(0x4b535b)) === Skin.Roof);
+  // 2×2 coal via the 4-tile tool; single-tile keeps the legacy 1×1.
+  const s = fresh(); s.apply('powerPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('powerPlant', [[30, 30]]);
+  const w = s.world;
+  check('2×2 coal plant: anchor + 3 parts, output on the anchor only', isBigCoal(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 2000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
+  check('single-tile coal stays a legacy 1×1 plant', w.at(30, 30).structure === 'powerPlant' && !isBigCoal(w.tiles, idx(30, 30)) && w.at(31, 30).structure !== 'powerPlant');
+  s.apply('bulldoze', [[21, 21]]);
+  check('bulldozing one tile removes the whole 2×2 coal plant', [[20, 20], [21, 20], [20, 21], [21, 21]].every(([x, z]) => w.at(x, z).structure !== 'powerPlant'));
+  // Migration: an old 1×1 coal plant with free room expands; a boxed-in one stays 1×1.
+  const m = fresh(); m.world.at(10, 10).structure = 'powerPlant'; m.world.at(40, 40).structure = 'powerPlant'; m.world.at(41, 40).structure = 'park';
+  saveWorld(m.world);
+  const raw = JSON.parse(localStorage.getItem('lowpoly-city-save')!); raw.version = 7; localStorage.setItem('lowpoly-city-save', JSON.stringify(raw));
+  const mw = loadWorld()!;
+  check('save v7 → v8: 1×1 coal with room becomes 2×2, boxed-in stays 1×1', isBigCoal(mw.tiles, idx(10, 10)) && !isBigCoal(mw.tiles, idx(40, 40)) && mw.at(40, 40).structure === 'powerPlant');
+}
+
+// ---------------------------------------------------------------- stage C: shipping depot
+import { depotOf, DEPOT_BONUS } from '../src/sim/goods';
+{
+  check('shipping depot locked < 2,000 people', !isUnlocked('shippingDepot', 0, 1999) && isUnlocked('shippingDepot', 0, 2000));
+  const run2 = (withDepot: boolean) => {
+    const s = town({ seed: 71 });
+    s.world.peakPop = 3000;
+    s.zoneOpt = { density: 1, depth: 3 }; s.apply('industrial', rect(11, 34, 29, 34));
+    if (withDepot) s.apply('shippingDepot', [[24, 38], [25, 38], [24, 39], [25, 39]]);
+    run(s, 2400);
+    const st = s.shipping.stats;
+    return { s, depotExports: st.depotExports, depotImports: st.depotImports, exported: st.exported, trade: Math.round(s.world.ledger.trade.exports), svc: s.world.at(24, 38).structure };
+  };
+  const a = run2(false), b = run2(true);
+  check('depot built as a 2×2 service', b.svc === 'service' && b.s.world.at(25, 39).part === idx(24, 38) + 1, b.svc);
+  check('industry in the catchment ships via the depot', b.depotExports > 0, { a: { e: a.exported, t: a.trade }, b: { e: b.exported, de: b.depotExports, di: b.depotImports, t: b.trade } });
+  check('no depot → no depot shipping', a.depotExports === 0 && a.depotImports === 0);
+  check('depot loads counted per depot (Inspect)', (b.s.shipping.depotLoads.get(idx(24, 38)) ?? 0) === b.depotExports + b.depotImports);
+  check('catchment: near tiles in, far tiles out', depotOf([idx(30, 36)], idx(40, 40)) === idx(30, 36) && depotOf([idx(30, 36)], idx(5, 5)) === -1 && DEPOT_BONUS > 0);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

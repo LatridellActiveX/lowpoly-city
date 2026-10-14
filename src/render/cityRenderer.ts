@@ -43,13 +43,16 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
+import { autoSkin, industrialMaterial, Skin } from './textures';
+const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
+import { truckBody } from '../sim/truckBodies';
 import { bigCoalModel, COAL_STACKS } from './coalModel';
 import { isBigCoal } from '../sim/networks';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
-import { roleModels } from './industryModels';
+import { roleModels, newIndustryModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
-import { SERVICE_DEFS } from '../sim/services';
+import { SERVICE_DEFS, Svc } from '../sim/services';
 import { G_MAX, G_WARN } from '../sim/garbage';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
@@ -76,7 +79,7 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
@@ -348,7 +351,15 @@ export class CityRenderer {
           levels.forEach((parts, lv) => {
             // PR 5 perf: the small "fixed" trim (frames, vents, steps...) doesn't
             // cast shadows — at this scale they're invisible and cost a lot in the shadow pass.
-            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
+            for (const which of ['walls', 'accent', 'fixed'] as const) {
+              // V1.5b stage B: industrial designs are textured from the atlas
+              // (walls by design: metal / concrete / metal / brick / rust; roofs
+              // and tanks; trim auto-skinned by colour) — same instancing.
+              if (zone === 'industrial') {
+                const force = which === 'walls' ? IND_WALL_SKIN[k % IND_WALL_SKIN.length] : which === 'accent' ? (k === 0 || k === 4 ? Skin.Roof : Skin.Metal) : undefined;
+                add(`${pre}${zone}.${k}.${lv + 1}.${which}`, autoSkin(parts[which], force), industrialMaterial(), 32, which !== 'fixed');
+              } else add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
+            }
             add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
           }),
         );
@@ -363,6 +374,8 @@ export class CityRenderer {
     add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
     add('truckCab', VEHICLES.truckCab(), solid, 64);
     add('truckBox', VEHICLES.truckBox(), solid, 64);
+    add('tankerBody', VEHICLES.tankerBody(), solid, 64); // V1.5b stage B
+    add('dumpBody', VEHICLES.dumpBody(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 512);
     add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
     // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
@@ -397,7 +410,7 @@ export class CityRenderer {
     // V1.5b: the 2×2 coal plant (high + low detail) with night-lit windows.
     for (const [pre, det] of [['', true], ['lo:', false]] as const) {
       const cm = bigCoalModel(det);
-      add(`${pre}coalBig`, cm.solid, solid, 16);
+      add(`${pre}coalBig`, autoSkin(cm.solid), industrialMaterial(), 16);
       add(`${pre}coalBig.lights`, cm.lights, this.windowGlow, 16, false);
     }
     add('pumpStation', pumpStationModel(), solid, 16);
@@ -405,14 +418,15 @@ export class CityRenderer {
     add('windBlades', MODELS.windBlades(), solid, 64);
     // PR 5 industry + wind (industryModels.ts).
     add('nacelle', nacelleModel(), solid, 64);
-    add('farm', farmModel(), solid, 128);
+    add('farm', autoSkin(farmModel()), industrialMaterial(), 128); // V1.5b textured
     // V1.5 stage 10: resource industries and processors (one pool per role).
-    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, g, solid, 64);
+    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
+    for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
     for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
-    for (const k of [0, 1, 2]) add(`foodPlant${k}`, foodPlantModel(k), solid, 128);
+    for (const k of [0, 1, 2]) add(`foodPlant${k}`, autoSkin(foodPlantModel(k)), industrialMaterial(), 128);
     add('constructionYard', constructionYardModel(), solid, 32);
     add('crewLoad', crewLoadModel(), solid, 64);
     add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
@@ -690,6 +704,11 @@ export class CityRenderer {
       } else if (this.overlay === 'health') {
         const hc = Math.min(1, sim.cov.by[2][i] + sim.cov.by[3][i]);
         if (hc > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xff6b81).lerp(TMP.setHex(0xffffff), 1 - hc));
+      } else if (this.overlay === 'shipping') {
+        // V1.5b stage C: depot catchment (teal); businesses inside it bright, the depot gold.
+        const cv = sim.cov.by[Svc.Depot]?.[i] ?? 0;
+        if (t.structure === 'service' && t.kind === Svc.Depot) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffc23d));
+        else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0 ? 0x2fe0c8 : 0x2a7f86).multiplyScalar(0.6 + cv * 0.4));
       } else if (this.overlay === 'education') {
         // V1.5b stage G: education level 0..3 (none / elementary / high / college).
         const ed = sim.cov.edu[i];
@@ -958,7 +977,9 @@ export class CityRenderer {
       const role = tpl.zone === 'industrial' && tpl.kind === 0 && b.level > 0 ? roleOf(this.sim!.world, b.host) : 'factory';
       // V1.5b stage H: offices use their own model (officeModels.ts).
       const OFFICE: Record<string, string> = { law_firm: 'law', cable_co: 'cable', internet_co: 'isp', data_center: 'data', cell_tower: 'cell', radio_station: 'radio' };
-      const special = OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
+      // V1.5b stage B: the six new industry types have their own models (before roles).
+      const IND: Record<string, string> = { warehouse: 'warehouse', chemical_plant: 'chemical', steel_mill: 'steel', textile_mill: 'textile', bottling_plant: 'bottling', assembly_plant: 'assembly' };
+      const special = OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -1062,7 +1083,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody', 'tankerBody', 'dumpBody']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -1093,7 +1114,13 @@ export class CityRenderer {
           // V1.5b: garbage trucks get a compactor body instead of a cargo box.
           if (v.purpose.startsWith('garbage')) P.garbageBody.add(m);
           else if (v.purpose.startsWith('ambulance')) { P.ambulanceBody.add(m); P.lightBar.add(m); } // V1.5b stage F
-          else P.truckBox.add(m, this.c.setHex(v.color));
+          else {
+            // V1.5b stage B: tankers for liquids, dump trucks for stone/coal (sim/truckBodies.ts).
+            const tb = truckBody(v.purpose);
+            if (tb === 'tanker') P.tankerBody.add(m, this.c.setHex(/fuel/.test(v.purpose) ? 0xd6453a : /plastics/.test(v.purpose) ? 0xe8e8e8 : 0x8f969c));
+            else if (tb === 'dump') P.dumpBody.add(m, this.c.setHex(/coal/.test(v.purpose) ? 0x3a3a3e : 0xa9a49a));
+            else P.truckBox.add(m, this.c.setHex(v.color));
+          }
           // PR 5: construction trucks (orange) carry bricks + pipes on top.
           if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
         }
@@ -1138,7 +1165,7 @@ export class CityRenderer {
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody', 'tankerBody', 'dumpBody']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
