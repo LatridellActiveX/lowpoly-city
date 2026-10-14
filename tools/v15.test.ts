@@ -13,6 +13,8 @@ import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
 import { isRightTurn, ringStepOk } from '../src/sim/traffic';
 import { isUnlocked } from '../src/sim/progression';
+import { roleOf } from '../src/sim/chains';
+import { Resource } from '../src/sim/resources';
 import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
 
@@ -189,6 +191,27 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   check('roundabout traffic flows (no gridlock)', arrived > 100 && gave / Math.max(1, arrived + gave) < 0.15, { arrived, gave });
   r.apply('bulldoze', [[31, 18]]);
   check('bulldozing a ring tile reverts the block to streets', r.world.tiles[idx(30, 18)].roadType === 0);
+}
+
+// ---------------------------------------------------------------- stage 10: resource industries + goods chains
+{
+  const s = town({ seed: 10 });
+  // Force resource patches under the east industrial strip (rows 34..36):
+  // logging x31-36, oil x37-42, quarry x43-49. Everything else: none.
+  const res = new Uint8Array(64 * 64);
+  for (let z = 34; z <= 37; z++) for (let x = 31; x <= 49; x++) res[idx(x, z)] = x <= 36 ? Resource.Logging : x <= 42 ? Resource.Oil : Resource.Quarry;
+  (s.world as any).resourceCache = res;
+  s.zoneOpt = { density: 0, depth: 4 }; s.apply('industrial', rect(11, 41, 29, 41)); // processors
+  run(s, 2200);
+  const roles = new Map<string, number>();
+  s.world.tiles.forEach((t, i) => { if (t.zone === 'industrial' && t.level > 0) { const r = roleOf(s.world, i); roles.set(r, (roles.get(r) ?? 0) + 1); } });
+  const R = Object.fromEntries(roles);
+  check('extractors on patches: logging camp, oil rig, quarry', !!R.logging && !!R.oilRig && !!R.quarry, R);
+  check('plain factories adopt processor recipes (lumber mill / refinery / materials …)', ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics'].filter((r) => R[r]).length >= 2, R);
+  const st = s.shipping.stats;
+  check('raw loads travel to processors and get processed', st.chainLoads > 0 && st.processed > 0, st);
+  check('construction uses building materials', st.materialsUsed > 0, st);
+  check('surplus exported, buildings book sales and input costs', st.exported > 0 && s.shipping.sales.size > 0 && s.shipping.costs.size > 0, { exported: st.exported, sales: s.shipping.sales.size, costs: s.shipping.costs.size });
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

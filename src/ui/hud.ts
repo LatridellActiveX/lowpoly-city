@@ -24,6 +24,7 @@ import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
 import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
+import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
@@ -217,7 +218,7 @@ export class Hud {
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
           ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
-          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}
+          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -264,6 +265,8 @@ export class Hud {
     this.setCell('trade.fuel.last', fmt(last?.trade?.fuel, true));
     this.setCell('trade.parking.now', fmt(w.ledger.trade.parking ?? 0));
     this.setCell('trade.parking.last', fmt(last?.trade?.parking));
+    this.setCell('trade.materials.now', fmt(w.ledger.trade.materials ?? 0, true));
+    this.setCell('trade.materials.last', fmt(last?.trade?.materials, true));
     now.trade = w.ledger.trade;
     for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
@@ -585,7 +588,13 @@ export class Hud {
       // V1.5 coverage: how far it reaches, and garage fees.
       rows.push(`<div class="row muted">Serves buildings within ${rangeOf(pubLot) / 4} tiles${pubLot.garage ? ' · charges drivers a fee (Budget ▸ Garage fees)' : ''}. The Parking overlay shades its coverage.</div>`);
     }
-    if (t.zone === 'industrial' && t.level > 0) rows.push(`<div class="row">Makes: <b>${GOOD_NAMES[factoryGood(sim.world, i)]}</b> · in stock ${t.stock.toFixed(1)}</div>`);
+    if (t.zone === 'industrial' && t.level > 0) {
+      // V1.5 stage 10: the building's role in the goods chain and its recipe.
+      const role = roleOf(sim.world, i), rec = RECIPES[role];
+      const makes = rec ? rec.outputs.map((g) => GOOD_NAMES[g]).join(' + ') : GOOD_NAMES[factoryGood(sim.world, i)];
+      rows.push(`<div class="row">${ROLE_NAMES[role]}: makes <b>${makes}</b> · in stock ${t.stock.toFixed(1)}</div>`);
+      if (rec && role !== 'foodPlant') rows.push(`<div class="row">Needs: <b>${rec.inputs.map((g) => GOOD_NAMES[g]).join(' or ')}</b> · hopper ${t.input.toFixed(1)}${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 on the way' : ''}</div>`);
+    }
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
     if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);
     if (t.edge) rows.push('<div class="row">Cars and trucks enter and leave the city here. Exports and imports use this road.</div>');

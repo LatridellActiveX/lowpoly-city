@@ -182,9 +182,12 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
 }
 // 13. Traffic-actuated signals vs PR 5 fixed timing on the same town.
 {
-  const res: Record<string, unknown> = {};
-  for (const mode of ['fixed', 'actuated'] as const) {
-    const t = town({ seed: 77 });
+  // V1.5 stage 10: more truck traffic (goods chains) made a single seed
+  // noisy (one gridlock pocket swings arrivals ±15%), so the comparison now
+  // SUMS four seeded towns per mode.
+  const res: Record<string, any> = {};
+  for (const mode of ['fixed', 'actuated'] as const) for (const seed of [77, 78, 79, 80]) {
+    const t = town({ seed });
     t.settings.maxCars = 400;
     t.traffic.signals.actuated = mode === 'actuated';
     run(t, 500);
@@ -194,7 +197,9 @@ check('parking occupancy is between 5% and 100%', pt.parked > 0 && pt.parked <= 
     const st0 = { ...t.traffic.stats };
     for (let i = 0; i < 240; i++) { t.traffic.update(t.world, 0.5); t.world.clock += 0.5; }
     const arrived = t.traffic.stats.arrived - st0.arrived, gave = t.traffic.stats.gaveUp - st0.gaveUp;
-    res[mode] = { arrived, gaveUp: gave, waitPerTrip: +((t.traffic.stats.waitSec - st0.waitSec) / Math.max(1, arrived + gave)).toFixed(2) };
+    const r = (res[mode] ??= { arrived: 0, gaveUp: 0, waitSec: 0 });
+    r.arrived += arrived; r.gaveUp += gave; r.waitSec += t.traffic.stats.waitSec - st0.waitSec;
+    r.waitPerTrip = +(r.waitSec / Math.max(1, r.arrived + r.gaveUp)).toFixed(2);
   }
   const f = res.fixed as any, a = res.actuated as any;
   const rate = (r: any) => r.gaveUp / Math.max(1, r.arrived + r.gaveUp);

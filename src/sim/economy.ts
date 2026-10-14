@@ -116,7 +116,8 @@ export interface Ledger {
   construction: number;
   refunds: number;
   /** PR 4 trade: export income (+) and imported power-plant coal (−). */
-  trade: { exports: number; fuel: number; parking?: number };
+  trade: { exports: number; fuel: number; parking?: number; materials?: number };
+  // V1.5 stage 10: trade.materials = imported building materials for construction (goods.ts).
   // V1.5: trade.parking = garage fees (parking.ts chargeFees).
 }
 export const emptyLedger = (): Ledger => ({
@@ -131,7 +132,7 @@ export const emptyLedger = (): Ledger => ({
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
   const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
-  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel + (l.trade.parking ?? 0);
+  return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel + (l.trade.parking ?? 0) - (l.trade.materials ?? 0);
 }
 
 /** What placing `tool` on tile `t` costs (including clearing a decoration). */

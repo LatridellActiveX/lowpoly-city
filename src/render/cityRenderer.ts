@@ -44,6 +44,8 @@ import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
+import { roleModels } from './industryModels';
+import { roleOf } from '../sim/chains';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
@@ -381,6 +383,8 @@ export class CityRenderer {
     // PR 5 industry + wind (industryModels.ts).
     add('nacelle', nacelleModel(), solid, 64);
     add('farm', farmModel(), solid, 128);
+    // V1.5 stage 10: resource industries and processors (one pool per role).
+    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, g, solid, 64);
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
@@ -877,6 +881,9 @@ export class CityRenderer {
       let centre = new THREE.Vector3(), bw = 0, bd = 0, sx = 1, sy = 1, sz = 1, mlv = 1, body = bodyRect(tpl);
       const farm = tpl.zone === 'industrial' && tpl.kind === 1;
       const food = tpl.zone === 'industrial' && tpl.kind === 2;
+      // V1.5: a plain factory whose role (chains.ts) has its own model.
+      const role = tpl.zone === 'industrial' && tpl.kind === 0 && b.level > 0 ? roleOf(this.sim!.world, b.host) : 'factory';
+      const special = P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -884,7 +891,7 @@ export class CityRenderer {
       bw = body.w * Q; bd = body.d * Q; // along-road width, depth
       const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
       mlv = tpl.model.level[lvIdx];
-      if (farm || food) {
+      if (farm || food || special) {
         sx = sz = Math.min(bw, bd) * 0.95; sy = sx;
       } else {
         const rb = roofBox(tpl.zone, mlv);
@@ -898,6 +905,8 @@ export class CityRenderer {
       const m = this.place(centre, yaw, sx, sy * (b.construct > 0 ? Math.max(0.06, progress) : 1), sz);
       const raw = b.construct > 0 ? 0.75 : 0;
       if (farm) P.farm.add(m, this.c.setScalar(dim));
+      else if (special && bi === 0) P[special].add(m, this.c.setScalar(dim));
+      else if (special) { /* one role model per building */ }
       else if (food) P[`foodPlant${Math.floor(hash2(b.ox, b.oz, seed + 61) * 3)}`].add(m, this.c.setScalar(dim));
       else {
         P[`${key}.walls`].add(m, this.c.setHex(look.wall).lerp(TMP.setHex(0xcfc8bb), raw).multiplyScalar(dim));
@@ -929,7 +938,7 @@ export class CityRenderer {
         }
       }
       }
-      const h = (farm || food ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
+      const h = (farm || food || special ? 0.5 : roofBox(tpl.zone, mlv).h) * sy;
       if (ov === 'parking') {
         const need = this.sim!.world.parking.required(b), have = this.sim!.world.parking.available(b);
         P.overlay.add(this.place(centre.clone().setY(h + 0.05), 0, bw, 1, bd), this.c.setHex(have >= need ? 0x3ddc84 : 0xff3b30));

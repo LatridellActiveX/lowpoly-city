@@ -295,3 +295,94 @@ export function nacelleModel(): THREE.BufferGeometry {
     part(box(0.06, 0.012, 0.08), 0xc9ced4, [0, 0.04, -0.02]),
   ]);
 }
+
+// ============================================================================
+// V1.5 STAGE 10 — resource industries + processors (sim/chains.ts roles).
+// Each is a whole-lot model (unit square, front = +z toward the road), drawn
+// INSTEAD of the generic factory, like the farm and food plant.
+// ============================================================================
+const logs = (n: number, x: number, z: number, len = 0.32): THREE.BufferGeometry[] => {
+  // A pyramid stack of logs lying along x.
+  const out: THREE.BufferGeometry[] = [];
+  let k = 0;
+  for (let row = 0; k < n; row++) for (let c = 0; c < 4 - row && k < n; c++, k++)
+    out.push(part(new THREE.CylinderGeometry(0.03, 0.03, len, 8).rotateZ(Math.PI / 2), k % 2 ? 0x9b6b3f : 0x8a5c33, [x, 0.03 + row * 0.052, z - 0.09 + c * 0.06 + row * 0.03]));
+  return out;
+};
+const pine = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
+  part(cyl(0.015 * s, 0.1 * s, 6), 0x6b4a2b, [x, 0, z]),
+  part(new THREE.ConeGeometry(0.08 * s, 0.22 * s, 7).translate(0, 0.2 * s, 0), 0x2f7a3a, [x, 0, z]),
+];
+
+/** Every role model by name (keys match sim/chains.ts Role). */
+export function roleModels(): Record<string, THREE.BufferGeometry> {
+  return {
+    // Logging camp: cabin, log piles, stumps and forest edge.
+    logging: merge([
+      part(box(0.96, 0.012, 0.96), 0x7d6a4c),
+      part(box(0.26, 0.16, 0.2), WOOD, [-0.25, 0.012, 0.2]), part(gable(0.3, 0.1, 0.24), 0x4a3a2c, [-0.25, 0.172, 0.2]),
+      ...logs(9, 0.15, 0.15), ...logs(6, 0.2, -0.2, 0.28),
+      ...[[-0.35, -0.3], [-0.15, -0.36], [0.38, -0.38], [-0.4, -0.05]].flatMap(([x, z], k) => pine(x, z, 1 + (k % 2) * 0.3)),
+      ...[[0, -0.3], [0.32, 0.36]].map(([x, z]) => part(cyl(0.035, 0.04, 8), 0xa47a4a, [x, 0, z])),
+      part(box(0.12, 0.06, 0.08), 0xf2b134, [-0.02, 0.012, 0.36]), // log loader
+    ]),
+    // Oil rig: lattice derrick, pumpjack, two tanks.
+    oilRig: merge([
+      part(box(0.96, 0.012, 0.96), 0x8b8478),
+      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => part(box(0.018, 0.75, 0.018), 0xb0362f, [-0.18 + a * 0.08, 0.012, -0.12 + c * 0.08], [c * 0.09, 0, -a * 0.09])),
+      ...[0.2, 0.4, 0.6].map((y) => part(box(0.16 - y * 0.12, 0.012, 0.16 - y * 0.12), 0xb0362f, [-0.18, y, -0.12])),
+      part(box(0.05, 0.05, 0.05), 0x3a3a3a, [-0.18, 0.75, -0.12]),
+      part(box(0.04, 0.16, 0.04), 0x5d6468, [0.2, 0.012, 0.15]),
+      part(box(0.32, 0.04, 0.04), 0x2c2c2c, [0.2, 0.19, 0.15], [0, 0, 0.25]),
+      part(box(0.06, 0.12, 0.05), 0x2c2c2c, [0.05, 0.1, 0.15]),
+      part(cyl(0.1, 0.18), STEEL, [0.28, 0.012, -0.25]), part(cyl(0.1, 0.18), STEEL, [0.06, 0.012, -0.3]),
+    ]),
+    // Quarry: stepped pit, rock piles, conveyor and excavator.
+    quarry: merge([
+      part(box(0.96, 0.012, 0.96), 0xa39e93),
+      part(box(0.7, 0.02, 0.5), 0x8f897d, [0, 0.012, -0.18]), part(box(0.5, 0.02, 0.34), 0x7a7468, [0, 0.032, -0.2]),
+      part(box(0.3, 0.02, 0.2), 0x625d53, [0, 0.052, -0.22]),
+      ...[[0.3, 0.2, 0.12], [0.18, 0.3, 0.09], [-0.3, 0.25, 0.1]].map(([x, z, r]) => part(new THREE.ConeGeometry(r, r * 1.2, 7).translate(0, r * 0.6, 0), 0xc9c3b5, [x, 0.012, z])),
+      part(box(0.04, 0.03, 0.5), 0x5d6468, [-0.1, 0.18, 0.1], [0.45, 0, 0]),
+      part(box(0.12, 0.06, 0.08), 0xf2b134, [0.12, 0.07, -0.2]), part(box(0.02, 0.02, 0.16), 0xf2b134, [0.12, 0.15, -0.28], [0.6, 0, 0]),
+    ]),
+    // Lumber mill: long saw shed with a log yard and a plank stack.
+    lumberMill: merge([
+      part(box(0.96, 0.012, 0.96), 0x9c8a62),
+      part(box(0.6, 0.24, 0.32), 0xb08a5a, [-0.1, 0.012, -0.15]), part(gable(0.64, 0.12, 0.36), 0x5c4a3a, [-0.1, 0.252, -0.15]),
+      part(cyl(0.03, 0.42, 8), STEEL_D, [0.32, 0.012, -0.3]),
+      ...logs(8, -0.2, 0.25), ...[0, 1, 2, 3].map((k) => part(box(0.26, 0.025, 0.12), 0xd8b47a, [0.25, 0.012 + k * 0.026, 0.25])),
+    ]),
+    // Refinery: tank farm, distillation column and a flare stack.
+    refinery: merge([
+      part(box(0.96, 0.012, 0.96), 0x8b8478),
+      part(cyl(0.07, 0.7, 10), STEEL, [-0.25, 0.012, -0.2]), ...[0.2, 0.4, 0.6].map((y) => part(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 10), STEEL_D, [-0.25, y, -0.2])),
+      part(cyl(0.025, 0.85, 6), 0x8d949c, [0.35, 0.012, -0.35]), part(new THREE.ConeGeometry(0.03, 0.08, 6).translate(0, 0.9, 0), 0xff8a1f, [0.35, 0, -0.35]),
+      ...[[0.12, -0.15], [0.12, 0.2], [-0.15, 0.22]].map(([x, z]) => part(cyl(0.12, 0.16), 0xe9e4da, [x, 0.012, z])),
+      part(box(0.6, 0.02, 0.02), STEEL_D, [0, 0.2, 0.02]),
+    ]),
+    // Building-materials plant: cement silos, aggregate bins and pallets.
+    materials: merge([
+      part(box(0.96, 0.012, 0.96), CONCRETE),
+      part(box(0.5, 0.26, 0.3), 0xd5d1c7, [-0.15, 0.012, -0.2]), part(box(0.52, 0.03, 0.32), ROOF, [-0.15, 0.27, -0.2]),
+      ...[-0.05, 0.12, 0.29].map((x) => part(cyl(0.065, 0.5, 10), 0xe2ddd2, [x + 0.05, 0.012, 0.15])),
+      ...[-0.38, -0.24].map((x) => part(new THREE.ConeGeometry(0.08, 0.1, 7).translate(0, 0.05, 0), 0x9f8f78, [x, 0.012, 0.3])),
+      ...[0, 1].map((k) => part(box(0.14, 0.08, 0.14), 0xc04a32, [0.3, 0.012 + k * 0.08, -0.3])),
+    ]),
+    // Furniture factory: brick workshop, timber store, sofas on pallets.
+    furniture: merge([
+      part(box(0.96, 0.012, 0.96), 0xb9b5ac),
+      part(box(0.62, 0.26, 0.42), 0xa45a3e, [0, 0.012, -0.15]), part(box(0.64, 0.04, 0.44), 0x4d4a48, [0, 0.27, -0.15]),
+      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.08, 0.012), 0xffd98a, [x, 0.1, 0.07])),
+      part(box(0.2, 0.06, 0.1), 0x3d6fa8, [-0.25, 0.012, 0.3]), part(box(0.2, 0.06, 0.1), 0xc0784a, [0.05, 0.012, 0.3]),
+      ...[0, 1, 2].map((k) => part(box(0.22, 0.02, 0.1), 0xd8b47a, [0.3, 0.012 + k * 0.022, 0.32])),
+    ]),
+    // Electronics plant: clean white hall, glass band, rooftop units.
+    electronics: merge([
+      part(box(0.96, 0.012, 0.96), 0xc7ccd2),
+      part(box(0.7, 0.22, 0.5), 0xf3f5f7, [0, 0.012, -0.12]), part(box(0.71, 0.05, 0.51), 0x4ea3d8, [0, 0.13, -0.12]),
+      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.05, 0.1), STEEL_D, [x, 0.232, -0.2])),
+      part(box(0.2, 0.012, 0.2), 0x2c4a6e, [0.28, 0.02, 0.3]), part(box(0.06, 0.08, 0.06), 0x55a868, [-0.3, 0.012, 0.3]),
+    ]),
+  };
+}
