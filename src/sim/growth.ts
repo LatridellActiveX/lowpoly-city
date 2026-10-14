@@ -29,6 +29,7 @@
 import { MEDIUM_LEVEL_POP } from './footprints';
 import { zonePromote } from './lots';
 import { mediumUnlocked } from './progression';
+import { occupancyDemand } from './demand';
 import { CELL_GRID, CELLS_PER_TILE, CellRole, cidx, tileOfCell, ZONE_CODES, ZoneCode, zoneCode } from './cells';
 import { area, isFiller, Template, TEMPLATES, TPL } from './footprints';
 import { localToCell } from './lots';
@@ -145,7 +146,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     }
     // Trouble counters: no service, negative demand, or no parking.
     const short = park.shortfall(b) > 0;
-    const dem = sim.demand[tpl.zone].value;
+    const dem = occupancyDemand(sim.demand[tpl.zone]); // V1.5b: empty zoning doesn't shrink settled homes
     const frustrated = b.arrivals > 3 && b.gaveUp / b.arrivals > 0.5;
     if (!serviced || dem < -0.5 || short && frustrated) b.unhappy++;
     else b.unhappy = Math.max(0, b.unhappy - 2);
@@ -166,7 +167,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
       if (!take(b.host, extraUse(tpl, b.level, b.level + 1))) continue;
       b.construct = CONSTRUCT_TICKS; // next stage; needs a crew on site again unless one is lingering
       b.happy = 0;
-    } else if (b.level >= tpl.maxLevel && b.happy >= MERGE_TICKS && dem > 0.3 && (b.id + w.tick) % 10 === 0) {
+    } else if (mergeReady(tpl, b, cap) && b.happy >= mergeTicks(tpl) && dem > (medRes(tpl) ? MED_MERGE_DEMAND : 0.3) && (b.id + w.tick) % (medRes(tpl) ? 5 : 10) === 0) {
       tryMerge(sim, b, take);
     }
   }
@@ -235,6 +236,28 @@ const desireOf2 = (sim: Simulation, i: number) => sim.env.desirability[i];
  * fillers). The old buildings are removed and the new one starts as a
  * construction site (needs a crew like any other).
  */
+/**
+ * V1.5b stage A — MORE FREQUENT MEDIUM MERGES.
+ * Parker: "adjacent lots merge more often into larger footprints at higher
+ * levels". A medium-density home counts as merge-ready once it has reached
+ * L6 (template level 3) and is topped out at its current population cap —
+ * it no longer has to wait for L7. It waits half as long (MERGE_TICKS / 2),
+ * needs only mild demand (MED_MERGE_DEMAND) and is checked every 5 ticks
+ * instead of every 10. Neighbours at L6+ may be swallowed too, and the new
+ * large footprint (apt_complex / twin_midrise / perimeter …) starts at
+ * template level MED_MERGE_START so the street doesn't lose most of its
+ * residents during the rebuild.
+ */
+export const MED_MERGE_DEMAND = 0.1;
+export const MED_MERGE_START = 2;
+const medRes = (t: Template) => t.zone === 'residential' && t.density === 1 && !t.legacy;
+const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : MERGE_TICKS);
+/** Ready to merge: maxed out, or (medium homes) L6+ and at the population cap. */
+export function mergeReady(t: Template, b: Building, cap = t.maxLevel): boolean {
+  if (b.level >= t.maxLevel) return true;
+  return medRes(t) && b.level >= 3 && b.level >= cap;
+}
+
 function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { power: number; water: number }) => boolean): boolean {
   const w = sim.world;
   const tpl = TPL[b.tpl];
@@ -260,7 +283,8 @@ function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template
   for (const o of lots.buildings.values()) {
     const ot = TPL[o.tpl];
     if (Math.abs(o.x0 - b.x0) > 10 || Math.abs(o.z0 - b.z0) > 10) continue;
-    if (isFiller(ot) || (ot.zone === tpl.zone && ot.kind === tpl.kind && o.construct === 0 && o.level >= ot.maxLevel && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
+    const done = o.level >= ot.maxLevel || (medRes(ot) && o.level >= 3); // V1.5b: L6+ medium neighbours count
+    if (isFiller(ot) || (ot.zone === tpl.zone && ot.kind === tpl.kind && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
   }
   replace.add(b.id);
   const opts = lots.options(w, b.host, bigger, replace).filter((o) => {
@@ -282,11 +306,13 @@ function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template
   // The new building's level-1 use minus what the old ones used.
   let freed = 0;
   for (const id of gone) { const q = lots.buildings.get(id)!; freed += capacityAt(TPL[q.tpl], q.level); }
-  const use = extraUse(best.tpl, 0, 1), unit = best.tpl.zone === 'residential' ? 5 : best.tpl.zone === 'commercial' ? 4 : 8;
+  // V1.5b: medium → larger medium merges restart at MED_MERGE_START (L5), not L4.
+  const start = medRes(tpl) && medRes(best.tpl) ? Math.min(MED_MERGE_START, best.tpl.maxLevel - 1) : 0;
+  const use = extraUse(best.tpl, 0, start + 1), unit = best.tpl.zone === 'residential' ? 5 : best.tpl.zone === 'commercial' ? 4 : 8;
   const credit = freed / unit;
   if (!take(best.host, { power: Math.max(0, use.power - DEMAND[best.tpl.zone].power * credit), water: Math.max(0, use.water - DEMAND[best.tpl.zone].water * credit) })) return false;
   for (const id of gone) lots.remove(w, lots.buildings.get(id)!);
-  lots.place(w, best.tpl, best.ox, best.oz, best.face, best.host, 0, CONSTRUCT_TICKS);
+  lots.place(w, best.tpl, best.ox, best.oz, best.face, best.host, start, CONSTRUCT_TICKS);
   lots.stats.merged++;
   // V1.5: an automatic low → medium step repaints the new building's cells
   // Residential · medium so it keeps growing (and later saves agree).

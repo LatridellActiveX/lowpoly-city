@@ -50,6 +50,7 @@ import { FACTORY_MAX } from './goods';
 import { RECIPES, roleOf } from './chains';
 import { CONSTRUCT_TICKS } from './rules';
 import { GRID_SIZE } from './types';
+import { occupancyDemand } from './demand';
 
 export const REDEV_HEALTH = 0.3;
 export const REDEV_MONTHS = 3;
@@ -84,7 +85,7 @@ export class Redevelopment {
       const buyers = t.stock >= FACTORY_MAX - 1 ? 0.3 : 1;
       type = (inputs + buyers + clamp01(workerRatio) + margin) / 4;
     } else {
-      const occupancy = sim.demand.residential.value > -0.5 ? 1 : 0.5;
+      const occupancy = occupancyDemand(sim.demand.residential) > -0.5 ? 1 : 0.5;
       type = (occupancy + clamp01(env.desirability[b.host] / 1.2)) / 2;
     }
     const lv = clamp01(env.landValue[b.host] / LV_GOOD);
@@ -112,7 +113,7 @@ export class Redevelopment {
       b.lowMonths = h < REDEV_HEALTH ? (b.lowMonths ?? 0) + 1 : 0;
       if (h < REDEV_HEALTH) this.stats.low++;
       this.stats.checked++;
-      if ((b.lowMonths ?? 0) >= REDEV_MONTHS || (sim.demand[tpl.zone].value < REDEV_DEMAND && h < 0.6)) cands.push(b);
+      if ((b.lowMonths ?? 0) >= REDEV_MONTHS || (occupancyDemand(sim.demand[tpl.zone]) < REDEV_DEMAND && h < 0.6)) cands.push(b);
     }
     let active = 0;
     for (const b of lots.buildings.values()) if (b.redev && b.construct > 0) active++;
@@ -165,7 +166,7 @@ export class Redevelopment {
       }
     }
     // Same-zone (same industrial kind), different template; size by demand.
-    const dem = sim.demand[tpl.zone].value;
+    const dem = occupancyDemand(sim.demand[tpl.zone]);
     const pool = growablePool(tpl.zone, w).filter((p) => p.id !== tpl.id && p.kind === tpl.kind && !p.legacy && p.capacity[0] > 0 && !!p.residents === !!tpl.residents);
     const opts = lots.options(w, b.host, pool, new Set([b.id])).filter((o) => o.host === b.host);
     if (!opts.length) return false;

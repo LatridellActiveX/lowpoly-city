@@ -128,6 +128,7 @@ function roofBox(zone: ZoneType, level: number): { w: number; d: number; h: numb
   // PR 5: levels 4/5 are the medium-density rowhouses / apartment blocks.
   if (zone === 'residential' && level === 4) return { w: 0.9, d: 0.6, h: 0.26 * 3 + 0.25 };
   if (zone === 'residential' && level === 6) return { w: 0.84, d: 0.64, h: 1.62 }; // PR 6 tower (unit height; stretched by template.tall)
+  if (zone === 'residential' && level === 7) return { w: 0.88, d: 0.68, h: 0.26 * 6 + 0.2 }; // V1.5b mid-rise apartments
   if (zone === 'residential' && level === 5) return { w: 0.88, d: 0.68, h: 0.26 * 5 + 0.2 };
   if (zone === 'residential') return { w: 0.46 + level * 0.08, d: 0.4 + level * 0.07, h: 0.26 * level + 0.06 };
   if (zone === 'commercial') return { w: 0.56 + level * 0.08, d: 0.5 + level * 0.06, h: 0.26 * (level === 3 ? 4 : level) + 0.1 };
