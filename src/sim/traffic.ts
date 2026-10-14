@@ -135,6 +135,10 @@ export interface Vehicle {
   acc: number;
   /** PR 5: seconds left before pulling away from a light that just went green. */
   waitGreen: number;
+  /** V1.5 right on red: seconds this car has been stopped at the line on red. */
+  rorWait?: number;
+  /** V1.5: path segment on which this car committed to a right on red (it then keeps going). */
+  rorSeg?: number;
 }
 
 export const STREET_COST = 1;
@@ -360,6 +364,19 @@ export function roadNextTo(tiles: Tile[], i: number): number {
 }
 
 /** Direction index 0..3 (E, W, S, N) of a step between two neighbouring tiles. */
+/**
+ * V1.5 RIGHT ON RED. Is a → j → c a RIGHT turn? Grid x runs east, z runs
+ * south, traffic drives on the right. Heading (dx, dz) turned right is
+ * (−dz, dx): e.g. north (0, −1) → east (1, 0).
+ */
+export function isRightTurn(a: number, j: number, c: number): boolean {
+  const dx = (j % GRID_SIZE) - (a % GRID_SIZE), dz = Math.floor(j / GRID_SIZE) - Math.floor(a / GRID_SIZE);
+  const ex = (c % GRID_SIZE) - (j % GRID_SIZE), ez = Math.floor(c / GRID_SIZE) - Math.floor(j / GRID_SIZE);
+  return ex === -dz && ez === dx;
+}
+/** Full stop required before turning right on red (game seconds). */
+export const ROR_STOP = 1.0;
+
 function dirOf(a: number, b: number): number {
   const d = b - a;
   return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3;
@@ -371,7 +388,9 @@ export class Traffic {
   vehicles: Vehicle[] = [];
   private nextId = 1;
   /** Counters for tests and the info panel. */
-  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0, waitSec: 0 };
+  stats = { spawned: 0, arrived: 0, gaveUp: 0, noRoute: 0, waitSec: 0, rightOnRed: 0 };
+  /** V1.5: allow right turns on red after a full stop (tests switch it off to compare). */
+  rightOnRed = true;
   /** PR 6 traffic-actuated signal controllers. */
   signals = new Signals();
 
@@ -441,9 +460,12 @@ export class Traffic {
       if (!l) inJunction.set(j, (l = []));
       l.push({ id, dir });
     };
+    // V1.5: cars about to enter each junction (for the right-on-red gap check).
+    const approaching = new Map<number, Vehicle[]>();
     for (const v of this.vehicles) {
       const a = v.path[v.seg], b = v.path[v.seg + 1];
       if (b === undefined) continue;
+      if (v.t <= 0.5 && isIntersection(tiles, b)) { let l = approaching.get(b); if (!l) approaching.set(b, (l = [])); l.push(v); }
       // (Physically inside = past the tile edge, t > 0.5 — cars waiting between the stop line and the edge don't hold it.)
       if (v.t > 0.5 && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
       if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a));
@@ -494,7 +516,31 @@ export class Traffic {
       // 2. Red light at the junction we're about to enter (the next tile).
       if (v.t <= STOP_T && isIntersection(tiles, v.path[v.seg + 1])) {
         const axis = Math.abs(v.path[v.seg + 1] - v.path[v.seg]) === 1 ? 'ew' : 'ns';
-        if (lightState(v.path[v.seg + 1], world.clock, this.signals).green !== axis) {
+        const jn = v.path[v.seg + 1];
+        const light = lightState(jn, world.clock, this.signals);
+        // V1.5 RIGHT ON RED: only when this car's own route turns right here
+        // (the path is A*'s, so "where its pathing takes it"). It must first
+        // come to a full stop at the line for ROR_STOP seconds, then go only
+        // on a gap: the junction box empty, no car entering it from the
+        // approach whose light is green (they have right of way), and room
+        // in the exit lane. Works with both fixed and queue-based signals —
+        // the controller still counts this car in its queue until it leaves.
+        const turnsRight = v.seg + 2 < v.path.length && isRightTurn(v.path[v.seg], jn, v.path[v.seg + 2]);
+        let rorGo = v.rorSeg === v.seg && light.green !== axis; // already committed: keep going
+        if (!rorGo && this.rightOnRed && light.green !== axis && turnsRight && light.green !== 'none') {
+          const atLine = v.t > STOP_T - 0.05 && v.v < 0.05;
+          v.rorWait = atLine ? (v.rorWait ?? 0) + dt : 0;
+          if ((v.rorWait ?? 0) >= ROR_STOP) {
+            const boxFree = !(inJunction.get(jn)?.some((h) => h.id !== v.id));
+            const crossing = (approaching.get(jn) ?? []).some((o) => o.id !== v.id && (Math.abs(jn - o.path[o.seg]) === 1 ? 'ew' : 'ns') === light.green && (o.t > 0.25 || o.v > 0.2));
+            const exit = lanes.get(laneOf(v, v.seg + 1));
+            const room = !exit || !exit.some((o) => o.t < 0.6 && o.v < 0.3);
+            rorGo = boxFree && !crossing && room;
+          }
+        } else v.rorWait = 0;
+        if (rorGo) {
+          if (v.rorSeg !== v.seg) { v.rorSeg = v.seg; this.stats.rightOnRed++; }
+        } else if (light.green !== axis) {
           if (v.v < 0.05) this.stats.waitSec += dt; // PR 6: time spent waiting at red (tests)
           stopAt();
           // Waiting at red: arm the reaction delay for when it turns green.

@@ -11,6 +11,7 @@ import { loadWorld, saveWorld } from '../src/sim/save';
 import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
+import { isRightTurn } from '../src/sim/traffic';
 import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
 
@@ -127,6 +128,31 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   check('level-3 houses grow into medium density on LOW zoning automatically', med.length > 0, { medium: med.length, merged: s.world.lots.stats.merged });
   check('medium buildings reach residential level 6+', maxLv >= 6, maxLv);
   check('L6/L7 capacities ~1.5x / ~2.2x of L5 (apartment 165 / 240)', TPL['apartment'].capacity[2] === 165 && TPL['apartment'].capacity[3] === 240);
+}
+
+// ---------------------------------------------------------------- stage 9: right on red
+{
+  const res: Record<string, any> = {};
+  for (const ror of [false, true]) {
+    const t = town({ seed: 77 });
+    t.settings.maxCars = 400;
+    t.traffic.rightOnRed = ror;
+    run(t, 500);
+    const roads: number[] = []; t.world.tiles.forEach((q, i) => q.road && roads.push(i));
+    for (let k = 0; k < 300; k++) t.traffic.spawn(t.world, 'car', roads[(k * 37) % roads.length], roads[(k * 101 + 13) % roads.length], 'stress');
+    const st0 = { ...t.traffic.stats };
+    for (let i = 0; i < 240; i++) { t.traffic.update(t.world, 0.5); t.world.clock += 0.5; }
+    const arrived = t.traffic.stats.arrived - st0.arrived, gave = t.traffic.stats.gaveUp - st0.gaveUp;
+    res[ror ? 'ror' : 'off'] = { arrived, gaveUp: gave, rightOnRed: t.traffic.stats.rightOnRed - st0.rightOnRed, waitPerTrip: +((t.traffic.stats.waitSec - st0.waitSec) / Math.max(1, arrived + gave)).toFixed(2) };
+  }
+  const rate = (r: any) => r.gaveUp / Math.max(1, r.arrived + r.gaveUp);
+  check('right on red is used (only on right turns, after a stop)', res.ror.rightOnRed > 0, res);
+  check('right on red: no worse give-ups (+2 pts), no longer red waits', rate(res.ror) <= rate(res.off) + 0.02 && res.ror.waitPerTrip <= res.off.waitPerTrip * 1.05, res);
+}
+{
+  // isRightTurn geometry: heading north then east = right; north then west = left.
+  const j = idx(10, 10);
+  check('isRightTurn: N→E right, N→W not', isRightTurn(idx(10, 11), j, idx(11, 10)) && !isRightTurn(idx(10, 11), j, idx(9, 10)));
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
