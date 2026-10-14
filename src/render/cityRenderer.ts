@@ -140,7 +140,7 @@ export class CityRenderer {
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
-  private cranes: Array<{ pos: THREE.Vector3; phase: number }> = [];
+  private cranes: Array<{ pos: THREE.Vector3; phase: number; aim: number; reach: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
   private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
@@ -226,8 +226,11 @@ export class CityRenderer {
     add('stopLine', ROADS.stopLine(), solid, 1024, false);
     add('manhole', ROADS.manhole(), solid, 512, false);
     add('drain', ROADS.drain(), solid, 512, false);
-    add('bridge', ROADS.bridgeDeck(), solid, 128);
-    add('railing', ROADS.railing(), solid, 256);
+    // PR 5 rebuilt bridges (see the BRIDGES block in roads.ts).
+    add('bridgeSlab', ROADS.bridgeSlab(), solid, 256);
+    add('bridgeEdge', ROADS.bridgeEdge(), solid, 512);
+    add('bridgePier', ROADS.bridgePier(), solid, 256);
+    add('bridgeRamp', ROADS.bridgeRamp(), solid, 128);
     add('highway', ROADS.highway(), solid, 4);
     add('water', ROADS.water(), new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }), 1024, false);
     add('lot', MODELS.lot(), solid, 1024, false);
@@ -594,9 +597,25 @@ export class CityRenderer {
     const n = has(x, z - 1, isRoad), e = has(x + 1, z, isRoad), s = has(x, z + 1, isRoad), w = has(x - 1, z, isRoad);
     const tint = t.roadType === 1 ? this.c.setRGB(0.78, 0.78, 0.8) : this.c.setRGB(1, 1, 1);
     if (t.water) {
-      // Bridge: lifted deck + pier, railings on every side without a road.
-      P.bridge.add(this.place(center), tint);
-      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.railing.add(this.place(center, yaw as number)));
+      // PR 5 bridge tile: deck slab, an edge (sidewalk + parapet) on every
+      // side without a road beyond it, and a pier on every other tile of a
+      // straight span (always under turns/junctions, which carry more load
+      // and would otherwise look unsupported). Yaw per side: N=0, W=π/2,
+      // S=π, E=3π/2 (rotateY sends the model's north edge there).
+      P.bridgeSlab.add(this.place(center), tint);
+      [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.bridgeEdge.add(this.place(center, yaw as number)));
+      const straightEW = (e || w) && !n && !s, straightNS = (n || s) && !e && !w;
+      const along = straightEW ? x : straightNS ? z : 0;
+      if (!(straightEW || straightNS) || along % 2 === 0) P.bridgePier.add(this.place(center, straightNS ? Math.PI / 2 : 0));
+    } else if (this.bridgeSide(x, z, has) !== null) {
+      // PR 5 approach ramp: a land road tile touching a bridge end. The ramp
+      // model rises along +x; rotateY(a) sends +x to (cos a, −sin a), so a
+      // bridge to the east → 0, north → π/2, west → π, south → 3π/2. The
+      // ramp REPLACES the flat road square, sidewalks and paint on this tile
+      // (they would poke through the slope). A junction right at a bridge end
+      // still gets the ramp; see the wiki note on bridge ends.
+      P.bridgeRamp.add(this.place(center, this.bridgeSide(x, z, has)!), tint);
+      return;
     } else {
       const curve = curveYaw(n, e, s, w);
       if (curve !== null) {
@@ -633,7 +652,9 @@ export class CityRenderer {
     const ew = e || w, ns = n || s;
     if (ew !== ns) {
       const yaw = ns ? Math.PI / 2 : 0;
-      const pos = t.water ? center.clone().setY(BRIDGE_Y - 0.035) : center;
+      // Bridge paint: the marking models sit on y = 0.04, so lift them by
+      // (BRIDGE_Y − 0.04) plus 0.004 to clear the deck asphalt (no z-fight).
+      const pos = t.water ? center.clone().setY(BRIDGE_Y - 0.04 + 0.004) : center;
       if (t.roadType === 1) P.avenueMarks.add(this.place(pos, yaw));
       else P.roadDash.add(this.place(pos, yaw));
     }
@@ -670,11 +691,22 @@ export class CityRenderer {
     P[`${key}.fixed`].add(m, this.c.setScalar(0.85));
     const { w, d, h } = roofBox(zone, lv);
     P.scaffold.add(this.place(center, face, w + 0.06, h + 0.05, d + 0.06));
-    // Crane in the back-left corner (local −x, −z), a bit taller than the building.
-    const back = new THREE.Vector3(-0.38, 0, -0.38).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
+    // Crane placement (PR 5 fix). The site faces its road with local +z
+    // (roadFacing → yaw = atan2(dx, dz), and rotateY(yaw) sends local +z to
+    // (dx, dz)), so local −z is the BACK of the lot, away from the street.
+    // The mast stands in the back-left corner, kept 0.12 inside the tile edge
+    // so its 0.16-wide foot never pokes into a neighbouring lot or road.
+    // Zoned lots are always 1×1; multi-tile structures (2×2 nuclear) are
+    // placed finished and never get a construction site.
+    const back = new THREE.Vector3(-0.36, 0, -0.36).applyAxisAngle(THREE.Object3D.DEFAULT_UP, face).add(center);
     const mastH = h + 0.45;
     P.craneMast.add(this.place(back, 0, 1, mastH, 1));
-    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28 });
+    // Aim: the jib model points along local +x and rotateY(a) maps +x to
+    // (cos a, −sin a), so the yaw that points from the mast to the centre of
+    // the construction frame is atan2(−dz, dx). `reach` stretches the jib so
+    // the hook (at 0.55 in model space) hangs exactly over that centre.
+    const dx = center.x - back.x, dz = center.z - back.z;
+    this.cranes.push({ pos: back.clone().setY(mastH + 0.05), phase: hash2(x, z, seed + 3) * 6.28, aim: Math.atan2(-dz, dx), reach: Math.hypot(dx, dz) / 0.55 });
     void i;
   }
 
@@ -773,6 +805,19 @@ export class CityRenderer {
    * rotateY(a) maps +z to (sin a, 0, cos a), so to face direction (dx, dz)
    * we need a = atan2(dx, dz). Prefers south, east, north, west in that order.
    */
+  /**
+   * PR 5: if this land road tile touches a BRIDGE (water road tile), the yaw
+   * that points the ramp model's +x at it; null otherwise. Prefers E, N, W, S.
+   */
+  private bridgeSide(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
+    const b = (q: Tile) => q.road && q.water;
+    if (has(x + 1, z, b)) return 0;
+    if (has(x, z - 1, b)) return Math.PI / 2;
+    if (has(x - 1, z, b)) return Math.PI;
+    if (has(x, z + 1, b)) return (3 * Math.PI) / 2;
+    return null;
+  }
+
   private roadFacing(x: number, z: number, has: (x: number, z: number, f: (t: Tile) => boolean) => boolean): number | null {
     // First choice: a road that also carries a power line, so the pole and
     // its drop wire end up in FRONT of the building (PR 3).
@@ -877,12 +922,14 @@ export class CityRenderer {
       }
     });
     smoke.end();
-    // PR 4: crane jibs swing slowly back and forth over their sites.
+    // Crane jibs (PR 5 fix): each points at its own construction frame and
+    // only sways a little (±0.15 rad ≈ the hook stays inside the scaffold).
+    // The old ±1.4 rad swing from a random phase left hooks over neighbours.
     const jib = this.pools.craneJib;
     jib.begin();
-    for (const { pos, phase } of this.cranes) {
-      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, phase + Math.sin(time * 0.35 + phase) * 1.4);
-      jib.add(this.m.compose(pos, this.q, this.s.set(1, 1, 1)));
+    for (const { pos, phase, aim, reach } of this.cranes) {
+      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, aim + Math.sin(time * 0.35 + phase) * 0.15);
+      jib.add(this.m.compose(pos, this.q, this.s.set(reach, 1, 1)));
     }
     jib.end();
 

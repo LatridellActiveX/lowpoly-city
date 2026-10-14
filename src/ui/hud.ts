@@ -23,7 +23,7 @@ import { windLabel } from '../sim/wind';
 import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RESOURCE_NAMES } from '../sim/resources';
-import { CONSTRUCT_TICKS, FUEL_MAX } from '../sim/rules';
+import { CONSTRUCT_TICKS, FUEL_MAX, JOBS_PER_LEVEL, MAX_RES_LEVEL, RESIDENTS_AT, residentsOf } from '../sim/rules';
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number): string {
@@ -513,6 +513,25 @@ export class Hud {
     if (t.construct > 0) {
       const pct = Math.round((1 - t.construct / CONSTRUCT_TICKS) * 100);
       rows.push(`<div class="row">🏗 Under construction: <b>${pct}%</b> (to level ${t.level + 1})${sim.status(i).operating ? '' : ' <span class="bad">— paused, needs road, power and water</span>'}</div>`);
+    }
+    // PR 5: occupancy rows (re-rendered every HUD tick, so they update live).
+    //  - Homes: people living there now vs the level's capacity (RESIDENTS_AT,
+    //    incl. medium density). The newest level's people count only once
+    //    their car arrives (residentsOf), and nobody lives in a building
+    //    that isn't operating.
+    //  - Shops/factories: the sim has no per-building worker list, so jobs are
+    //    filled at the CITY-WIDE rate: min(1, population ÷ total jobs).
+    if (t.zone === 'residential' && t.level > 0) {
+      const cap = RESIDENTS_AT[Math.min(t.level, MAX_RES_LEVEL)];
+      const now = sim.status(i).operating ? residentsOf(t) : 0;
+      rows.push(`<div class="row">Residents: <b>${now} / ${cap}</b>${t.movingIn ? ' · 🚗 new residents on the way' : ''}</div>`);
+    }
+    if ((t.zone === 'commercial' || t.zone === 'industrial') && t.level > 0) {
+      const cap = JOBS_PER_LEVEL[t.zone] * t.level;
+      const cs = sim.stats();
+      const rate = cs.jobs > 0 ? Math.min(1, cs.population / cs.jobs) : 0;
+      const now = sim.status(i).operating ? Math.round(cap * rate) : 0;
+      rows.push(`<div class="row">Workers: <b>${now} / ${cap}</b></div>`);
     }
     if (t.zone === 'industrial' && t.level > 0) rows.push(`<div class="row">Makes: <b>${GOOD_NAMES[factoryGood(sim.world, i)]}</b> · in stock ${t.stock.toFixed(1)}</div>`);
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);

@@ -25,8 +25,17 @@
 import * as THREE from 'three';
 import { box, merge, part } from './models';
 
-/** Deck height of bridges (vehicles and poles are lifted by this much). */
-export const BRIDGE_Y = 0.12;
+/**
+ * Deck (asphalt top) height of bridges. PR 5 bridge rebuild: raised from 0.12
+ * to 0.32 so the deck clearly floats above the water (surface ≈ 0.044) with
+ * room for girders, a pier cap and visible air underneath. Vehicles, poles and
+ * signals on bridge tiles are lifted to this height (see surfaceY below).
+ */
+export const BRIDGE_Y = 0.32;
+/** Height of the normal road surface (top of the 0.04 asphalt slab). */
+export const ROAD_Y = 0.04;
+/** Half-width of the carriageway on bridges/ramps (sidewalks sit outside it). */
+const DECK_HALF = 0.36;
 const ASPHALT = 0x50555e;
 const KERB = 0xc9c6bf;
 
@@ -176,30 +185,110 @@ export const ROADS = {
     for (let k = 0; k < 4; k++) parts.push(part(box(0.008, 0.006, 0.03), 0x6a6d72, [-0.045 + k * 0.03, 0.041, -0.375]));
     return merge(parts);
   },
-  /**
-   * Bridge deck square (lifted) with a stone pier underneath. PR 5: chamfered
-   * deck edges, two steel girders under the deck, a pier cap and footing.
-   */
-  bridgeDeck: () =>
-    merge([
-      part(box(1, 0.05, 1), 0x6b7078, [0, BRIDGE_Y - 0.01, 0]),
-      part(box(1, 0.04, 0.96), ASPHALT, [0, BRIDGE_Y, 0]),
-      part(box(1, 0.014, 0.014), 0x8a8f96, [0, BRIDGE_Y + 0.033, -0.493], [Math.PI / 4, 0, 0]), // bevelled edges
-      part(box(1, 0.014, 0.014), 0x8a8f96, [0, BRIDGE_Y + 0.033, 0.493], [Math.PI / 4, 0, 0]),
-      part(box(1, 0.035, 0.04), 0x5a5f66, [0, BRIDGE_Y - 0.045, -0.25]), // girders
-      part(box(1, 0.035, 0.04), 0x5a5f66, [0, BRIDGE_Y - 0.045, 0.25]),
-      part(box(0.18, BRIDGE_Y, 0.5), 0x9b968a, [0, -0.02, 0]), // pier
-      part(box(0.24, 0.025, 0.6), 0xaaa597, [0, BRIDGE_Y - 0.05, 0]), // pier cap
-      part(new THREE.CylinderGeometry(0.16, 0.18, 0.03, 10).scale(1, 1, 1.8).translate(0, 0.015, 0), 0x8e897d, [0, -0.04, 0]), // footing
-    ]),
-  /** Railing along a bridge's north edge: posts + top & mid rails + a bevelled kerb (PR 5). */
-  railing: () => {
+  // ------------------------------------------------------------------
+  // PR 5 BRIDGES (rebuilt). A bridge is drawn from four instanced pieces:
+  //
+  //   bridgeSlab  – on EVERY water road tile: a 1×1 asphalt deck whose top is
+  //                 exactly BRIDGE_Y, a thicker concrete deck beam under it
+  //                 (so the edge reads as a real structure, not a sheet) and
+  //                 steel girders running both ways (so turns/junctions look
+  //                 right from any camera angle).
+  //   bridgeEdge  – on each side of a bridge tile with NO road beyond it
+  //                 (north edge in model space, rotated for the others): a
+  //                 bevelled sidewalk, a concrete parapet with chamfered top,
+  //                 posts and a steel hand rail, and an outer fascia that
+  //                 hides the slab edge. Ends that meet the bank have a road
+  //                 neighbour, so they stay open and continue into the ramp.
+  //   bridgePier  – every other tile along a span (and under every turn or
+  //                 junction tile): two round columns from the riverbed up
+  //                 to a cap beam under the girders, with a pointed
+  //                 "cutwater" footing at the water line.
+  //   bridgeRamp  – on the LAND road tile next to a bridge end: a sloped
+  //                 wedge rising from ROAD_Y at the far edge to BRIDGE_Y at
+  //                 the bridge edge, with rising sidewalks, parapets and a
+  //                 solid abutment face, so the road climbs smoothly onto
+  //                 the deck. Modelled along +x (bridge on the +x side).
+  //
+  // No z-fighting: every visible surface sits at a different height or is
+  // hidden inside another solid (slab top 0.32, sidewalk 0.32..0.34,
+  // paint drawn by the road-marking pools at +0.004).
+  // ------------------------------------------------------------------
+  bridgeSlab: () => {
+    const D = BRIDGE_Y;
     const parts = [
-      part(box(1, 0.02, 0.03), 0xe8e4da, [0, BRIDGE_Y + 0.1, -0.47]),
-      part(box(1, 0.012, 0.018), 0xd0ccc2, [0, BRIDGE_Y + 0.06, -0.47]),
-      part(kerbProfile(-0.44, -0.49, BRIDGE_Y + 0.02, 0.02), KERB),
+      part(new THREE.BoxGeometry(1, 0.05, 1, 2, 1, 2).translate(0, D - 0.025, 0), ASPHALT), // asphalt deck, top = D
+      part(box(1, 0.06, 1), 0x8d9097, [0, D - 0.11, 0]), // concrete deck beam (0.21..0.27)
+      // Steel girders under the deck, both directions (shared by straights, turns and crossings).
+      part(box(1, 0.05, 0.05), 0x5a5f66, [0, D - 0.16, -0.26]),
+      part(box(1, 0.05, 0.05), 0x5a5f66, [0, D - 0.16, 0.26]),
+      part(box(0.05, 0.05, 1), 0x5a5f66, [-0.26, D - 0.16, 0]),
+      part(box(0.05, 0.05, 1), 0x5a5f66, [0.26, D - 0.16, 0]),
     ];
-    for (const x of [-0.45, -0.3, -0.15, 0, 0.15, 0.3, 0.45]) parts.push(part(box(0.022, 0.1, 0.022), 0xe8e4da, [x, BRIDGE_Y + 0.02, -0.47]));
+    // Bottom flanges (thin wide plates) make the girders read as I-beams.
+    for (const z of [-0.26, 0.26]) parts.push(part(box(1, 0.008, 0.09), 0x4b5056, [0, D - 0.165, z]));
+    for (const x of [-0.26, 0.26]) parts.push(part(box(0.09, 0.008, 1), 0x4b5056, [x, D - 0.165, 0]));
+    return merge(parts);
+  },
+  /** Sidewalk + parapet + rail + fascia on a bridge tile's NORTH edge. */
+  bridgeEdge: () => {
+    const D = BRIDGE_Y;
+    const parts = [
+      part(kerbProfile(-DECK_HALF, -0.46, D, 0.02), KERB), // sidewalk
+      part(kerbProfile(-DECK_HALF + 0.005, -DECK_HALF - 0.015, D, 0.026, 0.006), 0xdedbd4), // kerb stone
+      part(box(1, 0.004, 0.02), 0x3f434a, [0, D, -DECK_HALF + 0.015]), // gutter line
+      part(kerbProfile(-0.455, -0.5, D, 0.07, 0.012), 0xb9b5ac), // parapet wall, chamfered
+      part(box(1, 0.16, 0.02), 0x9a9da3, [0, D - 0.13, -0.505]), // fascia covering the slab edge
+      part(box(1, 0.012, 0.02), 0x6f747b, [0, D + 0.135, -0.478]), // hand rail
+      part(box(1, 0.008, 0.012), 0x6f747b, [0, D + 0.105, -0.478]), // mid rail
+    ];
+    for (const x of [-0.375, -0.125, 0.125, 0.375]) parts.push(part(box(0.022, 0.07, 0.022), 0x6f747b, [x, D + 0.07, -0.478])); // rail posts
+    for (const x of [-0.25, 0, 0.25]) parts.push(part(box(0.006, 0.004, 0.08), 0xa9a69f, [x, D + 0.02, -0.41])); // pavement joints
+    return merge(parts);
+  },
+  /** Twin-column pier from the riverbed to the girders, with cap beam and cutwater. */
+  bridgePier: () => {
+    const D = BRIDGE_Y;
+    const top = D - 0.17; // underside of the girders
+    const parts: THREE.BufferGeometry[] = [];
+    for (const z of [-0.22, 0.22]) {
+      parts.push(part(new THREE.CylinderGeometry(0.055, 0.065, top + 0.08, 12).translate(0, (top + 0.08) / 2 - 0.08, 0), 0xa8a397, [0, 0, z]));
+    }
+    parts.push(part(box(0.14, 0.05, 0.62), 0xbab5a8, [0, top - 0.05, 0])); // cap beam
+    parts.push(part(box(0.18, 0.012, 0.66), 0xc8c3b6, [0, top - 0.002, 0])); // bearing plate
+    // Cutwater footing: an elongated octagon that pokes out of the water (0.044) a little.
+    parts.push(part(new THREE.CylinderGeometry(0.1, 0.12, 0.14, 8).scale(1, 1, 3.6).translate(0, -0.01, 0), 0x8e897d));
+    return merge(parts);
+  },
+  /** Approach ramp on the bank tile, rising along +x to the bridge. */
+  bridgeRamp: () => {
+    const D = BRIDGE_Y;
+    // Side profile in (x, y), extruded across z. The polygon's top edge is the slope.
+    const wedge = (y0: number, y1: number, zA: number, zB: number, color: number) => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.5, 0);
+      sh.lineTo(-0.5, y0);
+      sh.lineTo(0.5, y1);
+      sh.lineTo(0.5, 0);
+      sh.closePath();
+      // Extrude along +z by (zB − zA); shape x/y are already world x/y.
+      const g = new THREE.ExtrudeGeometry(sh, { depth: zB - zA, bevelEnabled: false });
+      g.translate(0, 0, zA);
+      return part(g, color);
+    };
+    const parts = [
+      wedge(ROAD_Y, D, -DECK_HALF, DECK_HALF, ASPHALT), // driving surface
+      wedge(ROAD_Y + 0.02, D + 0.02, -0.46, -DECK_HALF, KERB), // sidewalks
+      wedge(ROAD_Y + 0.02, D + 0.02, DECK_HALF, 0.46, KERB),
+      wedge(ROAD_Y + 0.05, D + 0.07, -0.5, -0.46, 0xb9b5ac), // parapets / retaining walls
+      wedge(ROAD_Y + 0.05, D + 0.07, 0.46, 0.5, 0xb9b5ac),
+      part(box(0.04, D, 1), 0x9a9da3, [0.48, 0, 0]), // abutment face under the first span
+    ];
+    // Painted centre dashes following the slope (rotated about z by the ramp angle).
+    const ang = Math.atan2(D - ROAD_Y, 1);
+    for (const x of [-0.3, 0, 0.3]) {
+      const y = ROAD_Y + (D - ROAD_Y) * (x + 0.5) + 0.002;
+      parts.push(part(box(0.16, 0.006, 0.045), 0xf2e6a0, [x, y, 0], [0, 0, ang]));
+    }
     return merge(parts);
   },
   /**
@@ -234,4 +323,34 @@ export function curveYaw(n: boolean, e: boolean, s: boolean, w: boolean): number
   if (n && e) return Math.PI / 2;
   if (w && n) return Math.PI;
   return (3 * Math.PI) / 2; // s && w
+}
+
+/**
+ * PR 5: the height of the driving surface at world point (wx, wz). Used by
+ * vehicles (and anything else that must sit ON the road) so they follow the
+ * bridge deck and climb the approach ramps:
+ *   - water road tile (bridge)            → BRIDGE_Y
+ *   - land road tile next to a bridge     → linear slope from ROAD_Y at the
+ *     (ramp)                                 far edge to BRIDGE_Y at the edge
+ *                                            touching the bridge (the highest
+ *                                            of up to 4 neighbouring bridges)
+ *   - anything else                       → ROAD_Y
+ * This mirrors exactly how cityRenderer places bridgeRamp/bridgeSlab, so
+ * wheels stay on the asphalt. Pure function of the tiles: no sim state.
+ */
+export function surfaceY(tiles: ReadonlyArray<{ road: boolean; water: boolean }>, gridSize: number, wx: number, wz: number): number {
+  const x = Math.floor(wx), z = Math.floor(wz);
+  if (x < 0 || z < 0 || x >= gridSize || z >= gridSize) return ROAD_Y;
+  const t = tiles[z * gridSize + x];
+  if (t.water) return BRIDGE_Y;
+  if (!t.road) return ROAD_Y;
+  const fx = wx - x, fz = wz - z; // 0..1 inside the tile
+  let y = ROAD_Y;
+  for (const [dx, dz, s] of [[1, 0, fx], [-1, 0, 1 - fx], [0, 1, fz], [0, -1, 1 - fz]] as const) {
+    const nx = x + dx, nz = z + dz;
+    if (nx < 0 || nz < 0 || nx >= gridSize || nz >= gridSize) continue;
+    const n = tiles[nz * gridSize + nx];
+    if (n.road && n.water) y = Math.max(y, ROAD_Y + (BRIDGE_Y - ROAD_Y) * s);
+  }
+  return y;
 }

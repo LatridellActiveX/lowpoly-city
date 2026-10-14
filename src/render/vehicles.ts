@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { box, merge, part } from './models';
 import { GRID_SIZE, Tile } from '../sim/types';
 import { Vehicle } from '../sim/traffic';
-import { BRIDGE_Y } from './roads';
+import { surfaceY } from './roads';
 import { hash2 } from '../sim/random';
 
 const LANE = 0.17;
@@ -163,7 +163,6 @@ export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6
 const LANE_AVENUE = 0.24;
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 const dirIdx = (a: number, b: number) => { const d = b - a; return d === 1 ? 0 : d === -1 ? 1 : d === GRID_SIZE ? 2 : 3; };
-const groundY = (t: Tile) => (t.water ? BRIDGE_Y + 0.02 : 0.04);
 
 /** Pose output: position + yaw + body roll/pitch (radians) + speed for wheel spin. */
 export interface Pose { yaw: number; roll: number; pitch: number }
@@ -209,9 +208,10 @@ function routePoint(v: Vehicle, tiles: Tile[], seg: number, t: number, pos: THRE
   head.x = (P1.x - P0.x) * d0 + (P2.x - P1.x) * d1 + (P3.x - P2.x) * d2;
   head.z = (P1.z - P0.z) * d0 + (P2.z - P1.z) * d1 + (P3.z - P2.z) * d2;
   if (Math.abs(head.x) + Math.abs(head.z) < 1e-6) { head.x = ix; head.z = iz; }
-  // Height: blend between this tile's deck/road height and the next tile's (bridge ramps).
-  const yA = groundY(tiles[path[seg]]), yB = groundY(tiles[path[seg + 1]]);
-  pos.y = yA + (yB - yA) * Math.min(1, Math.max(0, (t - 0.3) / 0.4));
+  // Height (PR 5 bridge rebuild): sample the actual driving surface under
+  // the car — flat road, bridge deck, or the slope of an approach ramp — so
+  // wheels follow the ramp exactly and ride on the raised deck.
+  pos.y = surfaceY(tiles, GRID_SIZE, pos.x, pos.z);
 }
 
 const H1 = { x: 0, z: 0 }, H2 = { x: 0, z: 0 };
@@ -238,6 +238,11 @@ export function vehiclePose(v: Vehicle, tiles: Tile[], pos: THREE.Vector3, out?:
     const speed = v.v ?? 1;
     out.roll = Math.max(-0.12, Math.min(0.12, -curvature * speed * speed * 0.02));
     out.pitch = Math.max(-0.07, Math.min(0.07, -(v.acc ?? 0) * 0.025));
+    // PR 5: tilt with the road on bridge ramps. Pitch is a rotation about the
+    // car's local z, and a positive angle lifts local +x (the nose), so a
+    // climb (Q higher than pos) gives a positive pitch.
+    const run = Math.hypot(Q.x - pos.x, Q.z - pos.z);
+    if (run > 1e-4) out.pitch += Math.atan2(Q.y - pos.y, run);
   }
   return yaw;
 }
