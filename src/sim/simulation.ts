@@ -43,7 +43,7 @@ import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment } from './environment';
-import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP } from './economy';
+import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
 export interface Requirement {
@@ -148,7 +148,7 @@ export class Simulation {
   constructor(world = new World()) {
     this.world = world;
     this.net = computeNetworks(world);
-    this.env = computeEnvironment(world);
+    this.env = computeEnvironment(world, this.net.service);
     this.demand = this.computeDemand();
   }
 
@@ -186,7 +186,7 @@ export class Simulation {
     w.tick++;
     stepWind(w); // weather first, so this tick's turbine output uses the new wind
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w);
+    this.env = computeEnvironment(w, this.net.service);
     this.demand = this.computeDemand();
 
     // Spare capacity per network, decremented as lots grow this tick so that
@@ -232,9 +232,30 @@ export class Simulation {
     l.upkeep = m.upkeep;
     const income = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
     const upkeep = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
-    w.cash += Math.round(income - upkeep);
+    l.property = m.property;
+    w.cash += Math.round(income + (l.property ?? 0) - upkeep);
+    this.bookProfits();
     w.lastLedger = l;
     w.ledger = emptyLedger();
+  }
+
+  /**
+   * V1.5 stage 11: last month's profit for every business host tile (shops
+   * and industry), from the goods flows booked by Shipping (economy.ts Profit).
+   */
+  private bookProfits(): void {
+    const w = this.world, sh = this.shipping;
+    w.profits.clear();
+    w.tiles.forEach((t, i) => {
+      if ((t.zone !== 'commercial' && t.zone !== 'industrial') || t.level === 0) return;
+      const op = this.status(i).operating;
+      const sales = (sh.sales.get(i) ?? 0) + (op ? SALES_FLOOR * t.jobs : 0);
+      const inputs = sh.costs.get(i) ?? 0;
+      const wages = WAGE * t.jobs;
+      const taxes = monthlyTax(t, op, w.taxRates) + propertyTax(t, op, this.env.landValue[i], w.propertyRate);
+      w.profits.set(i, { sales, inputs, wages, taxes, net: sales - inputs - wages - taxes });
+    });
+    sh.resetMonth();
   }
 
   /** Append a stats snapshot, dropping the oldest when the buffer is full. */
@@ -261,6 +282,10 @@ export class Simulation {
       if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
+    // V1.5 stage 11: land-value property tax on every operating zoned building.
+    let prop = 0;
+    w.tiles.forEach((t, i) => { if (t.zone) prop += propertyTax(t, t.level > 0 && this.status(i).operating, this.env.landValue[i], w.propertyRate); });
+    l.property = Math.round(prop);
     return l;
   }
 
@@ -297,7 +322,7 @@ export class Simulation {
       t.part = k === 0 ? 0 : anchor + 1;
     });
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w);
+    this.env = computeEnvironment(w, this.net.service);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -348,7 +373,7 @@ export class Simulation {
       paintTile(this, x, z, code);
       res.changed += n;
     }
-    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w); this.version++; }
+    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w, this.net.service); this.version++; }
     return res;
   }
 
@@ -381,7 +406,7 @@ export class Simulation {
     w.ledger.construction += cost;
     for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
     this.net = computeNetworks(w);
-    this.env = computeEnvironment(w);
+    this.env = computeEnvironment(w, this.net.service);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -471,7 +496,7 @@ export class Simulation {
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = computeNetworks(this.world);
-      this.env = computeEnvironment(this.world);
+      this.env = computeEnvironment(this.world, this.net.service);
       this.version++;
     }
     return res;

@@ -47,6 +47,7 @@ export function saveWorld(world: World): void {
     seed: world.seed,
     cash: world.cash,
     taxRates: world.taxRates,
+    propertyRate: world.propertyRate, // V1.5 stage 11
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -99,6 +100,7 @@ export function loadWorld(): World | null {
     } else {
       w.cash = data.cash ?? STARTING_CASH;
       w.taxRates = { ...defaultTaxRates(), ...data.taxRates };
+      if (typeof data.propertyRate === 'number') w.propertyRate = data.propertyRate;
       w.ledger = mergeLedger(data.ledger) ?? emptyLedger();
       w.lastLedger = mergeLedger(data.lastLedger);
     }
@@ -167,6 +169,7 @@ function mergeLedger(l: Partial<Ledger> | null | undefined): Ledger | null {
     construction: l.construction ?? 0,
     refunds: l.refunds ?? 0,
     trade: { ...e.trade, ...l.trade },
+    property: l.property ?? 0,
   };
 }
 

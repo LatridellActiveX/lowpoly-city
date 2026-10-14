@@ -212,6 +212,26 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   check('raw loads travel to processors and get processed', st.chainLoads > 0 && st.processed > 0, st);
   check('construction uses building materials', st.materialsUsed > 0, st);
   check('surplus exported, buildings book sales and input costs', st.exported > 0 && s.shipping.sales.size > 0 && s.shipping.costs.size > 0, { exported: st.exported, sales: s.shipping.sales.size, costs: s.shipping.costs.size });
+  // ---------------------------------------------------------------- stage 11: economy (same town)
+  const w = s.world, env = s.env;
+  const prof = [...w.profits.entries()];
+  const shops = prof.filter(([i]) => w.tiles[i].zone === 'commercial').map(([, p]) => p.net);
+  const inds = prof.filter(([i]) => w.tiles[i].zone === 'industrial').map(([, p]) => p);
+  check('profit booked monthly for shops and industry', shops.length > 0 && inds.length > 0, { shops: shops.length, ind: inds.length });
+  check('profit = sales − inputs − wages − taxes', prof.every(([, p]) => Math.abs(p.net - (p.sales - p.inputs - p.wages - p.taxes)) < 1e-6));
+  check('most shops in a supplied town make a profit', shops.filter((x) => x > 0).length >= shops.length * 0.6, { pos: shops.filter((x) => x > 0).length, n: shops.length });
+  check('processors pay for their inputs', inds.some((p) => p.inputs > 0));
+  // Land value: kerbside land > land 4 tiles from any road; pollution lowers it.
+  const lv = (x: number, z: number) => env.landValue[idx(x, z)];
+  check('land value: road access matters', lv(20, 13) > lv(5, 5) + 0.3, { kerb: lv(20, 13), far: lv(5, 5) });
+  check('land value: polluted industrial land < homes', lv(40, 35) < lv(40, 13), { ind: lv(40, 35), home: lv(40, 13) });
+  const before = s.projectMonth().property ?? 0;
+  w.propertyRate = 0.1;
+  const after = s.projectMonth().property ?? 0;
+  check('property tax books and scales with its rate', before > 0 && Math.abs(after - before * 2) <= 2, { before, after });
+  saveWorld(w);
+  check('property rate survives save/load', loadWorld()!.propertyRate === 0.1);
+
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

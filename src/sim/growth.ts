@@ -37,7 +37,7 @@ import { FIT_BUDGET, MERGE_TICKS, SHRINK_TICKS, capacityAt, growablePool, scoreO
 import { lotFits } from './parking';
 import { tierOk } from './progression';
 import { CONSTRUCT_TICKS, DEMAND, DESIRE_FAST, DESIRE_FOR_DENSE, DESIRE_MIN, GROW_TICKS, MEDIUM_DENSITY } from './rules';
-import { growthFactor } from './economy';
+import { growthFactor, propertyGrowth } from './economy';
 import { hash2 } from './random';
 import { Resource } from './resources';
 import { GRID_SIZE, ToolId, ZoneType } from './types';
@@ -88,7 +88,7 @@ function roll(sim: Simulation, zone: ZoneType, salt: number): boolean {
   // whichever of residential / commercial demand is stronger drives it.
   const mixed = zone === 'commercial' && w.tiles[salt]?.kind === 3;
   const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : sim.demandFactor(zone);
-  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * f;
+  return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * propertyGrowth(w.propertyRate) * f; // V1.5: property tax too
 }
 
 export function growLots(sim: Simulation, sparePower: number[], spareWater: number[]): void {

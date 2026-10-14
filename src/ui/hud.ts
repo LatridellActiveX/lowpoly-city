@@ -13,7 +13,7 @@ import { resLevel } from '../sim/footprints';
 import { rangeOf } from '../sim/parking';
 import { Simulation } from '../sim/simulation';
 import { ToolId, ZoneType } from '../sim/types';
-import { BUILD_COST, growthFactor, ledgerNet, MAX_TAX, monthlyTax, UPKEEP } from '../sim/economy';
+import { BUILD_COST, growthFactor, ledgerNet, MAX_PROPERTY, MAX_TAX, monthlyTax, propertyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
 import { ToolGroupId, TOOL_GROUPS, TOOLS, toolDef } from './tools';
@@ -47,6 +47,8 @@ export interface HudActions {
   setSpeed(s: number): void;
   setOverlay(o: OverlayMode): void;
   setTax(zone: ZoneType, rate: number): void;
+  /** V1.5 stage 11: property (land-value) tax rate 0..MAX_PROPERTY. */
+  setPropertyTax(rate: number): void;
   rotate(dir: 1 | -1): void;
   zoom(f: number): void;
   save(): void;
@@ -118,6 +120,7 @@ export class Hud {
         ['resources', '🗺 Resources'],
         ['zoning', '🧱 Zoning'],
         ['parking', '🅿️ Parking'],
+        ['landValue', '💎 Land value'], // V1.5 stage 11
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
@@ -214,7 +217,7 @@ export class Hud {
         <thead><tr><th></th><th>This month*</th><th>Last month</th></tr></thead>
         <tbody>
           <tr class="sec"><td colspan="3">Income (taxes)</td></tr>
-          ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}
+          ${zones.map(([z, l]) => row(`tax.${z}`, l)).join('')}${row('tax.property', '🏡 Property tax (land value)')}
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
           ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
@@ -232,10 +235,14 @@ export class Hud {
           <b data-k="rate.${z}"></b></label>`,
         )
         .join('')}
-      <div class="muted small" data-k="growth"></div>`;
+      <label class="tax"><span>🏡 Property</span><input type="range" min="0" max="${MAX_PROPERTY * 100}" step="1" data-prop="1">
+          <b data-k="rate.property"></b></label>
+      <div class="muted small" data-k="growth"></div>
+      <h4>Businesses (last month)</h4>
+      <div class="small" data-k="biz"></div>`;
     (this.budget.querySelector('.close') as HTMLButtonElement).onclick = () => this.budget.classList.add('hidden');
     this.budget.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp) => {
-      inp.oninput = () => actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100);
+      inp.oninput = () => (inp.dataset.prop ? actions.setPropertyTax(Number(inp.value) / 100) : actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100));
     });
   }
 
@@ -259,6 +266,18 @@ export class Hud {
       const inp = this.budget.querySelector<HTMLInputElement>(`input[data-zone="${z}"]`)!;
       if (document.activeElement !== inp) inp.value = String(Math.round(rate * 100));
     }
+    // V1.5 stage 11: property tax + business profit summary.
+    this.setCell('tax.property.now', fmt(now.property ?? 0));
+    this.setCell('tax.property.last', fmt(last?.property));
+    this.setCell('rate.property', `${Math.round(w.propertyRate * 100)}%`);
+    const pin = this.budget.querySelector<HTMLInputElement>('input[data-prop]')!;
+    if (document.activeElement !== pin) pin.value = String(Math.round(w.propertyRate * 100));
+    const biz = { commercial: [] as number[], industrial: [] as number[] };
+    w.profits.forEach((p, i) => { const z = w.tiles[i].zone; if (z === 'commercial' || z === 'industrial') biz[z].push(p.net); });
+    const sum = (a: number[]) => a.reduce((x, y) => x + y, 0);
+    const line = (l: string, a: number[]) => a.length ? `${l}: ${a.length} · avg profit <b class="${sum(a) < 0 ? 'bad' : 'ok'}">${this.money(Math.round(sum(a) / a.length))}</b>/mo · <span class="${a.filter((x) => x < 0).length ? 'bad' : ''}">${a.filter((x) => x < 0).length} losing money</span>` : `${l}: —`;
+    let lvS = 0, lvN = 0; w.tiles.forEach((t, i) => { if (t.zone) { lvS += sim.env.landValue[i]; lvN++; } });
+    this.setCell('biz', `${line('🏪 Shops', biz.commercial)}<br>${line('🏭 Industry', biz.industrial)}<br>💎 Average land value of zoned land: <b>${lvN ? (lvS / lvN).toFixed(2) : '—'}</b> (overlay: 💎 Land value)`);
     this.setCell('trade.exports.now', fmt(w.ledger.trade.exports));
     this.setCell('trade.exports.last', fmt(last?.trade?.exports));
     this.setCell('trade.fuel.now', fmt(w.ledger.trade.fuel, true));
@@ -611,7 +630,11 @@ export class Hud {
       if (t.zone) rows.push(`<div class="row">Road access: ${yes(st.roadAccess)}</div>`);
       rows.push(`<div class="row">Power: ${yes(st.powered)} <span class="muted">(${netLine('power')})</span></div>`);
       if (t.zone) rows.push(`<div class="row">Water: ${yes(st.watered)} <span class="muted">(${netLine('water')})</span></div>`);
-      if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month</div>`);
+      if (t.zone && t.level > 0) rows.push(`<div class="row">Taxes: <b>${this.money(monthlyTax(t, st.operating, sim.world.taxRates))}</b>/month + property <b>${this.money(Math.round(propertyTax(t, st.operating, sim.env.landValue[i], sim.world.propertyRate)))}</b></div>`);
+      // V1.5 stage 11: land value and last month's profit.
+      if (t.zone) rows.push(`<div class="row">Land value: <b>${sim.env.landValue[i].toFixed(2)}</b> <span class="muted">(noise ${sim.env.noise[i].toFixed(1)})</span></div>`);
+      const pf = sim.world.profits.get(i);
+      if (pf) rows.push(`<div class="row">Profit last month: <b class="${pf.net < 0 ? 'bad' : 'ok'}">${pf.net < 0 ? '-' : ''}${this.money(Math.abs(Math.round(pf.net)))}</b> <span class="muted">(sales ${this.money(Math.round(pf.sales))} − inputs ${this.money(Math.round(pf.inputs))} − wages ${this.money(Math.round(pf.wages))} − tax ${this.money(Math.round(pf.taxes))})</span></div>`);
       if (st.missing.length) rows.push(`<div class="row bad">Missing: ${st.missing.join(', ')}</div>`);
       if (t.zone === 'residential') {
         // Pollution & desirability (PR 3): explain why a home is stuck.

@@ -96,6 +96,10 @@ export class World {
   cash = STARTING_CASH;
   /** Tax rate per zone, 0..0.2. */
   taxRates: TaxRates = defaultTaxRates();
+  /** V1.5 stage 11: land-value property tax rate (0..MAX_PROPERTY), saved. */
+  propertyRate = 0.05;
+  /** V1.5 stage 11: last month's profit per business host tile (not saved; rebuilt in a month). */
+  profits = new Map<number, import('./economy').Profit>();
   /** Books for the month in progress, and the last finished month. */
   ledger: Ledger = emptyLedger();
   lastLedger: Ledger | null = null;

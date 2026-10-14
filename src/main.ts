@@ -87,6 +87,11 @@ const hud = new Hud(app, {
     sim.world.taxRates[zone] = rate;
     hud.refresh(sim);
   },
+  // V1.5 stage 11: land-value property tax slider.
+  setPropertyTax: (rate) => {
+    sim.world.propertyRate = rate;
+    hud.refresh(sim);
+  },
   save: () => {
     if (inTitle) return;
     saveWorld(sim.world);

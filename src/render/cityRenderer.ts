@@ -46,6 +46,7 @@ import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels } from './industryModels';
 import { roleOf } from '../sim/chains';
+import { LV_MAX } from '../sim/environment';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
@@ -68,7 +69,8 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 };
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking';
+/** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue';
 
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
@@ -628,6 +630,13 @@ export class CityRenderer {
         const r = sim.world.resourceAt(i);
         const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24 }[r as 1];
         if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
+      } else if (this.overlay === 'landValue') {
+        // V1.5 stage 11: land value 0 → LV_MAX as deep blue → green → gold.
+        const v = sim.env.landValue[i] / LV_MAX;
+        if (!t.road && !t.water) {
+          this.c.setHex(0x2f4fb5).lerp(TMP.setHex(0x3ddc84), Math.min(1, v * 2)).lerp(TMP.setHex(0xffc531), Math.max(0, v * 2 - 1));
+          P.overlay.add(this.place(center.clone().setY(0.09)), this.c);
+        }
       } else if (this.overlay === 'pollution') {
         const p = sim.env.pollution[i];
         if (p > 0.15) {

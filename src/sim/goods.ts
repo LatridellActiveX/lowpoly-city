@@ -138,6 +138,14 @@ export class Shipping {
    */
   costs = new Map<number, number>();
   sales = new Map<number, number>();
+  /**
+   * Was a building's last delivery IMPORTED? Its goods then cost the
+   * IMPORT_PREMIUM. Profit is booked as goods FLOW (units sold / processed /
+   * produced × unit price), not per truck, so a month isn't swung by when a
+   * 16-unit load happened to arrive.
+   */
+  private importedSupply = new Set<number>();
+  private unit = (g: GoodType) => EXPORT_PRICE[g] / LOAD;
   /** Running totals for tests and the info panel. */
   stats = { delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0 };
 
@@ -175,17 +183,25 @@ export class Shipping {
           const r = Math.min(t.input, t.level * PROCESS_RATE, FACTORY_MAX - t.stock);
           if (r > 0) {
             t.input -= r; t.stock += r; this.stats.processed += r;
-            if (role === 'electronics') this.book(this.costs, i, r * CHIP_COST); // imported chips
+            // Inputs consumed at the wholesale price (premium if imported) + chips.
+            this.book(this.costs, i, r * this.unit(rec.inputs[0]) * (this.importedSupply.has(i) ? IMPORT_PREMIUM : 1) + (role === 'electronics' ? r * CHIP_COST : 0));
+            this.book(this.sales, i, r * this.unit(rec.outputs[0]));
           }
-        } else if (isFarmLot(world, i)) {
-          t.stock = Math.min(FACTORY_MAX, t.stock + farmRate(PRODUCE_RATE, fieldCount(world, i)));
-        } else t.stock = Math.min(FACTORY_MAX, t.stock + t.level * PRODUCE_RATE);
+        } else {
+          // Extractors / farms / plain factories: value of what they produced.
+          const before = t.stock;
+          t.stock = Math.min(FACTORY_MAX, t.stock + (isFarmLot(world, i) ? farmRate(PRODUCE_RATE, fieldCount(world, i)) : t.level * PRODUCE_RATE));
+          this.book(this.sales, i, (t.stock - before) * this.unit(roleOutput(world, i, role)));
+        }
       } else if (t.zone === 'commercial') {
         shops.push(i);
         const sold = Math.min(t.stock, t.level * SELL_RATE);
         t.stock -= sold;
-        // Retail sells at twice the wholesale (export) price per unit.
-        this.book(this.sales, i, sold * (EXPORT_PRICE[shopGood(world, i)] / LOAD) * 2);
+        // Retail sells at twice the wholesale (export) price per unit; the
+        // goods themselves cost the wholesale price (× premium if imported).
+        const u = this.unit(shopGood(world, i));
+        this.book(this.sales, i, sold * u * 2);
+        this.book(this.costs, i, sold * u * (this.importedSupply.has(i) ? IMPORT_PREMIUM : 1));
       }
     });
 
@@ -209,7 +225,6 @@ export class Shipping {
         const from = roadNextTo(tiles, oilSrc);
         if (traffic.spawn(world, 'truck', from, dest, 'fuel: oil', 0x2b2b2b, () => this.refuel(world, p))) {
           tiles[oilSrc].stock -= LOAD;
-          this.book(this.sales, oilSrc, EXPORT_PRICE.oil);
           this.incoming.add(p);
         }
       } else if (edge >= 0) {
@@ -242,8 +257,7 @@ export class Shipping {
       if (plant >= 0) {
         const p = plant;
         if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, p), `delivery: ${good} to ${ROLE_NAMES[roleOf(world, p)]}`, good === 'food' ? 0x6e9e3a : undefined, () => this.feedPlant(world, p))) {
-          t.stock -= LOAD; this.incoming.add(-1 - p);
-          this.book(this.sales, f, price); this.book(this.costs, p, price);
+          t.stock -= LOAD; this.incoming.add(-1 - p); this.importedSupply.delete(p);
           this.stats.chainLoads++;
           continue;
         }
@@ -263,8 +277,7 @@ export class Shipping {
       if (best >= 0) {
         const shop = best;
         if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, shop), `delivery: ${good}`, undefined, () => this.deliver(world, shop))) {
-          t.stock -= LOAD; this.incoming.add(shop);
-          this.book(this.sales, f, price); this.book(this.costs, shop, price);
+          t.stock -= LOAD; this.incoming.add(shop); this.importedSupply.delete(shop);
           continue;
         }
       }
@@ -275,7 +288,7 @@ export class Shipping {
           world.ledger.trade.exports += pay;
           world.cash += pay;
           this.stats.exported++;
-        })) { t.stock -= LOAD; this.book(this.sales, f, pay); }
+        })) t.stock -= LOAD;
       }
     }
 
@@ -293,13 +306,13 @@ export class Shipping {
     for (const s of shops) {
       const good = shopGood(world, s);
       if (tiles[s].stock > 0.5 || [...localMakes].some((g) => shopAccepts(good, g))) continue; // a local factory will come
-      if (imp(s, good, s, () => this.deliver(world, s))) this.book(this.costs, s, EXPORT_PRICE[good] * IMPORT_PREMIUM);
+      if (imp(s, good, s, () => this.deliver(world, s))) this.importedSupply.add(s);
     }
     for (const p of factories) {
       const rec = RECIPES[roleOf(world, p)];
       if (!rec || tiles[p].input > 0.5 || rec.inputs.some((g) => localMakes.has(g))) continue;
       const good = rec.inputs[0];
-      if (imp(p, good, -1 - p, () => this.feedPlant(world, p))) this.book(this.costs, p, EXPORT_PRICE[good] * IMPORT_PREMIUM);
+      if (imp(p, good, -1 - p, () => this.feedPlant(world, p))) this.importedSupply.add(p);
     }
     for (const y of yards) {
       if (tiles[y].stock > 2 || localMakes.has('materials') || sites === 0) continue;
