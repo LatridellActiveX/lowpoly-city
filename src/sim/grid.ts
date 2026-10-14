@@ -13,6 +13,7 @@ import { defaultTaxRates, emptyLedger, Ledger, MONTH_TICKS, STARTING_CASH, TaxRa
 import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
 import { computeResources, Resource } from './resources';
+import { hash2 } from './random';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -33,6 +34,10 @@ export function emptyTile(): Tile {
     stock: 0,
     part: 0,
     movingIn: false,
+    kind: 0,
+    farm: 0,
+    input: 0,
+    crew: false,
   };
 }
 
@@ -91,6 +96,9 @@ export class World {
   wind = 0.5;
   /** The random-walk part of the wind, kept so the weather continues smoothly after a reload. */
   windDrift = 0;
+  /** PR 5: heading the wind blows FROM (radians, see wind.ts) and its slow turn rate. */
+  windDir = 0;
+  windDirVel = 0;
   /**
    * PR 4: game-clock seconds since founding, at 1× speed. Drives the
    * day/night cycle (dayNight.ts) and traffic. Kept separate from `tick` so
@@ -111,6 +119,7 @@ export class World {
    */
   constructor(tiles?: Tile[], seed?: number) {
     this.seed = seed ?? Math.floor(Math.random() * 1e9);
+    this.windDir = hash2(17, 29, this.seed + 5) * Math.PI * 2; // PR 5: same formula as wind.initialWindDir
     this.tiles = tiles ?? Array.from({ length: GRID_SIZE * GRID_SIZE }, emptyTile);
     if (!tiles) {
       // A brand-new map: water first (so trees don't grow in the river),

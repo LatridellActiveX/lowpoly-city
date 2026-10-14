@@ -19,17 +19,22 @@ import { GraphsPanel } from './graphs';
 import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
-import { windLabel } from '../sim/wind';
+import { windFrom, windLabel } from '../sim/wind';
 import { isUnlocked, RESOURCES_TIER, TIERS, TOOL_TIER } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RESOURCE_NAMES } from '../sim/resources';
+import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
 import { CONSTRUCT_TICKS, FUEL_MAX, JOBS_PER_LEVEL, MAX_RES_LEVEL, RESIDENTS_AT, residentsOf } from '../sim/rules';
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
-function windGauge(wind: number): string {
+function windGauge(wind: number, dir: number): string {
   const pct = Math.round(wind * 100);
   const cls = wind < 0.2 ? 'over' : wind < 0.4 ? 'warn' : '';
-  return `<span class="meter wind ${cls}"><i style="width:${pct}%"></i></span>${windLabel(wind)}`;
+  // PR 5 direction arrow: points where the wind blows TO, as a map compass
+  // (up = map north). The wind comes FROM bearing (π − dir), so it blows
+  // toward that + 180°.
+  const toDeg = ((Math.PI - dir) * 180) / Math.PI + 180;
+  return `<span class="meter wind ${cls}"><i style="width:${pct}%"></i></span><span class="windarrow" style="display:inline-block;transform:rotate(${toDeg.toFixed(0)}deg)">↑</span>${windLabel(wind)} <span class="muted">from ${windFrom(dir)}</span>`;
 }
 
 export interface HudActions {
@@ -57,7 +62,7 @@ export class Hud {
   private readonly groupButtons = new Map<ToolGroupId, HTMLButtonElement>();
   private readonly flyouts = new Map<ToolGroupId, HTMLDivElement>();
   /** Last tool used in each group; the group button shows and re-selects it. */
-  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe' };
+  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe', industry: 'industrial' };
   /** Which flyout is open right now (null = none). Number keys pick inside it. */
   openGroup: ToolGroupId | null = null;
   private readonly speedButtons: HTMLButtonElement[] = [];
@@ -430,7 +435,7 @@ export class Hud {
       `<span title="Jobs">💼 ${s.jobs}</span>` +
       this.tierBadge(sim, s.population) +
       `<span title="Power demand / capacity">⚡ ${bar(s.power.demand, s.power.capacity)}</span>` +
-      `<span title="Wind: turbines make 800 × wind power (now ${Math.round(800 * sim.world.wind)} each, ~400 people at average wind)">🌬️ ${windGauge(sim.world.wind)}</span>` +
+      `<span title="Wind: turbines make 800 × wind power (now ${Math.round(800 * sim.world.wind)} each, ~400 people at average wind)">🌬️ ${windGauge(sim.world.wind, sim.world.windDir)}</span>` +
       `<span title="Water demand / capacity">💧 ${bar(s.water.demand, s.water.capacity)}</span>` +
       (s.outages ? `<span class="alert" title="Buildings in an outage">⚠ ${s.outages} outage${s.outages > 1 ? 's' : ''}</span>` : '') +
       `<span class="day" title="Month ${mo}">${MONTHS[(mo - 1) % 12]} ${sim.world.day}, Year ${year}${clock ? ` · 🕒 ${clock}` : ''}</span>`;
@@ -494,6 +499,7 @@ export class Hud {
       park: 'Park',
       nuclearPlant: 'Nuclear Power Plant (2×2)',
       pumpStation: 'Pump Station',
+      constructionYard: 'Construction Yard',
       residential: 'House',
       commercial: 'Shop',
       industrial: 'Factory',
@@ -504,6 +510,9 @@ export class Hud {
     else if (t.road || t.powerLine || t.waterPipe)
       title = [t.road && 'Road', t.powerLine && 'Power line', t.waterPipe && 'Water pipe'].filter(Boolean).join(' + ');
 
+    if (t.zone === 'industrial' && isFarmLot(sim.world, i)) title = t.level > 0 ? `Farm (level ${t.level})` : 'Empty farm lot';
+    if (isFoodPlant(t)) title = t.level > 0 ? `Food Processing Plant (level ${t.level})` : 'Empty food plant lot';
+    if (t.farm > 0) title = 'Crop field';
     if (t.edge) title = 'Highway connection';
     else if (t.road && t.water) title = t.roadType === 1 ? 'Avenue bridge' : 'Bridge';
     else if (t.road && t.roadType === 1 && !t.powerLine && !t.waterPipe) title = 'Avenue';
@@ -576,6 +585,29 @@ export class Hud {
     } else if (t.powerLine || t.waterPipe) {
       if (t.powerLine) rows.push(`<div class="row">Power: <span class="muted">${netLine('power')}</span></div>`);
       if (t.waterPipe) rows.push(`<div class="row">Water: <span class="muted">${netLine('water')}</span></div>`);
+    }
+    // PR 5 farm / food plant / yard rows.
+    if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)]}</b></div>`);
+    if (t.zone === 'industrial' && isFoodPlant(t)) rows.push(`<div class="row">Food in hopper: <b>${t.input.toFixed(1)}</b>${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 food on the way' : ''}</div>`);
+    if (t.farm > 0) rows.push(`<div class="row">Crop field of the farm at ${coords(t.farm - 1).join(', ')}. Bulldoze to leave it fallow.</div>`);
+    if (t.farm < 0) rows.push('<div class="row muted">Fallow field — free to build on.</div>');
+    if (t.structure === 'constructionYard') {
+      rows.push(`<div class="row">Trucks out: <b>${sim.crews.out(i)} / ${YARD_FLEET}</b></div>`);
+      rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP.constructionYard)}/month</div>`);
+    }
+    if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
+    // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).
+    if (t.zone) {
+      const req = sim.requirements(i);
+      if (!req) rows.push('<div class="row"><b>Max level</b></div>');
+      else {
+        const blocker = req.find((r) => !r.met);
+        rows.push(`<div class="row levelbars-h">Next level (${t.level + 1}):</div>`);
+        for (const r of req) {
+          const pct = Math.max(0, Math.min(100, r.target > 0 ? (r.current / r.target) * 100 : 100));
+          rows.push(`<div class="row lvbar${r.met ? ' met' : ''}${r === blocker ? ' blocker' : ''}"><span>${r.label}</span><span class="meter wide"><i style="width:${pct}%"></i></span><span class="muted">${r.current}/${r.target}</span>${r === blocker ? `<div class="hint">→ ${r.hint}</div>` : ''}</div>`);
+        }
+      }
     }
     this.info.innerHTML = `<button class="close" aria-label="Close">×</button><h3>${title}</h3>${rows.join('')}`;
     (this.info.querySelector('.close') as HTMLButtonElement).onclick = () => this.inspect(null);

@@ -51,6 +51,11 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   windTurbine: 1500, // PR 5: was $600 when it made 15 power; now ~400 at average wind
   waterTower: 4000,
   park: 150,
+  // PR 5 industry: farms and food plants are zones (per-tile like factories);
+  // the Construction Yard is a one-off depot that houses YARD_FLEET crew trucks.
+  farm: 30,
+  foodPlant: 60,
+  constructionYard: 2500,
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */
@@ -63,7 +68,7 @@ export const CLEAR_COST = 3;
 export const REFUND_RATE = 0.25;
 
 /** Monthly running costs. */
-export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850 } as const;
+export const UPKEEP = { powerPlant: 250, windTurbine: 60, waterTower: 200, park: 10, nuclearPlant: 1250, pumpStation: 850, constructionYard: 120 } as const;
 /** Structures that cost upkeep every month. */
 export type UpkeepKind = keyof typeof UPKEEP;
 export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
@@ -106,7 +111,7 @@ export interface Ledger {
 }
 export const emptyLedger = (): Ledger => ({
   taxes: { residential: 0, commercial: 0, industrial: 0 },
-  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0 },
+  upkeep: { powerPlant: 0, windTurbine: 0, waterTower: 0, park: 0, nuclearPlant: 0, pumpStation: 0, constructionYard: 0 },
   construction: 0,
   refunds: 0,
   trade: { exports: 0, fuel: 0 },
@@ -115,7 +120,7 @@ export const emptyLedger = (): Ledger => ({
 /** Net of a ledger (income minus all spending). */
 export function ledgerNet(l: Ledger): number {
   const tax = l.taxes.residential + l.taxes.commercial + l.taxes.industrial;
-  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation;
+  const up = l.upkeep.powerPlant + l.upkeep.windTurbine + l.upkeep.waterTower + l.upkeep.park + l.upkeep.nuclearPlant + l.upkeep.pumpStation + (l.upkeep.constructionYard ?? 0);
   return tax + l.refunds - up - l.construction + l.trade.exports - l.trade.fuel;
 }
 

@@ -30,12 +30,37 @@ const REVERT = 0.985;
 /** The random walk is kept inside ±DRIFT_MAX. */
 const DRIFT_MAX = 0.35;
 
+/**
+ * PR 5 WIND DIRECTION. `world.windDir` is the heading the wind blows FROM, in
+ * radians on the map: the direction vector is (sin d, cos d) in (x, z), so
+ * 0 = from the south (+z), π/2 = from the east (+x). It never jumps: its
+ * turn RATE (`windDirVel`) does a tiny seeded random walk, clamped to
+ * ±DIR_MAX_RATE rad per tick (~0.03°/tick ≈ 5° per in-game hour at 1×), and
+ * the heading integrates that rate. A full swing round the compass takes
+ * hours of real play; turbines (renderer) yaw even more slowly to follow.
+ */
+const DIR_MAX_RATE = 0.0006;
+const DIR_STEP = 0.00012;
+/** Seeded starting heading for new cities and pre-v6 saves. */
+export const initialWindDir = (seed: number) => hash2(17, 29, seed + 5) * Math.PI * 2;
+
 /** Advance the wind by one tick. Called from Simulation.step(). */
 export function stepWind(w: World): void {
+  const rd = hash2(w.tick, 777, w.seed + 92) - 0.5;
+  w.windDirVel = Math.max(-DIR_MAX_RATE, Math.min(DIR_MAX_RATE, w.windDirVel * 0.995 + rd * DIR_STEP));
+  w.windDir = (w.windDir + w.windDirVel + Math.PI * 2) % (Math.PI * 2);
   const r = hash2(w.tick, 4242, w.seed + 91) - 0.5; // −0.5..0.5, deterministic
   w.windDrift = Math.max(-DRIFT_MAX, Math.min(DRIFT_MAX, w.windDrift * REVERT + r * STEP));
   const sine = 0.25 * Math.sin((2 * Math.PI * w.tick) / WIND_PERIOD);
   w.wind = Math.max(0, Math.min(1, 0.5 + w.windDrift + sine));
+}
+
+/** Compass name of the direction the wind comes FROM (map north = −z). */
+export function windFrom(dir: number): string {
+  // Vector (sin d, cos d): compass bearing from north (−z) clockwise = π − d.
+  const bearing = ((Math.PI - dir) * 180) / Math.PI;
+  const names = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return names[Math.round((((bearing % 360) + 360) % 360) / 45) % 8];
 }
 
 /** Human label for the HUD gauge. */

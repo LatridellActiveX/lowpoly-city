@@ -21,6 +21,8 @@ import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
+import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
+import { CREW_PURPOSE, isFarmLot, isFoodPlant } from '../sim/industry';
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS } from '../sim/rules';
 import { tileCenter } from './scene';
@@ -50,16 +52,25 @@ const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the o
  * badge is bigger, and it's drawn on top (depthTest off) so tall buildings
  * can't hide it.
  */
-function iconMaterial(kind: 'power' | 'water'): THREE.MeshBasicMaterial {
+function iconMaterial(kind: 'power' | 'water' | 'crew'): THREE.MeshBasicMaterial {
   const cv = document.createElement('canvas');
   cv.width = cv.height = 128;
   const g = cv.getContext('2d')!;
-  const ring = kind === 'power' ? '#ffd21f' : '#29a3ff';
+  const ring = kind === 'power' ? '#ffd21f' : kind === 'crew' ? '#f28c1d' : '#29a3ff';
   g.fillStyle = 'rgba(20,28,40,0.92)';
   g.beginPath(); g.arc(64, 64, 58, 0, Math.PI * 2); g.fill();
   g.lineWidth = 10; g.strokeStyle = ring; g.stroke();
   g.fillStyle = ring;
   g.beginPath();
+  if (kind === 'crew') {
+    // PR 5 "Waiting for construction crew": an orange traffic cone, no slash.
+    g.moveTo(64, 24); g.lineTo(88, 96); g.lineTo(40, 96); g.closePath(); g.fill();
+    g.fillStyle = '#ffffff'; g.fillRect(50, 56, 28, 9); g.fillRect(45, 74, 38, 9);
+    g.fillStyle = ring; g.fillRect(32, 96, 64, 8);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+  }
   if (kind === 'power') {
     // Lightning bolt: a zig-zag polygon.
     for (const [px, py] of [[72, 22], [40, 70], [60, 70], [52, 106], [88, 54], [67, 54], [78, 22]]) g.lineTo(px, py);
@@ -144,9 +155,13 @@ export class CityRenderer {
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
   private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
-  private turbines: THREE.Vector3[] = [];
+  private turbines: Array<{ i: number; top: THREE.Vector3 }> = [];
+  /** PR 5: current (eased) yaw of each turbine's nacelle, by tile index. */
+  private turbineYaw = new Map<number, number>();
+  /** PR 5: wind heading (radians, see sim/wind.ts) — set every frame by frame(). */
+  windDir = 0;
   /** Positions + colours of warning markers (for bobbing animation). */
-  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water'; slot: number }> = [];
+  private markers: Array<{ pos: THREE.Vector3; color: THREE.Color; kind: 'gem' | 'power' | 'water' | 'crew'; slot: number }> = [];
   /** Camera rotation, set by main.ts each frame, so icon sprites can face the camera ("billboarding"). */
   cameraQuat = new THREE.Quaternion();
   /** Water pipes are only drawn while the pipe tool or the water overlay is active (PR 3). */
@@ -285,6 +300,16 @@ export class CityRenderer {
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
+    // PR 5 industry + wind (industryModels.ts).
+    add('nacelle', nacelleModel(), solid, 64);
+    add('farm', farmModel(), solid, 128);
+    add('fieldSoil', fieldSoil(), solid, 1024, false);
+    add('fieldCrops', fieldCrops(), solid, 1024);
+    add('fieldFence', fieldFence(), solid, 2048);
+    for (const k of [0, 1, 2]) add(`foodPlant${k}`, foodPlantModel(k), solid, 128);
+    add('constructionYard', constructionYardModel(), solid, 32);
+    add('crewLoad', crewLoadModel(), solid, 64);
+    add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
     add('waterTower', MODELS.waterTower(), solid, 32);
     add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
@@ -480,6 +505,8 @@ export class CityRenderer {
         }
         if (t.construct > 0) {
           this.addConstruction(t, i, x, z, center, seed, has);
+          // PR 5: no crew yet → orange cone icon ("Waiting for construction crew", see Inspect).
+          if (!t.crew) this.markers.push({ pos: center.clone().setY(1.25), color: new THREE.Color(1, 1, 1), kind: 'crew', slot: 0 });
         } else if (t.level > 0) {
           const st = sim.status(i);
           // Non-operating buildings are drawn dimmed grey so problems stand out.
@@ -491,9 +518,20 @@ export class CityRenderer {
           const key = `${this.lod === 'low' ? 'lo:' : ''}${t.zone}.${look.design}.${lv}`;
           const dim = st.operating ? 1 : 0.55;
           const m = this.place(center, face);
+          // PR 5: farms and food plants have their own models (industryModels.ts),
+          // scaled a little with level; ordinary lots use the zone designs.
+          const farmLot = t.zone === 'industrial' && isFarmLot(sim.world, i);
+          const foodLot = t.zone === 'industrial' && isFoodPlant(t);
+          const special = farmLot || foodLot;
+          if (special) {
+            const sc = 0.84 + 0.08 * Math.min(3, lv);
+            const pool = farmLot ? P.farm : P[`foodPlant${Math.floor(hash2(x, z, seed + 61) * 3)}`];
+            pool.add(this.place(center, face, sc, sc, sc), this.c.setScalar(dim));
+          } else {
           P[`${key}.walls`].add(m, this.c.setHex(look.wall).multiplyScalar(dim));
           P[`${key}.accent`].add(m, this.c.setHex(look.accent).multiplyScalar(dim));
           P[`${key}.fixed`].add(m, this.c.setScalar(dim));
+          }
           // Night windows: most homes have a light on, some don't; offices and
           // factories are mostly lit. Dark (non-operating) buildings stay dark.
           // PR 4: each building has its own "bedtime" and light colour.
@@ -508,7 +546,7 @@ export class CityRenderer {
           const on = st.operating && lit < 0.92 && lateNight < bedtime;
           const hue = hash2(x, z, seed + 405);
           const tintHex = hue < 0.6 ? 0xffd890 : hue < 0.85 ? 0xfff4e0 : 0x9fc4ff;
-          P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
+          if (!special) P[`${key}.lights`].add(m, on ? this.c.setHex(tintHex).multiplyScalar(1.1 + lit * 0.9) : this.c.setScalar(0));
           // PR 4 driveways: every home gets a strip from the street to the
           // side of the house (plus a garage on small level-1 houses);
           // about half of the factories get a loading apron.
@@ -518,7 +556,7 @@ export class CityRenderer {
             const z0 = lv === 1 ? 0.2 : Math.max(0.2, d / 2); // don't drive through the house
             P.driveway.add(this.place(local(0.36, (z0 + 0.5) / 2).setY(0.002), face, 1, 1, 0.5 - z0));
             if (lv === 1) P.garage.add(this.place(local(0.36, 0.11), face));
-          } else if (t.zone === 'industrial' && hash2(x, z, seed + 808) < 0.5) {
+          } else if (t.zone === 'industrial' && !special && hash2(x, z, seed + 808) < 0.5) {
             P.loadingDock.add(this.place(local(0.2, 0.38).setY(0.002), face));
           }
           const h = roofBox(t.zone, lv).h + 0.15;
@@ -562,7 +600,29 @@ export class CityRenderer {
         P.windTower.add(this.place(center));
         // Turbines get a substation beside them, wired to the road's pole line.
         this.addGridTie(tiles, x, z, has, true);
-        this.turbines.push(center.clone().setY(1.26).add(new THREE.Vector3(0, 0, 0.12)));
+        // PR 5: the nacelle + rotor yaw into the wind (animate()); keyed by tile.
+        this.turbines.push({ i, top: center.clone().setY(1.26) });
+      }
+      if (t.structure === 'constructionYard') {
+        P.constructionYard.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
+      }
+      if (t.farm > 0) {
+        // PR 5 crop field: tilled soil + crop rows tinted by SEASON and crop.
+        // Month 1..12: spring green → deep summer green → autumn gold →
+        // winter stubble. Each field has its own crop hue and ripeness offset.
+        const month = sim.world.month;
+        const crop = hash2(x, z, seed + 71);
+        const k = (((month - 1 + crop * 1.5) % 12) + 12) % 12; // 0..12 season clock
+        const cols = [0x8a7a58, 0x9bbf5a, 0x6fb041, 0x4f9a35, 0x5f9c34, 0xb9b94a, 0xd9b44a, 0xd29a3c, 0xa98a54, 0x8a7a58, 0x8a7a58, 0x8a7a58];
+        this.c.setHex(cols[Math.floor(k)]).lerp(TMP.setHex(cols[(Math.floor(k) + 1) % 12]), k % 1);
+        const rowYaw = (hash2(t.farm, 3, seed) > 0.5 ? 0 : Math.PI / 2); // all fields of a farm share a row direction
+        P.fieldSoil.add(this.place(center, rowYaw));
+        if (this.c.r + this.c.g + this.c.b > 0) P.fieldCrops.add(this.place(center, rowYaw, 1, 0.7 + crop * 0.6, 1), this.c);
+        // Fence on every edge not shared with the same farm's field or its farmyard.
+        const owner = t.farm - 1;
+        ([[0, -1, 0], [-1, 0, Math.PI / 2], [0, 1, Math.PI], [1, 0, (3 * Math.PI) / 2]] as const).forEach(([dx, dz, yaw]) => {
+          if (!has(x + dx, z + dz, (q) => q.farm === t.farm) && idx(x + dx, z + dz) !== owner) P.fieldFence.add(this.place(center, yaw));
+        });
       }
 
       // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
@@ -727,7 +787,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -755,6 +815,8 @@ export class CityRenderer {
         else {
           P.truckCab.add(m);
           P.truckBox.add(m, this.c.setHex(v.color));
+          // PR 5: construction trucks (orange) carry bricks + pipes on top.
+          if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
         }
         // Wheels: distance-based spin, stored per vehicle on the render side.
         const spin = ((this.wheelSpin.get(v.id) ?? 0) + (v.v * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
@@ -797,7 +859,7 @@ export class CityRenderer {
         }
       }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
@@ -900,12 +962,31 @@ export class CityRenderer {
     const blades = this.pools.windBlades;
     blades.begin();
     const spin = new THREE.Quaternion();
-    for (const [k, hub] of this.turbines.entries()) {
-      // Each turbine gets a slightly different phase so they don't spin in lockstep.
+    const nac = this.pools.nacelle;
+    nac.begin();
+    const yawQ = new THREE.Quaternion(), hub = new THREE.Vector3();
+    for (const [k, { i, top }] of this.turbines.entries()) {
+      // PR 5 YAW: the rotor faces INTO the wind. The rotor sits on the
+      // nacelle's local +z, and rotateY(a) sends +z to (sin a, cos a) — the
+      // same convention as world.windDir (the direction the wind comes
+      // FROM), so the target yaw is simply windDir. Each turbine turns at
+      // most ~0.6–1°/s real time (per-turbine rate from a hash, so they
+      // don't move in perfect unison) along the shortest way round.
+      const rate = (0.6 + hash2(i, 7, 99) * 0.4) * (Math.PI / 180) * this.frameDt;
+      let cur = this.turbineYaw.get(i);
+      if (cur === undefined) cur = this.windDir + (hash2(i, 8, 99) - 0.5) * 0.3; // start near the wind
+      const d = Math.atan2(Math.sin(this.windDir - cur), Math.cos(this.windDir - cur));
+      cur += Math.max(-rate, Math.min(rate, d));
+      this.turbineYaw.set(i, cur);
+      yawQ.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, cur);
+      nac.add(this.m.compose(top, yawQ, this.s.set(1, 1, 1)));
+      // Blades: spin about the rotor axis (local z) after yawing; each turbine gets its own phase.
       spin.setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.bladeAngle + k * 1.7);
-      blades.add(this.m.compose(hub, spin, this.s.set(1, 1, 1)));
+      hub.set(0, 0, 0.12).applyQuaternion(yawQ).add(top);
+      blades.add(this.m.compose(hub, yawQ.clone().multiply(spin), this.s.set(1, 1, 1)));
     }
     blades.end();
+    nac.end();
 
     this.animateTraffic();
     // Lamp halos face the camera (billboards), like the warning icons.
@@ -942,8 +1023,8 @@ export class CityRenderer {
     jib.end();
 
     const mk = this.pools.marker;
-    const ip = this.pools.iconPower, iw = this.pools.iconWater;
-    mk.begin(); ip.begin(); iw.begin();
+    const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew;
+    mk.begin(); ip.begin(); iw.begin(); ic.begin();
     // Camera's "right" direction, to put paired icons side by side on screen.
     const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.cameraQuat);
     for (const { pos, color, kind, slot } of this.markers) {
@@ -953,10 +1034,10 @@ export class CityRenderer {
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, time * 1.5);
         mk.add(this.m.compose(p, this.q, this.s.set(1, 1.4, 1)), color);
       } else {
-        (kind === 'power' ? ip : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
+        (kind === 'power' ? ip : kind === 'crew' ? ic : iw).add(this.m.compose(p, this.cameraQuat, this.s.set(1, 1, 1)));
       }
     }
-    mk.end(); ip.end(); iw.end();
+    mk.end(); ip.end(); iw.end(); ic.end();
   }
 }
 

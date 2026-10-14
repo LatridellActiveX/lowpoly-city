@@ -26,7 +26,7 @@ export type ZoneType = 'residential' | 'commercial' | 'industrial';
  * 'building' means a zone lot that has grown a house/shop/factory.
  */
 /** 'park' (PR 3) is a small green space that makes nearby homes more desirable. */
-export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation';
+export type StructureType = 'none' | 'powerPlant' | 'windTurbine' | 'waterTower' | 'building' | 'park' | 'nuclearPlant' | 'pumpStation' | 'constructionYard';
 
 /** One tile of the map. Kept as a plain object so it serialises to JSON trivially. */
 export interface Tile {
@@ -94,6 +94,29 @@ export interface Tile {
    * Vehicles aren't saved, so loading a save moves everyone in at once.
    */
   movingIn: boolean;
+  /**
+   * PR 5 industry kind for INDUSTRIAL lots (see industry.ts):
+   *   0 = ordinary factory (or a farm, automatically, on a farmland patch)
+   *   1 = farm (painted with the Farm tool, anywhere)
+   *   2 = food processing plant
+   */
+  kind: number;
+  /**
+   * PR 5 farm FIELD ownership. 0 = not a field. > 0: this tile is a crop
+   * field owned by the farm at index farm − 1 (like `part` for 2×2
+   * buildings). < 0: a field you bulldozed — "fallow" — which its farm
+   * (index −farm − 1) won't reclaim, so bulldozing a field shrinks the farm.
+   * Fields can't be built on while owned; anything may be built on fallow.
+   */
+  farm: number;
+  /** PR 5 food processing plant: units of raw food delivered and waiting to be processed. */
+  input: number;
+  /**
+   * PR 5 construction crews: true once a construction truck from a
+   * Construction Yard has reached this site. A site (construct > 0) only
+   * makes progress while `crew` is true. Reset when the next stage starts.
+   */
+  crew: boolean;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */
@@ -110,6 +133,9 @@ export type ToolId =
   | 'powerLine'
   | 'waterTower'
   | 'pumpStation'
+  | 'farm'
+  | 'foodPlant'
+  | 'constructionYard'
   | 'waterPipe'
   | 'park'
   | 'bulldoze';

@@ -29,6 +29,7 @@
  */
 import { GRID_SIZE } from './types';
 import { World } from './grid';
+import { isFarmLot } from './industry';
 import {
   DESIRE_BASE,
   PARK_BONUS,
@@ -70,7 +71,7 @@ export function computeEnvironment(world: World): Environment {
   world.tiles.forEach((t, i) => {
     const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
     if (t.structure === 'powerPlant') spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
-    else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level);
+    else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
     else if (t.structure === 'park') spread(parks, x, z, PARK_RADIUS, PARK_BONUS);
   });
   const desirability = new Float32Array(n);

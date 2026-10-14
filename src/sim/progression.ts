@@ -23,9 +23,9 @@ export interface Tier {
 }
 
 export const TIERS: Tier[] = [
-  { pop: 0, name: 'Hamlet', unlocks: 'Roads, zones, power, water and parks' },
+  { pop: 0, name: 'Hamlet', unlocks: 'Roads, zones, power, water, parks, farms, food plants and the Construction Yard' },
   { pop: 500, name: 'Village', unlocks: 'Avenues (medium-density roads)' },
-  { pop: 2000, name: 'Town', unlocks: 'Resources view: factories on farmland, forest, quarry or oil patches make raw goods' },
+  { pop: 2000, name: 'Town', unlocks: 'Factories on forest, quarry or oil patches make raw goods (farms work from the start)' },
   { pop: 10000, name: 'City', unlocks: 'Nuclear power plant (2×2), high-capacity pump station and +25% export prices' },
   { pop: 20000, name: 'Metropolis', unlocks: '10% cheaper upkeep on every utility' },
 ];
@@ -33,7 +33,9 @@ export const TIERS: Tier[] = [
 /** Minimum tier for tools that are locked at the start. */
 export const TOOL_TIER: Partial<Record<ToolId, number>> = { avenue: 1, nuclearPlant: 3, pumpStation: 3 };
 /** Tier that unlocks the Resources overlay. */
-export const RESOURCES_TIER = 2;
+// PR 5: 0 — the Resources view (and farmland for farms) is available from the
+// start; lumber/stone/oil factories still need the Town tier (goods.ts).
+export const RESOURCES_TIER = 0;
 
 export const isUnlocked = (tool: ToolId, tier: number) => tier >= (TOOL_TIER[tool] ?? 0);
 

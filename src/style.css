@@ -162,3 +162,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .group { padding: 2px; }
   .topbar .btn .lbl { display: none; }
 }
+
+/* PR 5 Inspect "Next level" requirement bars. */
+.info .levelbars-h { margin-top: 8px; font-weight: 600; }
+.info .lvbar { display: grid; grid-template-columns: 1fr 70px 46px; align-items: center; gap: 4px; font-size: 12px; margin: 2px 0; }
+.info .lvbar .meter.wide { width: 66px; margin: 0; }
+.info .lvbar .meter i { background: #ffc94a; }
+.info .lvbar.met .meter i { background: #6ad37a; }
+.info .lvbar.blocker { color: #ffb0a8; font-weight: 600; }
+.info .lvbar.blocker .meter i { background: #ff5b4f; }
+.info .lvbar .hint { grid-column: 1 / -1; font-weight: 400; color: #ffd9a0; font-size: 11px; }

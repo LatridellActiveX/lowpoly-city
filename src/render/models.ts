@@ -102,13 +102,11 @@ export const MODELS = {
     merge([
       part(box(0.4, 0.06, 0.4), 0x9aa0a6),
       part(new THREE.CylinderGeometry(0.025, 0.05, 1.2, 12).translate(0, 0.6, 0), 0xf5f7fa, [0, 0.06, 0]),
-      part(box(0.1, 0.08, 0.2), 0xf5f7fa, [0, 1.22, 0]),
-      // PR 5 detail: tower door, flange rings, rounded nacelle tail, vents.
+      // (PR 5: the nacelle is a separate instance — industryModels.nacelleModel — so it can yaw into the wind.)
+      // PR 5 detail: tower door, flange rings.
       part(box(0.04, 0.08, 0.02), 0x8a8f96, [0, 0.06, 0.045]),
       part(new THREE.CylinderGeometry(0.043, 0.043, 0.015, 12).translate(0, 0.0075, 0), 0xdde2e8, [0, 0.4, 0]),
       part(new THREE.CylinderGeometry(0.034, 0.034, 0.015, 12).translate(0, 0.0075, 0), 0xdde2e8, [0, 0.8, 0]),
-      part(new THREE.SphereGeometry(0.05, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-Math.PI / 2), 0xf5f7fa, [0, 1.26, -0.1]),
-      part(box(0.06, 0.012, 0.08), 0xc9ced4, [0, 1.3, -0.02]),
     ]),
   /** Three blades around the origin in the x/y plane; spun around z by the renderer. */
   windBlades: () => {

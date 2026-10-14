@@ -280,6 +280,7 @@ renderer.setAnimationLoop(() => {
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.cameraQuat.copy(cam.camera.quaternion);
+  city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
   if (hudTimer <= 0) {
