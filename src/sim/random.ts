@@ -55,3 +55,23 @@ export function valueNoise(x: number, z: number, scale: number, seed: number): n
 export function fbm(x: number, z: number, scale: number, seed: number): number {
   return valueNoise(x, z, scale, seed) * 0.7 + valueNoise(x, z, scale / 2.5, seed + 101) * 0.3;
 }
+
+/**
+ * V1.5: a tiny sequential seeded RNG (mulberry32) for one-off procedural
+ * art such as the grass and grain canvas textures. Unlike Math.random(), the
+ * same seed always yields the same sequence, so every reload and every player
+ * sees pixel-identical textures. Returns a function giving floats in [0, 1).
+ */
+export function seededStream(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** Fixed seeds for the shared procedural textures (never change: visuals depend on them). */
+export const TEXTURE_SEEDS = { grass: 0x67a55, grain: 0x6a41 } as const;

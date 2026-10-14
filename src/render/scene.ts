@@ -9,6 +9,7 @@
  * reverse (world -> tile) is just Math.floor, used when picking with the mouse.
  */
 import * as THREE from 'three';
+import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { GRID_SIZE } from '../sim/types';
 
 /**
@@ -28,9 +29,11 @@ function grassTexture(size = 256): THREE.CanvasTexture {
       g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
     }
   };
-  for (let i = 0; i < 260; i++) dot(Math.random() * size, Math.random() * size, 1 + Math.random() * 2.2, '#6aa548'); // blade tufts
-  for (let i = 0; i < 130; i++) dot(Math.random() * size, Math.random() * size, 0.8 + Math.random() * 1.6, '#9ad470'); // light flecks
-  for (let i = 0; i < 60; i++) dot(Math.random() * size, Math.random() * size, 1.2 + Math.random() * 2, '#7ab54f'); // mid patches
+  // Seeded (not Math.random) so the texture is identical across reloads/players.
+  const rnd = seededStream(TEXTURE_SEEDS.grass);
+  for (let i = 0; i < 260; i++) dot(rnd() * size, rnd() * size, 1 + rnd() * 2.2, '#6aa548'); // blade tufts
+  for (let i = 0; i < 130; i++) dot(rnd() * size, rnd() * size, 0.8 + rnd() * 1.6, '#9ad470'); // light flecks
+  for (let i = 0; i < 60; i++) dot(rnd() * size, rnd() * size, 1.2 + rnd() * 2, '#7ab54f'); // mid patches
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;

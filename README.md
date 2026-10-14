@@ -53,6 +53,17 @@ src/audio/   procedural sound effects
 ```
 Every file starts with a comment explaining its job; see the wiki for longer explanations.
 
+## Version 1.5
+
+Version 1.5 is being built on the `version-1.5` branch. So far it includes:
+
+- **1.5-a graphics polish (folded in):** a procedural grass texture on the
+  ground, a fine grain texture on the shared building material, and extra
+  industry props. Both textures use the game's seeded RNG with fixed seeds, so
+  they look identical on every reload and for every player.
+- **WASD after returning to the tab:** camera keys work right away after you
+  switch back to the game; no click needed.
+
 ## Roadmap
 - ✅ **Milestones 1–2:** grid, isometric camera, placement tools, utilities, zone growth, save/load, building variety, terrain & trees, money and budget.
 - ✅ **Traffic:** cars on real road graphs, traffic signals, parking, congestion.

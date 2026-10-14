@@ -16,6 +16,7 @@
  * markers) are updated separately in `animate()`, touching only those pools.
  */
 import * as THREE from 'three';
+import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
 import { bodyRect, surfaceSpaces, TPL } from '../sim/footprints';
 import { frame, localToCell, rectAABB } from '../sim/lots';
@@ -171,10 +172,12 @@ function grainTexture(size = 128, speckles = 1100): THREE.CanvasTexture {
   const g = cv.getContext('2d')!;
   g.fillStyle = '#f4f4f4';
   g.fillRect(0, 0, size, size);
+  // Seeded (not Math.random) so the texture is identical across reloads/players.
+  const rnd = seededStream(TEXTURE_SEEDS.grain);
   for (let i = 0; i < speckles; i++) {
-    const x = Math.random() * size, y = Math.random() * size;
-    const r = 0.5 + Math.random() * 1.7;
-    const v = 224 + Math.floor(Math.random() * 31); // 224..255, subtle darkening only
+    const x = rnd() * size, y = rnd() * size;
+    const r = 0.5 + rnd() * 1.7;
+    const v = 224 + Math.floor(rnd() * 31); // 224..255, subtle darkening only
     g.fillStyle = `rgb(${v},${v},${v})`;
     for (const ox of [-size, 0, size]) for (const oy of [-size, 0, size]) {
       g.beginPath(); g.arc(x + ox, y + oy, r, 0, Math.PI * 2); g.fill();
