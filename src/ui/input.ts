@@ -147,8 +147,28 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
   // held set must be cleared whenever focus can go astray (otherwise a stuck
   // 'w' plus a fresh 's' cancel out and the camera seems frozen).
   window.addEventListener('blur', () => held.clear());
-  window.addEventListener('focus', () => held.clear());
-  document.addEventListener('visibilitychange', () => document.hidden && held.clear());
+  // V1.5 tab-return fix: when the tab comes back (visibilitychange -> visible,
+  // window focus, or the mouse re-entering the page) we (1) drop any stale
+  // held keys, (2) blur a leftover focused button/menu/slider so it can't
+  // swallow WASD, and (3) pull keyboard focus back into the document itself
+  // so keys reach our window listener without needing a left-click first.
+  // Text fields (input/textarea/contenteditable) are never blurred.
+  const reclaim = () => {
+    held.clear();
+    const a = document.activeElement as HTMLElement | null;
+    if (a && a !== document.body && !typing(a) && typeof a.blur === 'function') a.blur();
+    if (!typing(document.activeElement)) {
+      // body needs a tabindex to accept programmatic focus.
+      if (!document.body.hasAttribute('tabindex')) document.body.tabIndex = -1;
+      document.body.focus({ preventScroll: true });
+      window.focus();
+    }
+  };
+  document.addEventListener('visibilitychange', () => (document.hidden ? held.clear() : reclaim()));
+  window.addEventListener('pageshow', reclaim); // back/forward-cache restore
+  window.addEventListener('focus', reclaim);
+  // Mouse returning to the page after alt-tab: reclaim only if focus is lost.
+  document.addEventListener('pointerenter', () => !document.hasFocus() && reclaim(), true);
   window.addEventListener('contextmenu', () => held.clear());
   // After using a button / slider / select, hand focus back so it can't
   // swallow keys (Space would re-press the button, arrows move the slider).
