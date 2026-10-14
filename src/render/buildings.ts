@@ -633,7 +633,8 @@ function resDetails(b: Builder, k: number, level: number, w: number, h: number, 
   // Stone plinth the house sits on.
   b.fix(box(bw + 0.025, 0.035, d + 0.025), STONE, [0, 0, zoff]);
   // Door + steps (designs that already have a door get steps and trim).
-  const doorX = [-w / 4, 0, -w * 0.3, 0, 0][k];
+  // PR 6: designs 5–7 (saltbox, brick hip, stucco flat) have their door centred.
+  const doorX = [-w / 4, 0, -w * 0.3, 0, 0][k] ?? 0;
   if (k === 2) door(b, doorX, front, 0x3b4a57);
   else if (k !== 1) {
     b.fix(box(0.125, 0.014, 0.026), TRIM, [doorX, 0.17, front + 0.004]); // lintel over the existing door
