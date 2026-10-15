@@ -72,7 +72,8 @@ export const TYPE_RANK: Record<RoadType, number> = { highway: 3, avenue: 2, onew
 
 export interface SnapResult { p: V2; kind: 'node' | 'edge' | 'angle' | 'grid' | 'free'; node?: number; edge?: number; t?: number }
 export interface PlaceResult { ok: boolean; reason?: string; edges: number[]; nodes: number[] }
-export interface PlaceOptions { angleSnap?: boolean; gridSnap?: boolean; noSnap?: boolean; dryRun?: boolean }
+/** angleMagnet: radians — the angle snap only grabs within this of a 15° step (smooth magnet instead of hard steps). */
+export interface PlaceOptions { angleMagnet?: number; angleSnap?: boolean; gridSnap?: boolean; noSnap?: boolean; dryRun?: boolean }
 
 export class RoadGraph {
   /* ---- nodes (SoA) ---- */
@@ -199,7 +200,7 @@ export class RoadGraph {
     if (ep) return { p: ep.pt, kind: 'edge', edge: ep.edge, t: ep.t };
     if (opts.angleSnap && from) {
       const a = Math.atan2(p.z - from.z, p.x - from.x), step = Math.PI / 12, s = Math.round(a / step) * step, l = dist(p, from);
-      return { p: { x: from.x + Math.cos(s) * l, z: from.z + Math.sin(s) * l }, kind: 'angle' };
+      if (opts.angleMagnet === undefined || Math.abs(a - s) <= opts.angleMagnet) return { p: { x: from.x + Math.cos(s) * l, z: from.z + Math.sin(s) * l }, kind: 'angle' };
     }
     if (opts.gridSnap) return { p: { x: Math.round(p.x / CELL_M) * CELL_M, z: Math.round(p.z / CELL_M) * CELL_M }, kind: 'grid' };
     return { p, kind: 'free' };

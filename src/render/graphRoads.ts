@@ -159,6 +159,7 @@ export class GraphRoadLayer {
   private roads: THREE.Mesh | null = null;
   private zones: THREE.Mesh | null = null;
   private ghost: THREE.Mesh | null = null;
+  private outline: THREE.LineSegments | null = null;
   private preview: THREE.InstancedMesh;
   private cars: THREE.InstancedMesh;
   private builtVersion = -1;
@@ -226,14 +227,51 @@ export class GraphRoadLayer {
     }
   }
 
+  /**
+   * Cities-Skylines-style footprint: an outline the width of the road being
+   * placed (to the back of the sidewalk) along `curve`, with end caps, or a
+   * ring of that width around the cursor when nothing is drawn yet. `snap`
+   * adds a small ring where the cursor is magnetised to a node / road.
+   */
+  showOutline(o: { type: RoadType; ok: boolean; curve?: Cubic; cursor?: V2; snap?: V2 | null } | null): void {
+    if (this.outline) { this.group.remove(this.outline); this.outline.geometry.dispose(); this.outline = null; }
+    if (!o) return;
+    const h = roadHalf(o.type), pos: number[] = [], y = 0.075;
+    const seg = (ax: number, az: number, bx: number, bz: number) => pos.push(ax * U, y, az * U, bx * U, y, bz * U);
+    const ring = (c: V2, r: number, n = 32) => { for (let i = 0; i < n; i++) { const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2; seg(c.x + Math.cos(a0) * r, c.z + Math.sin(a0) * r, c.x + Math.cos(a1) * r, c.z + Math.sin(a1) * r); } };
+    if (o.curve) {
+      const lut = buildLut(o.curve), len = lut[lut.length - 1];
+      const n = Math.max(2, Math.min(200, Math.ceil(len / 4)));
+      let pl: V2 | null = null, pr: V2 | null = null;
+      for (let i = 0; i <= n; i++) {
+        const t = tAtLength(lut, (len * i) / n), c = at(o.curve, t), d = tangent(o.curve, t);
+        const L = { x: c.x - d.z * h, z: c.z + d.x * h }, R = { x: c.x + d.z * h, z: c.z - d.x * h };
+        if (pl && pr) { seg(pl.x, pl.z, L.x, L.z); seg(pr.x, pr.z, R.x, R.z); } else seg(L.x, L.z, R.x, R.z);
+        if (i === n) seg(L.x, L.z, R.x, R.z);
+        pl = L; pr = R;
+      }
+    } else if (o.cursor) ring(o.cursor, h);
+    if (o.snap) ring(o.snap, 3, 16);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    this.outline = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: o.ok ? 0xffffff : 0xff6b6b, transparent: true, opacity: 0.95, depthTest: false }));
+    this.outline.renderOrder = 6; this.outline.frustumCulled = false;
+    this.group.add(this.outline);
+  }
+
+  /** Highlight zone cells only (zoning drag preview); null clears. */
+  showCells(cells: Array<{ quad: Float64Array }> | null, color = 0x46c36b): void {
+    this.showPreview(cells && { cells: cells.map((c) => ({ quad: c.quad, state: 'new' as const })), curve: new Float64Array(8), type: 'street', ok: true, color });
+  }
+
   /** Show the zoning preview cells + ghost road (null clears). */
-  showPreview(p: { cells: Array<{ quad: Float64Array; state: 'new' | 'clipped' }>; curve: Cubic; type: RoadType; ok: boolean } | null): void {
+  showPreview(p: { cells: Array<{ quad: Float64Array; state: 'new' | 'clipped' }>; curve: Cubic; type: RoadType; ok: boolean; color?: number } | null): void {
     if (this.ghost) { this.group.remove(this.ghost); this.ghost.geometry.dispose(); this.ghost = null; }
     if (!p) { this.preview.count = 0; return; }
     const lut = buildLut(p.curve), len = lut[lut.length - 1];
     if (len > 1) {
       const m = new Mesher(); extrude(m, p.curve, lut, len, p.type, 0, 0, 0, true);
-      this.ghost = new THREE.Mesh(m.geometry(), new THREE.MeshBasicMaterial({ color: p.ok ? 0x9ad0ff : 0xff6b6b, transparent: true, opacity: 0.55, depthWrite: false }));
+      this.ghost = new THREE.Mesh(m.geometry(), new THREE.MeshBasicMaterial({ color: p.ok ? 0x9ad0ff : 0xff6b6b, transparent: true, opacity: 0.35, depthWrite: false }));
       this.ghost.position.y = 0.01; this.ghost.renderOrder = 4;
       this.group.add(this.ghost);
     }
@@ -246,7 +284,7 @@ export class GraphRoadLayer {
       const ux = (q[2] - q[0]) * U, uz = (q[3] - q[1]) * U, wx = (q[6] - q[0]) * U, wz = (q[7] - q[1]) * U;
       mat.set(ux * 0.94, 0, wx * 0.94, q[0] * U + (ux + wx) * 0.03, 0, 1, 0, Y_ZONE + 0.004, uz * 0.94, 0, wz * 0.94, q[1] * U + (uz + wz) * 0.03, 0, 0, 0, 1);
       this.preview.setMatrixAt(k, mat);
-      this.preview.setColorAt(k, col.set(!p.ok ? 0xe5484d : c.state === 'new' ? 0x46c36b : 0xf0a830));
+      this.preview.setColorAt(k, col.set(!p.ok ? 0xe5484d : p.color ?? (c.state === 'new' ? 0x46c36b : 0xf0a830)));
       k++;
     }
     this.preview.count = k;

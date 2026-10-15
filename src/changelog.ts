@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-g',
+    title: 'Freeform road polish and square zoning',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Placing a freeform road now shows an outline the exact width of the road (kerb to kerb, with end caps), and a ring of that size at your cursor before you start, like Cities: Skylines.' },
+      { tag: 'improved', text: 'Much smoother snapping: the preview glides to junctions and roads, stays locked on them until you move clearly away, and the 15° angle snap is a soft magnet instead of hard steps. A small ring marks what you are snapped to.' },
+      { tag: 'new', text: 'Zoning freeform roads is a drag tool: drag a rectangle over the small zone squares beside a road and every square inside it is zoned (limited by the Depth setting). The squares light up as you drag.' },
+    ],
+  },
+  {
     id: '2026-10-15-i',
     title: 'Version 1.6.0',
     date: '2026-10-15',

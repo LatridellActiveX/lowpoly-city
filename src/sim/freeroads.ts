@@ -20,7 +20,7 @@
  */
 import { Cubic, V2 } from '../roads/bezier';
 import { PlaceOptions, RoadGraph, RoadType, TILE_M } from '../roads/graph';
-import { ZoneBlocks } from '../roads/blocks';
+import { ZoneBlocks, ZoneCell } from '../roads/blocks';
 import { gridCellOf, rasterizeRoads } from '../roads/bridge';
 import { canPlace } from './rules';
 import { placementCost } from './economy';
@@ -133,6 +133,38 @@ export function paintBlocks(sim: Simulation, p: V2, code: number, brush = 1, dep
   }
   if (n) { pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
   return n;
+}
+
+/**
+ * Zone cells a drag from a to b (metres) would paint: every free block cell
+ * whose centre lies in the axis-aligned rectangle between the two points
+ * (plus the cells under the two points themselves, so a plain click still
+ * takes one cell), at most `depthRows` rows deep from the road.
+ */
+export function cellsInRect(sim: Simulation, a: V2, b: V2, depthRows = 16): ZoneCell[] {
+  const w = sim.world, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), z0 = Math.min(a.z, b.z), z1 = Math.max(a.z, b.z);
+  const out = new Set<ZoneCell>();
+  for (const c of w.blocks.cells) {
+    if (c.row >= depthRows || c.cx < x0 || c.cx > x1 || c.cz < z0 || c.cz > z1) continue;
+    out.add(c);
+  }
+  for (const p of [a, b]) { const c = w.blocks.cellAt(p); if (c && c.row < depthRows) out.add(c); }
+  return [...out].filter((c) => { const k = gridCellOf(c); return k >= 0 && w.cells.owner[k] === 0; });
+}
+
+/** Paint zone code on exactly these cells (one undo step). Returns how many changed. */
+export function paintCells(sim: Simulation, cells: ZoneCell[], code: number): number {
+  const w = sim.world, old: Array<[number, number]> = [];
+  for (const c of cells) {
+    const k = gridCellOf(c);
+    if (k < 0 || w.cells.owner[k] !== 0 || w.cells.zone[k] === code) continue;
+    old.push([k, w.cells.zone[k]]);
+    c.code = code; w.cells.zone[k] = code;
+    const cx = k % (GRID_SIZE * 4), cz = Math.floor(k / (GRID_SIZE * 4));
+    w.lots.markAround(Math.floor(cx / 4), Math.floor(cz / 4));
+  }
+  if (old.length) { pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
+  return old.length;
 }
 
 /* ---------------- undo / redo ---------------- */

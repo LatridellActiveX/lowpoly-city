@@ -47,7 +47,8 @@ import { GraphRoadLayer } from './render/graphRoads';
 import { migrateToGraph } from './roads/persist';
 import { placeFreeRoad, paintBlocks, undo, redo } from './sim/freeroads';
 import { quadCubic, lineCubic } from './roads/bezier';
-import { FreeRoadTool, brushBlocks, toMetres } from './ui/freeRoadTool';
+import type { V2 } from './roads/bezier';
+import { FreeRoadTool, dragCells, paintDragged, toMetres } from './ui/freeRoadTool';
 import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
@@ -85,6 +86,9 @@ gameLog.gameDate = () => {
 gameLog.event(hasSave() ? 'Game started — saved city loaded' : 'Game started — new city');
 let tool: ToolId = 'inspect';
 let dragFrom: [number, number] | null = null;
+/** Zoning on freeform-road blocks: metres where the drag began (null = ordinary tile zoning). */
+let blockDragFrom: V2 | null = null;
+let cellsShown = false;
 let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
 /** Last mouse position in screen pixels (for the cost tooltip). */
@@ -183,6 +187,19 @@ function setOverlay(o: OverlayMode): void {
  * click, and while dragging a zone rectangle it shows its size and total.
  */
 function updatePreview(): void {
+  // Zone tools over a freeform road's block: highlight the small squares under the drag (or cursor).
+  if (ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant') {
+    const pm = toMetres(pointer.x, pointer.z), a = blockDragFrom ?? pm;
+    if (blockDragFrom || sim.world.blocks.cellAt(pm)) {
+      const cells = dragCells(sim, a, pm, sim.zoneOpt.depth);
+      graphLayer.showCells(cells, cells.length ? 0x46c36b : 0xe5484d);
+      cellsShown = true;
+      preview.show([]);
+      hud.showTip(cells.length ? `${cells.length} zone square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
+      return;
+    }
+  }
+  if (cellsShown) { graphLayer.showCells(null); cellsShown = false; }
   if (tool === 'freeRoad') {
     preview.show([]);
     freeTool.hover(toMetres(pointer.x, pointer.z));
@@ -302,6 +319,8 @@ attachInput(renderer.domElement, cam, ground, {
   },
   dragStart(t) {
     dragFrom = t;
+    const pm0 = toMetres(pointer.x, pointer.z);
+    blockDragFrom = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant' && sim.world.blocks.cellAt(pm0) ? pm0 : null;
     hoverTile = t;
     updatePreview();
   },
@@ -319,10 +338,10 @@ attachInput(renderer.domElement, cam, ground, {
       else if (tool === 'freeRoad') {
         const msg = freeTool.click(pm);
         if (msg) { hud.flash(msg); sound.play(msg.startsWith('-$') ? toolSound('road') : 'error'); }
-      } else if (ZONE_TOOLS.has(tool) && sim.world.blocks.cellAt(pm) && dragFrom[0] === end[0] && dragFrom[1] === end[1]) {
-        // V1.6 B7: a click on a freeform road's block paints block cells (brush).
-        const n = brushBlocks(sim, pm, codeForTool(sim, tool, idx(end[0], end[1]), sim.zoneOpt), sim.zoneOpt.depth);
-        hud.flash(n ? `Zoned ${n} cells` : 'Already zoned');
+      } else if (blockDragFrom) {
+        // Drag over a freeform road's block: zone the small squares inside the dragged rectangle.
+        const n = paintDragged(sim, blockDragFrom, pm, codeForTool(sim, tool, idx(end[0], end[1]), sim.zoneOpt), sim.zoneOpt.depth);
+        hud.flash(n ? `Zoned ${n} square${n > 1 ? 's' : ''}` : 'Already zoned');
       } else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
         // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
@@ -336,12 +355,12 @@ attachInput(renderer.domElement, cam, ground, {
         else hud.flash(`-$${r.spent.toLocaleString()}`);
       }
     }
-    dragFrom = null;
+    dragFrom = null; blockDragFrom = null;
     updatePreview();
     hud.refresh(sim);
   },
   dragCancel() {
-    dragFrom = null;
+    dragFrom = null; blockDragFrom = null;
     updatePreview();
   },
   key(k) {
@@ -420,6 +439,7 @@ renderer.setAnimationLoop(() => {
     dayNight.override = ((performance.now() / 1000) / 90 + 0.3) % 1;
   }
   sim.update(dt);
+  if (tool === 'freeRoad') freeTool.tick(dt); // eased snapping
   cam.update(dt);
   dayNight.update(sim);
   city.setNight(dayNight.night, dayNight.time);

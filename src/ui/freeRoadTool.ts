@@ -6,8 +6,10 @@
  *   Curve     click start, click the bend (control point), click end
  *             (a quadratic raised to a cubic, roads/bezier.ts quadCubic).
  * TYPE: Street / Avenue.  SNAP: Angle (15° steps from the start) and Grid
- * (8 m) toggles; node (8 m) and road (6 m) snapping are always on; hold
- * SHIFT to place without any snapping.
+ * (8 m) toggles; node (8 m) and road (6 m) snapping are always on and
+ * sticky (hysteresis), the preview eases to the snapped point each frame
+ * (tick), the angle snap is a ±6° magnet; hold SHIFT to place without
+ * any snapping. The preview is an outline the width of the road.
  * While drawing, every pointer move dry-runs the placement
  * (sim/freeroads.ts placeFreeRoad) and shows: the ghost road (blue, red
  * when invalid), the zone cells it would create (green new, amber clipped)
@@ -17,9 +19,9 @@
  * confirmation. Esc drops the points; Ctrl+Z / Ctrl+Y undo and redo road
  * and block-zoning operations.
  */
-import { buildLut, Cubic, lineCubic, quadCubic, V2 } from '../roads/bezier';
-import { RoadType, TILE_M } from '../roads/graph';
-import { placeFreeRoad, undo, redo, paintBlocks } from '../sim/freeroads';
+import { buildLut, Cubic, dist, lineCubic, quadCubic, V2 } from '../roads/bezier';
+import { RoadType, SNAP_EDGE, SNAP_NODE, TILE_M } from '../roads/graph';
+import { placeFreeRoad, undo, redo, paintBlocks, cellsInRect, paintCells } from '../sim/freeroads';
 import type { Simulation } from '../sim/simulation';
 import type { GraphRoadLayer } from '../render/graphRoads';
 
@@ -60,29 +62,80 @@ export class FreeRoadTool {
       this.render();
     }));
   }
-  cancel(): void { this.pts = []; this.layer.showPreview(null); this.tip = null; }
+  cancel(): void { this.pts = []; this.target = this.shown = null; this.stickNode = this.stickEdge = -1; this.layer.showPreview(null); this.layer.showOutline(null); this.tip = null; }
   undo(): void { if (undo(this.sim())) this.flash('Undone'); }
   redo(): void { if (redo(this.sim())) this.flash('Redone'); }
 
-  private opts() { return this.shift ? { noSnap: true } : { angleSnap: this.angle, gridSnap: this.grid }; }
-  /** The proposed curve from the clicked points to the (snapped) cursor. */
-  private proposal(cursor: V2): Cubic | null {
-    if (!this.pts.length) return null;
+  /** Angle snap is a soft magnet (±6° around each 15° step) rather than hard steps. */
+  private opts() { return this.shift ? { noSnap: true } : { angleSnap: this.angle, gridSnap: this.grid, angleMagnet: 0.105 }; }
+
+  /* ---- smooth, sticky snapping ---- */
+  private stickNode = -1;
+  private stickEdge = -1;
+  /** Where the cursor wants to be (snapped) and where the preview currently is (eased towards it). */
+  private target: V2 | null = null;
+  private shown: V2 | null = null;
+  private snapMark: V2 | null = null;
+  /**
+   * Snap with hysteresis: once the cursor has grabbed a junction or a road it
+   * stays on it until you move clearly away (1.6× the grab radius), so the
+   * preview doesn't flicker between snapped and free positions.
+   */
+  private resolve(p: V2): V2 {
+    this.snapMark = null;
+    if (this.shift) { this.stickNode = this.stickEdge = -1; return p; }
     const g = this.sim().world.roads;
-    const end = this.shift ? cursor : g.snap(cursor, this.opts(), this.pts[0]).p;
+    if (this.stickNode >= 0 && g.nAlive[this.stickNode] && dist(g.nodePos(this.stickNode), p) <= SNAP_NODE * 1.6) { this.snapMark = g.nodePos(this.stickNode); return this.snapMark; }
+    this.stickNode = -1;
+    const s = g.snap(p, this.opts(), this.pts[0]);
+    if (s.kind === 'node') { this.stickNode = s.node!; this.stickEdge = -1; this.snapMark = s.p; return s.p; }
+    if (this.stickEdge >= 0 && g.eAlive[this.stickEdge]) {
+      const ep = g.nearestEdgePoint(p, SNAP_EDGE * 1.6);
+      if (ep && ep.edge === this.stickEdge) { this.snapMark = ep.pt; return ep.pt; }
+    }
+    this.stickEdge = s.kind === 'edge' ? s.edge! : -1;
+    if (s.kind === 'edge') this.snapMark = s.p;
+    return s.p;
+  }
+  /** Per-frame: ease the preview towards the snapped cursor (call from the render loop). */
+  tick(dt: number): void {
+    if (!this.target) return;
+    if (!this.shown) this.shown = { ...this.target };
+    const k = 1 - Math.exp(-dt * 28), d = dist(this.shown, this.target);
+    if (d < 0.02) { if (d > 0) { this.shown = { ...this.target }; this.refresh(); } return; }
+    this.shown = { x: this.shown.x + (this.target.x - this.shown.x) * k, z: this.shown.z + (this.target.z - this.shown.z) * k };
+    this.refresh();
+  }
+
+  /** The proposed curve from the clicked points to the (eased) cursor. */
+  private proposal(end: V2): Cubic | null {
+    if (!this.pts.length) return null;
     if (this.mode === 'curve' && this.pts.length === 2) return quadCubic(this.pts[0], this.pts[1], end);
     return lineCubic(this.pts[0], end);
   }
   /** Pointer moved (metres). */
   hover(p: V2): void {
-    const c = this.proposal(p);
-    if (!c) { this.layer.showPreview(null); this.tip = null; return; }
+    this.target = this.resolve(p);
+    if (!this.shown || !this.pts.length) this.shown = { ...this.target };
+    this.refresh();
+  }
+  private refresh(): void {
+    const at = this.shown;
+    if (!at) return;
+    const c = this.proposal(at);
+    if (!c) {
+      // Nothing drawn yet: a ring the size of the road at the cursor.
+      this.layer.showPreview(null);
+      this.layer.showOutline({ type: this.type, ok: true, cursor: at, snap: this.snapMark });
+      this.tip = null; return;
+    }
     const sim = this.sim();
     const plan = placeFreeRoad(sim, c, this.type, this.opts(), false);
     const lut = buildLut(plan.curve), len = lut[lut.length - 1];
     const cells = len > 1 ? sim.world.blocks.preview(sim.world.roads, plan.curve, lut, len, this.type) : [];
     const ok = plan.ok || /release to confirm/.test(plan.reason ?? '');
     this.layer.showPreview({ cells, curve: plan.curve, type: this.type, ok });
+    this.layer.showOutline({ type: this.type, ok, curve: plan.curve, snap: this.snapMark });
     const ang = Math.round((Math.atan2(-(plan.curve[7] - plan.curve[1]), plan.curve[6] - plan.curve[0]) * 180) / Math.PI);
     const head = `${Math.round(len)} m · ${ang}° · ${cells.length} cells`;
     this.tip = plan.ok ? `${head}<br>$${plan.cost.toLocaleString()}` : `${head}<br><span style="color:#ff8a80">${plan.reason}</span>`;
@@ -91,14 +144,16 @@ export class FreeRoadTool {
   click(p: V2): string | null {
     const sim = this.sim();
     const need = this.mode === 'curve' ? 2 : 1;
+    const q = this.resolve(p); // exactly what the outline showed once it settled
     if (this.pts.length < need) {
-      const g = sim.world.roads;
-      this.pts.push(this.shift ? p : g.snap(p, this.opts(), this.pts[0]).p);
+      this.pts.push(q);
+      this.shown = { ...q };
       return null;
     }
-    const c = this.proposal(p)!;
+    const c = this.proposal(q)!;
     const plan = placeFreeRoad(sim, c, this.type, this.opts(), true, true);
-    this.layer.showPreview(null);
+    this.layer.showPreview(null); this.layer.showOutline(null);
+    this.stickNode = this.stickEdge = -1;
     if (!plan.ok) return plan.reason ?? "Can't build there";
     // Chain: the next road starts where this one ended.
     this.pts = [{ x: plan.curve[6], z: plan.curve[7] }];
@@ -110,4 +165,7 @@ export class FreeRoadTool {
 export function brushBlocks(sim: Simulation, p: V2, code: number, depthTiles: number): number {
   return paintBlocks(sim, p, code, 2, depthTiles * 4);
 }
+/** Zoning drag: the free block cells between two points (metres), and painting them. */
+export function dragCells(sim: Simulation, a: V2, b: V2, depthTiles: number) { return cellsInRect(sim, a, b, depthTiles * 4); }
+export function paintDragged(sim: Simulation, a: V2, b: V2, code: number, depthTiles: number): number { return paintCells(sim, cellsInRect(sim, a, b, depthTiles * 4), code); }
 export const toMetres = (x: number, z: number): V2 => ({ x: x * TILE_M, z: z * TILE_M });
