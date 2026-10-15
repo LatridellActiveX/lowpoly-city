@@ -36,6 +36,7 @@ import { cidx, ZoneCode } from './cells';
 import { TPL, isFiller, residentsAt } from './footprints';
 import { BUILD_COST } from './economy';
 import { hash2 } from './random';
+import { allRegions, buyBlocker, ownedAt, regionPrice } from './regions';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
@@ -70,6 +71,8 @@ export interface ApplyResult {
   broke: boolean;
   /** PR 4: true if the tool isn't unlocked yet. */
   locked?: boolean;
+  /** V1.6 A6: some tiles were dropped because their region isn't owned. */
+  region?: boolean;
 }
 
 export interface CityStats {
@@ -565,6 +568,13 @@ export class Simulation {
     // (tiles is reassigned for bulldozing 2×2 footprints)
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
+    // V1.6 A6: only owned regions can be built on (regions.ts).
+    if (tool !== 'inspect' && w.regionsOwned !== allRegions()) {
+      const kept = tiles.filter(([x, z]) => ownedAt(w, x, z));
+      if (kept.length < tiles.length) res.region = true;
+      if (!kept.length) return res;
+      tiles = kept;
+    }
     // PR 4: tools above the city's tier are locked (progression.ts).
     if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
@@ -762,6 +772,22 @@ export class Simulation {
     const tl = this.world.tiles;
     for (const i of this.world.chunks.activeTilesSorted()) if (pred(tl[i])) return true;
     return false;
+  }
+
+  /**
+   * V1.6 A6: buy region r (regions.ts rules). Returns null on success or
+   * the reason it can't be bought.
+   */
+  buyRegion(r: number): string | null {
+    const w = this.world, why = buyBlocker(w, r);
+    if (why) return why;
+    const price = regionPrice(w);
+    w.cash -= price;
+    w.ledger.construction += price;
+    w.regionsOwned |= 1 << r;
+    this.events.push(`🗺️ New land! Region ${r + 1} is yours ($${price.toLocaleString()}).`);
+    this.version++;
+    return null;
   }
 
   /** Convenience for debugging: tile coordinates of every tile matching a predicate. */

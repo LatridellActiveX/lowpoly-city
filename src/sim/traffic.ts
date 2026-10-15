@@ -349,42 +349,50 @@ class Heap {
   }
 }
 
+/** V1.6 A6: findPath scratch (see the comment inside). */
+let pathScratch = { g: new Float32Array(0), from: new Int32Array(0), seen: new Int32Array(0), closed: new Int32Array(0), gen: 0 };
+
 /** A* over road tiles. Returns the list of tile indices, or null if unreachable. */
 export function findPath(tiles: Tile[], start: number, goal: number): number[] | null {
   if (!tiles[start]?.road || !tiles[goal]?.road) return null;
   if (start === goal) return [start];
   const N = GRID_SIZE;
-  const g = new Float32Array(N * N).fill(Infinity);
-  const from = new Int32Array(N * N).fill(-1);
-  const closed = new Uint8Array(N * N);
+  // V1.6 A6: reusable scratch arrays with a generation stamp instead of
+  // three fresh N² arrays per path (330 KB of fills per call on the 192
+  // map). An entry counts only if its stamp is this call's generation;
+  // otherwise it reads as "unvisited" (g = ∞, from = −1, open).
+  if (pathScratch.g.length !== N * N) pathScratch = { g: new Float32Array(N * N), from: new Int32Array(N * N), seen: new Int32Array(N * N), closed: new Int32Array(N * N), gen: 0 };
+  const sc = pathScratch, gen = ++sc.gen, G = sc.g, F = sc.from, seen = sc.seen, cl = sc.closed;
+  const g = { get: (i: number) => (seen[i] === gen ? G[i] : Infinity) };
+  const fromOf = (i: number) => (seen[i] === gen ? F[i] : -1);
   const gx = goal % N, gz = Math.floor(goal / N);
   const h = (i: number) => (Math.abs((i % N) - gx) + Math.abs(Math.floor(i / N) - gz)) * AVENUE_COST;
   const open = new Heap();
-  g[start] = 0;
+  seen[start] = gen; G[start] = 0; F[start] = -1;
   open.push(start, h(start));
   while (open.size) {
     const i = open.pop();
     if (i === goal) {
       const path = [goal];
-      for (let k = from[goal]; k !== -1; k = from[k]) path.push(k);
+      for (let k = fromOf(goal); k !== -1; k = fromOf(k)) path.push(k);
       return path.reverse();
     }
-    if (closed[i]) continue; // a stale heap entry (we found a cheaper way earlier)
-    closed[i] = 1;
+    if (cl[i] === gen) continue; // a stale heap entry (we found a cheaper way earlier)
+    cl[i] = gen;
     const x = i % N, z = Math.floor(i / N);
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz;
       if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
       const n = nz * N + nx;
       const t = tiles[n];
-      if (!t.road || closed[n]) continue;
+      if (!t.road || cl[n] === gen) continue;
       // V1.5 roundabouts circulate counter-clockwise (right-hand traffic):
       // between two ring tiles only the ring direction is allowed.
       if (isRing(tiles[i]) && isRing(t) && !ringStepOk(tiles, i, n)) continue;
-      const cost = g[i] + (t.roadType === 1 ? AVENUE_COST : STREET_COST);
-      if (cost < g[n]) {
-        g[n] = cost;
-        from[n] = i;
+      // G is a Float32Array like the old g[], so costs round exactly as before.
+      const cost = G[i] + (t.roadType === 1 ? AVENUE_COST : STREET_COST);
+      if (cost < g.get(n)) {
+        seen[n] = gen; G[n] = cost; F[n] = i;
         open.push(n, cost + h(n));
       }
     }

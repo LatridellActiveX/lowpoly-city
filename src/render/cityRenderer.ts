@@ -44,6 +44,7 @@ import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { CHUNK } from '../sim/chunks';
+import { owns, REGION, regionSide } from '../sim/regions';
 import { autoSkin, industrialMaterial, Skin } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
@@ -465,6 +466,8 @@ export class CityRenderer {
     // Overlay squares are transparent and drawn on top of the ground.
     const overlayMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, vertexColors: false });
     add('overlay', MODELS.tilePlane(), overlayMat, 1024, false);
+    // V1.6 A6: unowned regions are shaded dark (one stretched plane each).
+    add('regionShade', MODELS.tilePlane(), new THREE.MeshBasicMaterial({ color: 0x1b2430, transparent: true, opacity: 0.42, depthWrite: false }), 16, false);
   }
 
   /** Compose position * rotation(y) * scale into the scratch matrix. */
@@ -599,7 +602,7 @@ export class CityRenderer {
 
     const seed = sim.world.seed;
     // The smooth ground mesh only depends on the seed, so build it once per city.
-    if (seed !== this.groundSeed) {
+    if (seed + GRID_SIZE * 1e10 !== this.groundSeed) { // V1.6 A6: also rebuild when the map size changed
       if (this.groundMesh) {
         this.group.remove(this.groundMesh);
         this.groundMesh.geometry.dispose();
@@ -613,7 +616,7 @@ export class CityRenderer {
       }
       this.waterMesh = buildWaterMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
       if (this.waterMesh) this.group.add(this.waterMesh);
-      this.groundSeed = seed;
+      this.groundSeed = seed + GRID_SIZE * 1e10;
     }
     // V1.6 A5: only tiles of visible chunks; decorations go to the static pools.
     const visList = this.visibleTiles(GRID_SIZE);
@@ -825,6 +828,15 @@ export class CityRenderer {
     });
 
     this.addLots(sim, seed);
+    // V1.6 A6: shade every region the player doesn't own yet.
+    {
+      const rs = regionSide();
+      if (rs > 1) for (let r = 0; r < rs * rs; r++) {
+        if (owns(sim.world, r)) continue;
+        const cx = (r % rs) * REGION + REGION / 2, cz = Math.floor(r / rs) * REGION + REGION / 2;
+        P.regionShade.add(this.place(new THREE.Vector3(cx, 0.12, cz), 0, REGION / 0.96, 1, REGION / 0.96)); // tilePlane is 0.96 wide
+      }
+    }
     for (const p of Object.values(P)) p.end();
   }
 

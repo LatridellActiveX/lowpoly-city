@@ -23,6 +23,9 @@ const TOWN = `(s, ox, oz) => {
   s.apply("residential", rect(11, 13, 29, 13)); s.apply("residential", rect(31, 13, 49, 13)); s.apply("residential", rect(11, 27, 29, 27)); s.apply("residential", rect(31, 27, 49, 27));
   s.zoneOpt = { density: 1, depth: 3 }; s.apply("commercial", rect(11, 20, 29, 20)); s.apply("commercial", rect(31, 20, 49, 20));
   s.zoneOpt = { density: 0, depth: 2 }; s.apply("industrial", rect(31, 34, 49, 34));
+  { const N = Math.round(Math.sqrt(s.world.tiles.length)), e = s.world.edgeIndex, ex = e % N, ez = Math.floor(e / N);
+    const R = (x0, z0, x1, z1) => { const o = []; for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) o.push([x, z]); return o; };
+    if (e >= 0) { s.apply("road", R(50 + ox, 26 + oz, 50 + ox, ez)); s.apply("road", R(50 + ox, ez, ex, ez)); s.apply("road", R(ex, ez, ex, 26 + oz)); } }
   for (let i = 0; i < 1400; i++) { s.step(); s.traffic.update(s.world, 1); s.world.clock += 1; }
   return s.stats().population;
 }`;
@@ -50,6 +53,20 @@ if (stage === "cull") {
       return +(r.stats.rebuildMs / Math.max(1, r.stats.rebuilds)).toFixed(2);
     }, cull);
   }
+}
+if (stage === "big") {
+  // A6: a new 192 map; town in the centre region, one bought region, whole-map view.
+  await page.evaluate(() => window.city.startGame("new", { seed: 4242, map: "river", size: 192 }));
+  out.town = await page.evaluate((T) => { const c = window.city, s = c.sim; const p = eval(T)(s, 64, 64); s.world.peakPop = Math.max(s.world.peakPop, 1600); s.world.cash = 1e6; const bought = s.buyRegion(5); c.setSpeed?.(1); return { pop: p, buy: bought, owned: s.world.regionsOwned, size: Math.sqrt(s.world.tiles.length) }; }, TOWN.replace("s.world.tiles.forEach((t) => { t.deco = t.deco; t.water = false; });", ""));
+  for (const [name, x, z, zm] of [["big-map", 96, 96, 0.15], ["big-map-centre", 96, 92, 0.6]]) {
+    await page.evaluate(([x, z, zm]) => { const c = window.city; c.setTimeOfDay(0.45); c.setOverlay("none"); c.cam.zoomBy(zm / c.cam.zoom); c.cam.target.set(x, 0, z); c.sim.version++; }, [x, z, zm]);
+    await page.waitForTimeout(4000); out.fps = await page.evaluate(() => new Promise((ok) => { let n = 0; const t0 = performance.now(); const f = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(f); else ok(+(n / 3).toFixed(1)); }; requestAnimationFrame(f); }));
+    await page.screenshot({ path: `/workspace/city-v16-${name}.png`, timeout: 240000 });
+    out[name] = await page.evaluate(() => { const st = window.city.renderer.stats; return { chunks: `${st.chunksDrawn}/${st.chunksTotal}`, zoom: window.city.cam.zoom }; });
+  }
+  await page.evaluate(() => { const b = [...document.querySelectorAll("button")].find((x) => x.title?.startsWith("Regions")); b && b.click(); });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: "/workspace/city-v16-big-map-regions.png", timeout: 240000 });
 }
 console.log(JSON.stringify({ stage, ...out, errs }));
 await browser.close();

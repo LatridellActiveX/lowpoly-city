@@ -42,7 +42,10 @@ import { GRID_SIZE } from '../sim/types';
 const VIEW_HEIGHT = 30; // world units visible vertically at zoom = 1
 const DISTANCE = 120;
 const ELEVATION = Math.atan(1 / Math.SQRT2);
+/** Closest zoom-out on the 64 map. V1.6 A6: bigger maps may zoom out further (minZoom()). */
 export const MIN_ZOOM = 0.45;
+/** V1.6 A6: zoom-out limit scaled so the whole map still fits (0.45 at 64, 0.15 at 192). */
+export const minZoom = () => MIN_ZOOM * 64 / GRID_SIZE;
 export const MAX_ZOOM = 4;
 /** PR 4 orbit pitch limits (radians): ~22° to ~65° above the horizon. */
 const MIN_PITCH = 0.38;
@@ -103,7 +106,7 @@ export class IsoCamera {
   }
 
   zoomBy(factor: number): void {
-    this.zoom = THREE.MathUtils.clamp(this.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+    this.zoom = THREE.MathUtils.clamp(this.zoom * factor, minZoom(), MAX_ZOOM);
     this.applyFrustum();
   }
 

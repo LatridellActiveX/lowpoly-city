@@ -1,3 +1,4 @@
+import { allRegions } from '../../src/sim/regions';
 import { prof } from '../../src/sim/prof';
 import { GRID_SIZE } from '../../src/sim/types';
 /**
@@ -19,6 +20,7 @@ export const rect = (x0: number, z0: number, x1: number, z1: number, ox = 0, oz 
 
 /** Build the town on `s` with its top-left offset by (ox, oz) tiles. */
 export function buildTown(s: Simulation, ox = 0, oz = 0): void {
+  s.world.regionsOwned = allRegions(); // V1.6 A6: benches/tests build anywhere
   const R = (x0: number, z0: number, x1: number, z1: number) => rect(x0, z0, x1, z1, ox, oz);
   const P = (x: number, z: number): XZ[] => [[x + ox, z + oz]];
   s.world.cash = 1e7;

@@ -23,8 +23,10 @@ import { clearSave, downloadSave, importSaveText, hasSave, loadWorld, saveWorld 
 import { Simulation } from './sim/simulation';
 import { GRID_SIZE, ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
+import { setGridSize } from './sim/mapsize';
+import { REGION, regionSide, startRegion } from './sim/regions';
 import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
-import { createScene } from './render/scene';
+import { createScene, resizeScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput, pointer } from './ui/input';
@@ -45,7 +47,8 @@ import { World } from './sim/grid';
 gameLog.install();
 
 const app = document.getElementById('app')!;
-const { renderer, scene, ground, sun, hemi } = createScene(app);
+const sceneBundle = createScene(app);
+const { renderer, scene, ground, sun, hemi } = sceneBundle;
 const cam = new IsoCamera();
 const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
@@ -425,6 +428,7 @@ if (resume === 'continue') hud.flash('Updated — welcome back');
 function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'river' }): void {
   if (kind === 'new') {
     clearSave();
+    setGridSize(opts.size ?? 64); // V1.6 A6: map size chosen on the title screen
     sim = new Simulation(new World(undefined, opts.seed, { dry: opts.map === 'dry' }));
     gameLog.event(`New city founded (seed ${sim.world.seed}${opts.map === 'dry' ? ', dry land' : ''})`);
   } else {
@@ -435,7 +439,11 @@ function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'rive
   inTitle = false;
   title.hide();
   dayNight.override = null;
-  cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+  // V1.6 A6: the map may have changed size (new big map, or a save of another size).
+  resizeScene(sceneBundle, GRID_SIZE);
+  const sr = startRegion(), rs = regionSide();
+  if (rs > 1) cam.target.set((sr % rs) * REGION + REGION / 2, 0, Math.floor(sr / rs) * REGION + REGION / 2);
+  else cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
   cam.zoomBy(1 / 1.5);
   sim.speed = lastSpeed;
   hud.inspect(null);

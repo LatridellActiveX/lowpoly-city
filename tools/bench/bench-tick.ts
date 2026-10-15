@@ -26,8 +26,19 @@ const SIZES = (process.env.SIZES ?? '64,192').split(',').map(Number);
 const setSize: ((n: number) => void) | undefined = setGridSize;
 
 function makeWorld(n: number): World | null {
-  if (n !== 64) { if (!setSize) return null; setSize(n); } else setSize?.(64);
-  return new World(undefined, 4242);
+  // T1 fairness: the big map gets the 64 map's resource patches in its
+  // centre (resources are seeded by position, so otherwise farms and
+  // industry — and with them the whole town — would grow differently).
+  setSize?.(64);
+  const res64 = new World(undefined, 4242).resources;
+  if (n !== 64) { if (!setSize) return null; setSize(n); }
+  const w = new World(undefined, 4242);
+  if (n !== 64) {
+    const off = (n - 64) / 2, res = new Uint8Array(n * n);
+    for (let z = 0; z < 64; z++) for (let x = 0; x < 64; x++) res[(z + off) * n + x + off] = res64[z * 64 + x];
+    (w as unknown as { resourceCache: Uint8Array }).resourceCache = res;
+  }
+  return w;
 }
 const pct = (a: number[], p: number) => a[Math.min(a.length - 1, Math.floor((a.length * p) / 100))];
 
@@ -77,7 +88,33 @@ if (process.argv.includes('--check')) {
     console.log(`T1 city192/city64 = ${ratio.toFixed(3)} (target ≤ 1.10)`);
     if (ratio > 1.1) fail++;
   }
-  for (const r of rows) if (r.scenario.startsWith('city') && r.monthP99 > 2 * r.p50 + 0.05) { console.log(`T3 ${r.scenario}: month p99 ${r.monthP99} > 2× p50 ${r.p50}`); fail++; }
+  // T4 allocation, T5 absolute budget on the big city.
+  for (const r of rows) if (r.scenario.startsWith('city') && r.heapKBPerTick > 50) { console.log(`T4 ${r.scenario}: ${r.heapKBPerTick} KB/tick > 50`); fail++; }
+  if (c192) { console.log(`T5 city192 mean ${c192.mean} ms (target ≤ 4)`); if (c192.mean > 4) fail++; }
+  // T2: tick time vs building count on a 192 map with 1, 2, 3, 4 and 6 towns.
+  if (!process.argv.includes('--no-scale')) {
+    const pts: Array<[number, number]> = [];
+    const spots = [[64, 64], [0, 64], [128, 64], [64, 0], [64, 128], [0, 0]];
+    for (const k of [1, 2, 3, 4, 6]) {
+      setGridSize(192);
+      const s = new Simulation(new World(undefined, 4242));
+      s.world.tiles.forEach((t) => { t.deco = 0; t.water = false; });
+      for (let j = 0; j < k; j++) buildTown(s, spots[j][0], spots[j][1]);
+      for (let i = 0; i < Math.min(GROW, 1500); i++) tick(s);
+      const t0 = performance.now(); for (let i = 0; i < 400; i++) tick(s);
+      pts.push([s.world.lots.buildings.size, (performance.now() - t0) / 400]);
+    }
+    const n = pts.length, mx = pts.reduce((a, p) => a + p[0], 0) / n, my = pts.reduce((a, p) => a + p[1], 0) / n;
+    const sxy = pts.reduce((a, p) => a + (p[0] - mx) * (p[1] - my), 0), sxx = pts.reduce((a, p) => a + (p[0] - mx) ** 2, 0), syy = pts.reduce((a, p) => a + (p[1] - my) ** 2, 0);
+    const r2 = sxy * sxy / (sxx * syy);
+    const dbl = pts[3][1] / pts[1][1]; // 4 towns vs 2 towns
+    console.log(`T2 scale series ${JSON.stringify(pts.map(([b, t]) => [b, +t.toFixed(2)]))}  R²=${r2.toFixed(3)} (≥ 0.95)  2×city cost ×${dbl.toFixed(2)} (≤ 2.2)`);
+    if (r2 < 0.95 || dbl > 2.2) fail++;
+  }
+  // T3: month ticks must not be spikier than ticks in general. With ~50 month
+  // samples their p99 is really the max, which a GC pause can hit on any
+  // tick, so the bound is max(2 × p50, overall p99).
+  for (const r of rows) if (r.scenario.startsWith('city') && r.monthP99 > Math.max(2 * r.p50, r.p99) + 0.05) { console.log(`T3 ${r.scenario}: month p99 ${r.monthP99} > 2× p50 ${r.p50}`); fail++; }
   if (existsSync('bench/results/baseline.json')) {
     const base: Row[] = JSON.parse(readFileSync('bench/results/baseline.json', 'utf8'));
     for (const r of rows) { const b = base.find((q) => q.scenario === r.scenario); if (b && r.mean > b.mean * 1.15) { console.log(`regression ${r.scenario}: ${r.mean} vs baseline ${b.mean}`); fail++; } }

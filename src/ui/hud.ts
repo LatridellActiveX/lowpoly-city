@@ -1,3 +1,4 @@
+import { RegionsPanel } from './regionsPanel';
 import { CELL_GRID } from '../sim/cells';
 import { DEPOT_BONUS, depotOf } from '../sim/goods';
 /**
@@ -83,6 +84,8 @@ export class Hud {
   private readonly info = el('div', 'info hidden');
   private readonly toast = el('div', 'toast');
   private readonly budget = el('div', 'budget hidden');
+  /** V1.6 A6: region purchase panel. */
+  readonly regions = new RegionsPanel();
   /** Cost tooltip that follows the mouse (PR 3). */
   private readonly tip = el('div', 'cost-tip hidden');
   /** Graphs panel and stacked notifications (PR 3). */
@@ -168,7 +171,7 @@ export class Hud {
       if (open && this.lastSim) this.graphs.update(this.lastSim);
     };
     const file = el('div', 'group');
-    file.append(budgetBtn, graphsBtn);
+    file.append(budgetBtn, graphsBtn, this.regions.button); // V1.6 A6: Regions (big maps only)
     for (const [label, fn] of [
       ['Save', actions.save],
       ['Load', actions.load],
@@ -208,7 +211,7 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    root.append(top, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -512,6 +515,7 @@ export class Hud {
     }
     if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
     this.graphs.update(sim);
+    this.regions.update(sim);
     this.demandBars.update(sim);
     this.notices.check(sim);
     void this.currentTool;
