@@ -107,7 +107,11 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
     }
   }
   const nearAvenue = (i: number) => { const x = i % N, z = Math.floor(i / N); return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const a = x + dx, b = z + dz; return a >= 0 && b >= 0 && a < N && b < N && tiles[b * N + a].road && tiles[b * N + a].roadType >= 1; }); };
-  for (let i = 0; i < n; i++) {
+  // V1.6 A4: beyond the ring around active chunks every input below is 0,
+  // so land value is 0 there (out[] starts at 0). pre[] is only written in
+  // the ring: it is read solely for tiles with garbage, and a tile with
+  // garbage is never bare, so it is always inside the ring.
+  for (const i of world.chunks.ringTilesSorted()) {
     const t = tiles[i];
     if (t.water || t.road) { if (pre) pre[i] = NaN; continue; } // no land value on roads/water
     let v = dist[i] <= 4 ? Math.max(0, LV_ACCESS - LV_ACCESS_FADE * (dist[i] - 1)) : 0;
@@ -124,15 +128,34 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
 
 /** Add `strength` with linear falloff to every tile within `radius` of (cx, cz). */
 function spread(field: Float32Array, cx: number, cz: number, radius: number, strength: number): void {
+  // V1.6 A4: the falloff weights per offset come from a cached kernel
+  // (same numbers as computing Math.hypot every time, just once per radius).
+  const ker = kernel(radius), side = 2 * radius + 1;
   for (let dz = -radius; dz <= radius; dz++) {
+    const z = cz + dz;
+    if (z < 0 || z >= GRID_SIZE) continue;
     for (let dx = -radius; dx <= radius; dx++) {
-      const x = cx + dx, z = cz + dz;
-      if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE) continue;
-      const d = Math.hypot(dx, dz);
-      if (d > radius) continue; // keep the area round, not square
-      field[z * GRID_SIZE + x] += strength * (1 - d / (radius + 1));
+      const x = cx + dx;
+      if (x < 0 || x >= GRID_SIZE) continue;
+      const k = ker[(dz + radius) * side + dx + radius];
+      if (k < 0) continue; // outside the circle: keep the area round, not square
+      field[z * GRID_SIZE + x] += strength * k;
     }
   }
+}
+/** Falloff weight (1 - d/(r+1)) per offset of a (2r+1)² square; -1 outside the circle. */
+const kernels = new Map<number, Float64Array>();
+function kernel(r: number): Float64Array {
+  let k = kernels.get(r);
+  if (k) return k;
+  const side = 2 * r + 1;
+  k = new Float64Array(side * side);
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    const d = Math.hypot(dx, dz);
+    k[(dz + r) * side + dx + r] = d > r ? -1 : 1 - d / (r + 1);
+  }
+  kernels.set(r, k);
+  return k;
 }
 
 /**
@@ -169,8 +192,9 @@ export function computeEnvironment(world: World, service?: TileService[], pre?: 
     else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
     else if (t.structure === 'park') spreadSquare(parks, x, z, PARK_BONUS);
   });
-  const desirability = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
+  // V1.6 A4: outside the ring pollution and parks are 0 → desirability = DESIRE_BASE.
+  const desirability = new Float32Array(n).fill(DESIRE_BASE);
+  for (const i of world.chunks.ringTilesSorted()) {
     parks[i] = Math.min(PARK_BONUS_MAX, parks[i]);
     desirability[i] = DESIRE_BASE - POLLUTION_WEIGHT * pollution[i] + parks[i];
   }

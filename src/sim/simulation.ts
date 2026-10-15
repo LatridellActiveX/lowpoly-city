@@ -293,18 +293,20 @@ export class Simulation {
 
     // V1.5: busy shopping districts grow multi-storey garages (parking.ts),
     // before lots grow so a garage can claim free frontage first.
+    prof.begin('garages');
     const grown = w.parking.growGarages(w, w.lots, (x, z) => this.garageTileFree(x, z));
     if (grown) {
       this.events.push(`🅿️ Parking was short around the shops, so a ${grown.decks}-deck garage (${grown.spaces} spaces) grew on a commercial lot.`);
       this.version++;
     }
+    prof.end();
     // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
     prof.begin('growth'); growLots(this, sparePower, spareWater); prof.end();
     // Cars park (parking.ts): occupancy for the time of day + commuter claims.
     prof.begin('parking'); w.parking.tick(w, w.lots); prof.end();
     prof.begin('spawn'); this.spawnTraffic(); prof.end();
     // PR 5: farms claim/free their fields, then crews are dispatched.
-    updateFarms(w);
+    prof.begin('farms'); updateFarms(w); prof.end();
     prof.begin('crews'); this.crews.tick(w, this.traffic, (i) => this.operating(i)); prof.end();
     // New-game hint: nothing grows without a Construction Yard.
     if ((w.tick === 3 || w.tick % 240 === 0) && !this.anyActive((t) => t.structure === 'constructionYard') && this.anyActive((t) => t.zone !== null))
@@ -315,9 +317,9 @@ export class Simulation {
     // V1.5b stage F: police patrols + ambulance runs.
     prof.begin('responders'); this.responders.tick(w, this.traffic, this.safety); prof.end();
     // PR 4 progression: announce new tiers (UI drains `events`).
-    this.events.push(...updateTier(w, this.stats().population));
+    prof.begin('tier'); this.events.push(...updateTier(w, this.stats().population)); prof.end();
     prof.begin('month'); if (w.tick % MONTH_TICKS === 0) this.bookMonth(); prof.end();
-    if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
+    prof.begin('record'); if (w.tick % HISTORY_EVERY_TICKS === 0) this.record(); prof.end();
     this.version++;
   }
 

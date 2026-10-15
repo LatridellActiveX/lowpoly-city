@@ -1,3 +1,4 @@
+import { prof } from '../../src/sim/prof';
 import { GRID_SIZE } from '../../src/sim/types';
 /**
  * tools/bench/town.ts — V1.6 A0: the deterministic BENCH TOWN.
@@ -40,6 +41,6 @@ export function buildTown(s: Simulation, ox = 0, oz = 0): void {
 
 /** One full tick the way the game runs it (sim + vehicles + clock). */
 export function tick(s: Simulation): void {
-  s.step(); s.traffic.update(s.world, 1); s.world.clock += 1;
+  s.step(); prof.begin('traffic'); s.traffic.update(s.world, 1); prof.end(); s.world.clock += 1;
 }
 export { Simulation, World };

@@ -21,6 +21,7 @@
  * car, light bar). Clinics/hospitals send ambulances (white truck with a red
  * stripe) to a random occupied home in range every AMBULANCE_TICKS.
  */
+import { due, PHASE } from './schedule';
 import { GRID_SIZE } from './types';
 import type { World } from './grid';
 import type { Coverage } from './services';
@@ -44,10 +45,12 @@ export function computeSafety(world: World, cov: Coverage): Safety {
   const pop = world.peakPop;
   const city = pop < CRIME_START ? 0 : CRIME_CITY_MIN + (1 - CRIME_CITY_MIN) * Math.min(1, (pop - CRIME_START) / (CRIME_CITY_FULL - CRIME_START));
   const police = cov.by[Svc.Police], clinic = cov.by[Svc.Clinic], hosp = cov.by[Svc.Hospital];
-  for (let i = 0; i < n; i++) {
+  // V1.6 A4: care is a pure typed-array pass; crime only exists on
+  // buildings, which live in active chunks (no tile objects read elsewhere).
+  for (let i = 0; i < n; i++) care[i] = Math.max(clinic[i], hosp[i]);
+  if (city) for (const i of world.chunks.activeTilesSorted()) {
     const t = world.tiles[i];
-    care[i] = Math.max(clinic[i], hosp[i]);
-    if (!city || !t.zone || t.level === 0) continue;
+    if (!t.zone || t.level === 0) continue;
     const base = Math.min(1, (t.res + t.jobs * 0.5) / CRIME_DENSITY) * city;
     crime[i] = base * (1 - POLICE_EFFECT * police[i]);
   }
@@ -100,9 +103,11 @@ export class Responders {
       });
       if (ok) { this.out.set(a, this.outOf(a) + 1); if (svc === Svc.Police) this.stats.patrols++; else this.stats.ambulance++; }
     };
-    if (world.tick % PATROL_TICKS === 0)
+    if (due(world.tick, PATROL_TICKS, PHASE.patrol)) // V1.6 A4: staggered (schedule.ts)
+     
       for (const a of serviceAnchors(world, Svc.Police)) send(a, Svc.Police, POLICE_PURPOSE, POLICE_COLOR, 'car', (i) => safety.crime[i] * (0.5 + hash(i, world.tick)));
-    if (world.tick % AMBULANCE_TICKS === 0)
+    if (due(world.tick, AMBULANCE_TICKS, PHASE.ambulance))
+     
       for (const svc of [Svc.Clinic, Svc.Hospital])
         for (const a of serviceAnchors(world, svc)) send(a, svc, AMBULANCE_PURPOSE, AMBULANCE_COLOR, 'truck', (i) => (tiles[i].zone === 'residential' && tiles[i].res > 0 ? hash(i, world.tick) : 0));
   }

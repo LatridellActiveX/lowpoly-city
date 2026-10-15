@@ -9,6 +9,8 @@
 export const prof = {
   on: false,
   totals: new Map<string, number>(),
+  /** V1.6 A4: worst single-tick time per phase (finds spikes, not averages). */
+  max: new Map<string, number>(),
   private_t: 0,
   private_name: '',
   /** Start timing a phase (phases are sequential — no nesting needed). */
@@ -22,6 +24,7 @@ export const prof = {
     if (!this.on) return;
     const dt = performance.now() - this.private_t;
     this.totals.set(this.private_name, (this.totals.get(this.private_name) ?? 0) + dt);
+    if (dt > (this.max.get(this.private_name) ?? 0)) this.max.set(this.private_name, dt);
   },
-  reset(): void { this.totals.clear(); },
+  reset(): void { this.totals.clear(); this.max.clear(); },
 };

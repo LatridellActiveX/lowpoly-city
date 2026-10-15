@@ -31,6 +31,7 @@
  * dropped when the tile stops being industrial. Roles are a cache (not
  * saved): after loading, the same rules re-derive them.
  */
+import { due, PHASE } from './schedule';
 import { GRID_SIZE } from './types';
 import { World } from './grid';
 import { Resource } from './resources';
@@ -106,7 +107,7 @@ export function refreshRoles(world: World, operating: (i: number) => boolean): v
   const m = memo(world);
   // Drop roles of tiles that are no longer built industry.
   for (const i of [...m.keys()]) { const t = world.tiles[i]; if (t.zone !== 'industrial' || t.level === 0) m.delete(i); }
-  if (world.tick % ROLE_REFRESH !== 0) return;
+  if (!due(world.tick, ROLE_REFRESH, PHASE.roles)) return; // V1.6 A4: staggered (schedule.ts)
   const makes = cityMakes(world);
   world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0 || !operating(i) || roleOf(world, i) !== 'factory') return;

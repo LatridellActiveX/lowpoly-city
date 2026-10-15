@@ -163,6 +163,35 @@ export class ChunkIndex {
   }
   private sortedCache: Int32Array | null = null;
 
+  /**
+   * V1.6 A4: tiles of active chunks AND their 8 neighbours, ascending. Every
+   * field that spreads out from buildings (pollution, parks, noise, commerce,
+   * road distance — all radii ≤ 6 < CHUNK) is zero beyond this ring, so
+   * per-tile passes over such fields can stop here.
+   */
+  ringTilesSorted(): Int32Array {
+    if (this.ringCache) return this.ringCache;
+    const s = this.side, ring = new Uint8Array(s * s);
+    for (const c of this.active) {
+      const cx = c % s, cz = (c / s) | 0;
+      for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+        const x = cx + dx, z = cz + dz;
+        if (x >= 0 && z >= 0 && x < s && z < s) ring[z * s + x] = 1;
+      }
+    }
+    const n = this.n, out: number[] = [];
+    for (let z = 0; z < n; z++) {
+      const cz = (z / CHUNK) | 0;
+      for (let cx = 0; cx < s; cx++) {
+        if (!ring[cz * s + cx]) continue;
+        const x0 = cx * CHUNK, x1 = Math.min(n, x0 + CHUNK);
+        for (let x = x0; x < x1; x++) out.push(z * n + x);
+      }
+    }
+    return (this.ringCache = Int32Array.from(out));
+  }
+  private ringCache: Int32Array | null = null;
+
   /** Re-read the watch set and bump revisions. Call once per tick before the systems run. */
   sync(tiles: Tile[]): void {
     this.changed.length = 0; // garbageDirty is NOT cleared here: its consumer calls takeGarbageDirty()
@@ -198,6 +227,7 @@ export class ChunkIndex {
     for (let c = 0; c < this.count.length; c++) if (all || this.count[c] > 0) { this.active.push(c); this.mask[c] = 1; }
     this.activeDirty = false;
     this.sortedCache = null;
+    this.ringCache = null;
   }
 
   /** Compare every tile of chunk c with its stored signature. */
