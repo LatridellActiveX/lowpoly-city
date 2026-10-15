@@ -171,7 +171,7 @@ export function retag(sim: Simulation, cells: number[]): void {
  * Zone cells a drag from a to b (metres) would paint: every free block cell
  * whose centre lies in the axis-aligned rectangle between the two points
  * (plus the cells under the two points themselves, so a plain click still
- * takes one cell), at most `depthRows` rows deep from the road.
+ * takes the strip under the cursor), at most `depthRows` rows deep from the road.
  */
 export function cellsInRect(sim: Simulation, a: V2, b: V2, depthRows = 16): ZoneCell[] {
   const w = sim.world, x0 = Math.min(a.x, b.x), x1 = Math.max(a.x, b.x), z0 = Math.min(a.z, b.z), z1 = Math.max(a.z, b.z);
@@ -180,7 +180,13 @@ export function cellsInRect(sim: Simulation, a: V2, b: V2, depthRows = 16): Zone
     if (c.row >= depthRows || c.cx < x0 || c.cx > x1 || c.cz < z0 || c.cz > z1) continue;
     out.add(c);
   }
-  for (const p of [a, b]) { const c = w.blocks.cellAt(p); if (c && c.row < depthRows) out.add(c); }
+  // The cell under each end point brings its whole column back to the depth setting
+  // (what a plain click or the hover highlight zones: a strip, not a single square).
+  for (const p of [a, b]) {
+    const c = w.blocks.cellAt(p);
+    if (!c) continue;
+    for (let r = 0; r < depthRows; r++) { const q = w.blocks.get(c.edge, c.side, c.col, r); if (q) out.add(q); }
+  }
   return [...out].filter((c) => { const k = gridCellOf(c); return k >= 0 && w.cells.owner[k] === 0; });
 }
 

@@ -28,6 +28,7 @@ export const CHANGELOG: ChangeEntry[] = [
       { tag: 'fix', text: 'Zones painted on freeform roads now actually grow: they were missing from the growth, power and water systems, so some residential areas stayed empty or showed "not enough capacity". They now connect to the power and water grid like any other zoned land.' },
       { tag: 'fix', text: 'Zones on roads that do not line up with the old tile grid no longer leave an unzoned strip beside the road that blocked buildings; the gap is filled automatically.' },
       { tag: 'improved', text: 'Cars and trucks on freeform roads now use the full detailed vehicle models (two-tone roofs, spinning wheels, brake lights, garbage / tanker / dump trucks) instead of plain placeholder boxes.' },
+      { tag: 'improved', text: 'Hovering over zoning squares on a freeform road now highlights, before you drag, the whole strip a click would zone (to the Depth setting), in that zone\'s colour.' },
       { tag: 'improved', text: 'Zoning preview and tooltip show what you are zoning: the squares take that zone\'s colour and the tooltip names it (e.g. Residential · medium).' },
     ],
   },
