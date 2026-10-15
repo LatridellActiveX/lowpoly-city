@@ -72,6 +72,8 @@ import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
 import { isIntersection, lightState, ringCorner } from '../sim/traffic';
+import { GraphPower, graphMains, graphPower, graphSignals, GraphSignal, nearestPole, signalSlot } from './graphUtilities';
+import { JunctionPlan, planAll, rings } from '../roads/junctions';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
@@ -86,6 +88,8 @@ export const ZONE_COLORS: Record<ZoneType, number> = {
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
 export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping';
 
+/** NEBULA: height of water mains drawn in the water view (just above the asphalt, so they read). */
+const MAIN_Y = 0.066;
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
 /**
@@ -231,6 +235,21 @@ export class CityRenderer {
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
   private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number; axis: 'ns' | 'ew' }> = [];
+  /**
+   * NEBULA: street furniture of the ROAD GRAPH (render/graphUtilities.ts),
+   * recomputed only when the graph's version changes: junction plans, the
+   * pole/wire layout and the per-approach signal poles. graphSignals is
+   * animated every frame from the live GraphTraffic controller.
+   */
+  private gVersion = -1;
+  private gPlans = new Map<number, JunctionPlan>();
+  private gPower: GraphPower = { poles: [], spans: [] };
+  private gSignals: Array<GraphSignal & { pos: THREE.Vector3 }> = [];
+  /** NEBULA LOD: overhead wires are hidden when zoomed far out (sub-pixel there). */
+  setWireLod(far: boolean): void {
+    this.pools.span.mesh.visible = !far;
+    this.pools.drop.mesh.visible = !far;
+  }
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
   /** V1.6: landfill centres (world x/z), fill stage and a phase, for the animated compactor and gulls. */
@@ -480,6 +499,52 @@ export class CityRenderer {
   }
 
   /** Compose position * rotation(y) * scale into the scratch matrix. */
+  /** NEBULA: (re)plan the road graph's junctions / poles / signals when it changed. */
+  private graphPowerFor(sim: Simulation): GraphPower {
+    const g = sim.world.roads;
+    if (g.version !== this.gVersion) {
+      this.gVersion = g.version;
+      const rs = rings(g);
+      this.gPlans = planAll(g, rs);
+      this.gPower = graphPower(g, this.gPlans, rs);
+      this.gSignals = graphSignals(g, this.gPlans).map((s) => ({ ...s, pos: new THREE.Vector3(s.x, 0.056, s.z) }));
+    }
+    return this.gPower;
+  }
+
+  /**
+   * NEBULA: draw what the road graph carries, into the shared instanced
+   * pools (one draw call each, however many):
+   *   power  — street poles on the sidewalk every ~2 tiles + sagging wires,
+   *            chained round junctions (graphPower); the tile power lines
+   *            above wire into them;
+   *   water  — in the water view / pipe tool only, a main down every graph
+   *            road with a joint at each node (graphMains);
+   *   signals— one pole per approach at signal nodes (heads animated in
+   *            animateTraffic from the live controller).
+   */
+  private addGraphUtilities(sim: Simulation): void {
+    const g = sim.world.roads;
+    if (!g.edgeCount()) { this.gSignals = []; return; }
+    const P = this.pools, pw = this.graphPowerFor(sim);
+    const v = new THREE.Vector3(), w = new THREE.Vector3();
+    for (const p of pw.poles) P.pole.add(this.place(v.set(p.x, 0.056, p.z), p.rotY));
+    for (const [a, b] of pw.spans) {
+      const A = pw.poles[a], B = pw.poles[b];
+      P.span.add(cableMatrix(v.set(A.x, 0.056 + WIRE_Y, A.z), w.set(B.x, 0.056 + WIRE_Y, B.z), this.m));
+    }
+    if (this.showPipes || this.overlay === 'water') {
+      const { segs, joints } = graphMains(g);
+      for (const j of joints) P.pipeJoint.add(this.place(v.set(j.x, MAIN_Y, j.z)));
+      for (const [a, b] of segs) {
+        // MODELS.pipe is one tile long along +x: scale x to the piece length.
+        const dx = b.x - a.x, dz = b.z - a.z;
+        P.pipe.add(this.place(v.set(a.x, MAIN_Y, a.z), Math.atan2(-dz, dx), Math.hypot(dx, dz), 1, 1));
+      }
+    }
+    for (const s of this.gSignals) P.lightPole.add(this.place(s.pos, s.yaw));
+  }
+
   private place(pos: THREE.Vector3, rotY = 0, sx = 1, sy = 1, sz = sx): THREE.Matrix4 {
     this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rotY);
     this.s.set(sx, sy, sz);
@@ -647,6 +712,16 @@ export class CityRenderer {
         // smooth graph mesh (render/graphRoads.ts), not as tile pieces.
         if (!sim.world.graphTiles.has(i)) this.addRoad(t, x, z, center, has);
         if (sim.world.graphTiles.has(i)) return;
+        // NEBULA: every road carries a WATER MAIN (sim: roads are water
+        // conduits). In the water view / pipe tool, draw it down the tile
+        // road's centre, joined to neighbouring roads and pipes.
+        if (this.showPipes || this.overlay === 'water') {
+          const j = center.clone().setY(MAIN_Y);
+          P.pipeJoint.add(this.place(j, 0, 0.8, 1, 0.8));
+          const isMain = (n: Tile) => n.road || n.waterPipe;
+          if (has(x + 1, z, isMain)) P.pipe.add(this.place(j, 0));
+          if (has(x, z + 1, isMain)) P.pipe.add(this.place(j, -Math.PI / 2));
+        }
         if (isIntersection(tiles, i)) {
           // PR 5 fix: ONE signal pole PER APPROACH (3 at a T, 4 at a
           // crossroads), on the near-right corner for traffic entering
@@ -687,12 +762,27 @@ export class CityRenderer {
           this.lamps.push(new THREE.Vector3(LAMP_REACH, 0.6, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(spot.pos));
         }
         // Each span once: walk east and south to the next pole (may skip a tile).
-        for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        // NEBULA: graph road tiles have no tile pole (the graph's own street
+        // poles stand there), so a span that would end on one is wired to the
+        // NEAREST GRAPH POLE instead — and we also look west/north, because
+        // the graph tile on that side no longer draws its eastward span.
+        const gts = sim.world.graphTiles;
+        for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
           const np = nextPole(tiles, x, z, dx, dz);
           if (!np) continue;
-          const other = poleSpot(tiles, np[0], np[1]);
+          const toGraph = gts.has(idx(np[0], np[1]));
+          if (dx + dz < 0 && !toGraph) continue; // each tile span once (east/south)
           const a = spot.pos.clone().setY(spot.pos.y + WIRE_Y);
-          const b = other.pos.clone().setY(other.pos.y + WIRE_Y);
+          let b: THREE.Vector3;
+          if (toGraph) {
+            const k = nearestPole(this.graphPowerFor(sim), np[0] + 0.5, np[1] + 0.5);
+            if (k < 0) continue;
+            const gp = this.gPower.poles[k];
+            b = new THREE.Vector3(gp.x, WIRE_Y, gp.z);
+          } else {
+            const other = poleSpot(tiles, np[0], np[1]);
+            b = other.pos.clone().setY(other.pos.y + WIRE_Y);
+          }
           P.span.add(cableMatrix(a, b, this.m));
         }
       }
@@ -707,6 +797,11 @@ export class CityRenderer {
         // tower already joins any adjacent pipe network (networks.ts: sources
         // are conduits); here we draw the short pipe into the tower's base so
         // the connection is visible. rotateY(a) sends the +x pipe to (cos a, −sin a).
+        // NEBULA: a pipe beside a graph road joins the main under it (the sim
+        // connects them within 32 m); draw the short stub so it shows.
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (inBounds(x + dx, z + dz) && sim.world.graphTiles.has(idx(x + dx, z + dz))) P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
+        }
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           if (!has(x + dx, z + dz, (n) => n.structure === 'waterTower' || n.structure === 'pumpStation')) continue;
           P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
@@ -853,6 +948,7 @@ export class CityRenderer {
       }
     });
 
+    this.addGraphUtilities(sim);
     this.addLots(sim, seed);
     // V1.6 A6: shade every region the player doesn't own yet.
     {
@@ -1295,6 +1391,19 @@ export class CityRenderer {
           const active = st.green === axis ? (st.amber ? 1 : 2) : 0;
           const lit = lamp.slot === active;
           const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(p);
+          this.c.setHex(SIGNAL_COLORS[lamp.slot]);
+          if (!lit) this.c.multiplyScalar(0.12);
+          P.lightHead.add(this.place(wp), this.c);
+          if (lit && glowOn) P.signalGlow.add(this.m.compose(wp, this.cameraQuat, this.s.set(1, 1, 1)), this.c);
+        }
+      }
+      // NEBULA: graph signal heads show the LIVE phase of their approach.
+      const gtr = sim.traffic.graph.gt;
+      if (gtr) for (const s of this.gSignals) {
+        const active = gtr.junctions.has(s.node) ? signalSlot(gtr, s.node, s.edge) : 0;
+        for (const lamp of SIGNAL_LAMPS) {
+          const lit = lamp.slot === active;
+          const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, s.yaw).add(s.pos);
           this.c.setHex(SIGNAL_COLORS[lamp.slot]);
           if (!lit) this.c.multiplyScalar(0.12);
           P.lightHead.add(this.place(wp), this.c);

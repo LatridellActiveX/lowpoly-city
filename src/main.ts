@@ -449,6 +449,7 @@ renderer.setAnimationLoop(() => {
   cam.rotateSpeed = sim.settings.camRotate;
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
+  city.setWireLod(cam.zoom < LOD_ZOOM * 0.5); // NEBULA: wires off when far out
   city.cameraQuat.copy(cam.camera.quaternion);
   city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
@@ -564,6 +565,8 @@ updater.start();
   graphLayer,
   freeTool,
   free: { placeFreeRoad, paintBlocks, quadCubic, lineCubic, undo, redo },
+  /** NEBULA testing: trace a tile-road world into the graph (as loading a v9 save does). */
+  migrateToGraph,
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
   useSim: (s: Simulation) => {
     sim = s;

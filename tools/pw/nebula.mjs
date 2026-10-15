@@ -12,6 +12,33 @@ await page.waitForFunction(() => window.city && window.city.title);
 await page.evaluate(() => window.city.startGame("new", { seed: 4242, map: "river" }));
 await page.waitForTimeout(800);
 await page.evaluate(() => { const b = [...document.querySelectorAll("button")].find((x) => /Got it/.test(x.textContent)); b && b.click(); });
+// "migrated" stage: a TILE world (as an old save), traced into the graph by migrateToGraph.
+if (stage === "migrated") {
+  await page.evaluate(() => {
+    const c = window.city, s = c.sim, w = s.world;
+    w.graphRoads = false; w.graphTiles = new Set(); w.roads = new (w.roads.constructor)();
+    const rect = (x0, z0, x1, z1) => { const o = []; for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) o.push([x, z]); return o; };
+    w.cash = 1e7; w.peakPop = 3000; w.tier = 2;
+    for (const z of [12, 19, 26]) s.apply("road", rect(10, z, 40, z));
+    for (const x of [10, 25, 40]) s.apply("road", rect(x, 12, x, 26));
+    s.apply("avenue", rect(10, 32, 40, 32)); s.apply("road", rect(25, 27, 25, 31));
+    s.apply("roundabout", [[17, 18], [18, 18], [17, 19], [18, 19]]);
+    s.apply("waterTower", [[9, 13]]); s.apply("powerPlant", [[8, 20]]);
+    c.migrateToGraph(w); s.traffic.graph.gt = null; s.version++;
+  });
+  await page.waitForTimeout(1500);
+  const shot2 = async (name, x, z, zm, overlay = "none") => {
+    await page.evaluate(([x, z, zm, overlay]) => { const c = window.city; c.setSpeed?.(1); c.setTimeOfDay(0.45); c.setOverlay(overlay); c.cam.zoomBy(zm / c.cam.zoom); c.cam.target.set(x, 0, z); c.sim.version++; }, [x, z, zm, overlay]);
+    await page.waitForTimeout(3000);
+    await page.screenshot({ path: `${pre}-${name}.png`, timeout: 240000 });
+  };
+  await shot2("migrated-grid", 25, 19, 3);
+  await shot2("migrated-close", 25, 26, 6);
+  await shot2("migrated-ring", 17.5, 18.5, 6);
+  await shot2("migrated-avenue", 25, 32, 6);
+  console.log(JSON.stringify({ errs, edges: await page.evaluate(() => window.city.sim.world.roads.edgeCount()) }));
+  await browser.close(); process.exit(0);
+}
 const info = await page.evaluate(() => {
   const c = window.city, s = c.sim, w = s.world;
   const rect = (x0, z0, x1, z1) => { const o = []; for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) o.push([x, z]); return o; };
@@ -57,6 +84,6 @@ if (stage === "junctions" || stage === "all") {
 }
 if (stage === "power" || stage === "all") await shot("power-lines", 9, 18, 3);
 if (stage === "pipes" || stage === "all") await shot("pipes-view", 40, 16, 2.4, 0.45, "water");
-if (stage === "lights" || stage === "all") { await shot("traffic-lights", 10.6, 19.2, 9, 0.45); await shot("traffic-lights-night", 10.6, 19.2, 9, 0.95); }
+if (stage === "lights" || stage === "all") { await shot("traffic-lights", 10.6, 19.2, 18, 0.45); await shot("traffic-lights-night", 10.6, 19.2, 9, 0.95); }
 console.log(JSON.stringify({ info, errs }));
 await browser.close();

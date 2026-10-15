@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-k',
+    title: 'Power lines, water mains and working traffic lights',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Streets now have power poles with sagging wires, every couple of tiles on the sidewalk and wired round each corner. Power lines from your plants connect into them, so you can follow the power from the plant into town. Wires fade out when you zoom far out.' },
+      { tag: 'new', text: 'In the water view (and while placing pipes), a water main runs under every road and joins your pipes, towers and pumps, matching the real water network.' },
+      { tag: 'new', text: 'Signalled junctions have a traffic light for every approach, showing the live red, amber and green the cars actually obey. Turning right on red works as before.' },
+      { tag: 'fix', text: 'Junctions, roundabouts and avenues in older cities converted to the new road system get the same clean junctions.' },
+    ],
+  },
+  {
     id: '2026-10-15-j',
     title: 'Clean intersections and real roundabouts',
     date: '2026-10-15',
