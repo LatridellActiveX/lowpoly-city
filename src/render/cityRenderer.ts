@@ -97,7 +97,7 @@ export function zoneCodeColor(code: number): number {
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping' | 'grid';
 
 /** NEBULA: height of water mains drawn in the water view (just above the asphalt, so they read). */
 const MAIN_Y = 0.066;
@@ -946,6 +946,19 @@ export class CityRenderer {
           P.overlay.add(this.place(center.clone().setY(0.09)), this.c);
         } else if (sim.env.parks[i] > 0.05) {
           P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84));
+        }
+      } else if (this.overlay === 'grid') {
+        // Power & water GRID view: the roads carry the network (graphRoads.updateGrid draws it);
+        // here every building or source is tinted by what reaches it.
+        if (!t.road && (t.zone || t.structure !== 'none')) {
+          const s = sim.net.service[i];
+          const needs = !!t.zone || t.structure === 'waterTower' || t.structure === 'pumpStation';
+          const src = t.structure === 'powerPlant' || t.structure === 'nuclearPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower' || t.structure === 'pumpStation';
+          if (src) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(t.structure === 'waterTower' || t.structure === 'pumpStation' ? 0x29a3ff : 0xffd21f));
+          else if (needs) {
+            const pOk = s.powerNet >= 0 && s.powered, wOk = !t.zone || (s.waterNet >= 0 && s.watered);
+            P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(pOk && wOk ? 0x3ddc84 : !pOk ? 0xff3b30 : 0xff9f1a));
+          }
         }
       } else if (this.overlay === 'power' || this.overlay === 'water') {
         // Coverage overlay: yellow/blue = served, red = connected but in outage.

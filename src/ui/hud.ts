@@ -80,6 +80,8 @@ export class Hud {
   private readonly speedButtons: HTMLButtonElement[] = [];
   private readonly overlayButtons = new Map<OverlayMode, HTMLButtonElement>();
   private viewBtn: HTMLButtonElement | null = null;
+  /** Key for the Power & water grid view (shown only while it is selected). */
+  private readonly gridLegend = el('div', 'panel grid-legend hidden', '<b>Power &amp; water grid</b><br>Along the roads: left line <span class="sw" style="background:#ffd21f"></span> power, right line <span class="sw" style="background:#29a3ff"></span> water<br><span class="sw" style="background:#ff3b30"></span> network overloaded · <span class="sw" style="background:#6b7280"></span> not connected to a source<br>Buildings: <span class="sw" style="background:#3ddc84"></span> served · <span class="sw" style="background:#ff3b30"></span> no power · <span class="sw" style="background:#ff9f1a"></span> no water');
   private readonly stats = el('div', 'stats');
   private readonly hint = el('div', 'hint');
   private readonly info = el('div', 'info hidden');
@@ -134,6 +136,7 @@ export class Hud {
         ['none', 'Normal'],
         ['power', '⚡ Power'],
         ['water', '💧 Water'],
+        ['grid', '🔌 Power & water grid'],
         ['pollution', '☁️ Pollution'],
         ['resources', '🗺 Resources'],
         ['zoning', '🧱 Zoning'],
@@ -223,7 +226,7 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    root.append(top, this.gridLegend, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -441,6 +444,7 @@ export class Hud {
   setOverlay(o: OverlayMode): void {
     this.overlayButtons.forEach((b, k) => b.classList.toggle('active', k === o));
     this.viewBtn?.classList.toggle('active', o !== 'none');
+    this.gridLegend.classList.toggle('hidden', o !== 'grid');
   }
 
   flash(msg: string): void {

@@ -462,6 +462,7 @@ renderer.setAnimationLoop(() => {
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
   graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
+  graphLayer.updateGrid(city.overlay === 'grid' ? sim : null); // power & water grid ribbons along the roads
   graphLayer.sync(sim.world.roads, sim.world.blocks);
   hudTimer -= dt;
   if (hudTimer <= 0) {

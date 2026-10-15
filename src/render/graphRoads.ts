@@ -34,6 +34,8 @@ import { at, Cubic, tangent, tAtLength, V2, buildLut } from '../roads/bezier';
 import { GUTTER_M, KERB_M, LANE_M, RoadGraph, RoadType, ROAD_SPEC, SHOULDER_M, SIDEWALK_M, TILE_M, roadHalf } from '../roads/graph';
 import { ZoneBlocks } from '../roads/blocks';
 import { GraphTraffic } from '../roads/gtraffic';
+import type { Simulation } from '../sim/simulation';
+import { GRID_SIZE } from '../sim/types';
 import { CROSSWALK_ROOM, edgeTrims, JunctionPlan, planAll, Ring, rings } from '../roads/junctions';
 
 const U = 1 / TILE_M;
@@ -256,6 +258,8 @@ export class GraphRoadLayer {
   private zones: THREE.Mesh | null = null;
   private ghost: THREE.Mesh | null = null;
   private outline: THREE.LineSegments | null = null;
+  private grid: THREE.Mesh | null = null;
+  private gridKey = '';
   private preview: THREE.InstancedMesh;
   private builtVersion = -1;
   private zoneKey = '';
@@ -360,6 +364,69 @@ export class GraphRoadLayer {
     this.outline = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: o.ok ? 0xffffff : 0xff6b6b, transparent: true, opacity: 0.95, depthTest: false }));
     this.outline.renderOrder = 6; this.outline.frustumCulled = false;
     this.group.add(this.outline);
+  }
+
+  /**
+   * POWER & WATER GRID view: two thin ribbons along every road — power (left)
+   * and water (right) — coloured per stretch by the network that stretch belongs
+   * to: yellow / blue = connected and keeping up, red = its network is overloaded
+   * (demand above supply), grey = not connected to any source. Graph roads are
+   * sampled along their curve; tile roads (old grids) link tile centre to centre.
+   * Rebuilt when the roads or the solved networks change (and about once a second).
+   */
+  updateGrid(sim: Simulation | null): void {
+    if (!sim) { if (this.grid) { this.group.remove(this.grid); this.grid.geometry.dispose(); this.grid = null; this.gridKey = ''; } return; }
+    const w = sim.world, key = `${w.roads.version}|${w.tick >> 1}|${w.graphTiles.size}|${sim.version}`;
+    if (key === this.gridKey && this.grid) return;
+    this.gridKey = key;
+    if (this.grid) { this.group.remove(this.grid); this.grid.geometry.dispose(); this.grid = null; }
+    const pos: number[] = [], col: number[] = [], idxs: number[] = [];
+    const C = new THREE.Color(), Y = 0.105, HALF = 0.035, OFF = 0.1;
+    const tint = (x: number, z: number, kind: 'power' | 'water'): number => {
+      const tx = Math.floor(x), tz = Math.floor(z);
+      if (tx < 0 || tz < 0 || tx >= GRID_SIZE || tz >= GRID_SIZE) return 0x6b7280;
+      const sv = sim.net.service[tz * GRID_SIZE + tx], id = kind === 'power' ? sv.powerNet : sv.waterNet;
+      if (id < 0) return 0x6b7280;
+      const n = (kind === 'power' ? sim.net.power : sim.net.water)[id];
+      return n && (n.outages > 0 || n.demand > n.capacity) ? 0xff3b30 : kind === 'power' ? 0xffd21f : 0x29a3ff;
+    };
+    // One quad between two points (tile units) offset sideways by `off`.
+    const ribbon = (ax: number, az: number, bx: number, bz: number, off: number, kind: 'power' | 'water') => {
+      const dx = bx - ax, dz = bz - az, l = Math.hypot(dx, dz);
+      if (l < 1e-6) return;
+      const nx = -dz / l, nz = dx / l, o = off, h = HALF;
+      const c = tint((ax + bx) / 2, (az + bz) / 2, kind);
+      C.setHex(c);
+      const base = pos.length / 3;
+      for (const [px, pz] of [[ax + nx * (o - h), az + nz * (o - h)], [ax + nx * (o + h), az + nz * (o + h)], [bx + nx * (o + h), bz + nz * (o + h)], [bx + nx * (o - h), bz + nz * (o - h)]]) { pos.push(px, Y, pz); col.push(C.r, C.g, C.b); }
+      idxs.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    };
+    const both = (ax: number, az: number, bx: number, bz: number) => { ribbon(ax, az, bx, bz, -OFF, 'power'); ribbon(ax, az, bx, bz, OFF, 'water'); };
+    const g = w.roads;
+    for (const e of g.liveEdges()) {
+      const c = g.eCurve[e], lut = g.eLut[e], len = g.eLen[e], n = Math.max(2, Math.ceil(len / 12));
+      let pp = at(c, 0);
+      for (let i = 1; i <= n; i++) { const q = at(c, tAtLength(lut, (len * i) / n)); both(pp.x * U, pp.z * U, q.x * U, q.z * U); pp = q; }
+    }
+    for (let i = 0; i < w.tiles.length; i++) {
+      const t = w.tiles[i];
+      if (!t.road || t.water || w.graphTiles.has(i)) continue;
+      const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
+      for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        const j = (z + dz) * GRID_SIZE + x + dx;
+        if (x + dx < GRID_SIZE && z + dz < GRID_SIZE && w.tiles[j].road && !w.graphTiles.has(j)) both(x + 0.5, z + 0.5, x + dx + 0.5, z + dz + 0.5);
+      }
+      // dead ends / lone tiles still get a short stub so they are visible
+      both(x + 0.5 - 0.04, z + 0.5, x + 0.5 + 0.04, z + 0.5);
+    }
+    if (!idxs.length) return;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idxs);
+    this.grid = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+    this.grid.renderOrder = 5; this.grid.frustumCulled = false;
+    this.group.add(this.grid);
   }
 
   /** Highlight zone cells only (zoning drag preview); null clears. */

@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-i',
+    title: 'Power & water grid view',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'New 🔌 Power & water grid view (view menu): a yellow power line and a blue water line run along every road, turning red where that network is overloaded and grey where it is not connected to any plant, tower or pump. Buildings show green when served, red without power, orange without water; plants, towers and pumps are highlighted.' },
+    ],
+  },
+  {
     id: '2026-10-15-h',
     title: 'Freeform road zoning, power and traffic fixes',
     date: '2026-10-15',
