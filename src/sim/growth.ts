@@ -270,6 +270,17 @@ export const MED_MERGE_START = 2;
 const medRes = (t: Template) => t.zone === 'residential' && t.density === 1 && !t.legacy;
 /** V1.5b stage B: industry merges ~1.5× more often (shorter wait, checked more often). */
 export const IND_MERGE_RATE = 1.5;
+/**
+ * V1.6: commercial kinds (shops 0, mixed-use 3, offices 4) and industrial
+ * factories / food plants (0, 2) merge ACROSS kinds into the larger
+ * footprints — a row of corner shops and a law firm can become a mall or a
+ * business park. Farms (industrial 1) and residential stay as they were.
+ */
+export function mergeKind(zone: string, kind: number): number {
+  if (zone === 'commercial') return 0;
+  if (zone === 'industrial') return kind === 2 ? 0 : kind;
+  return kind;
+}
 const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : t.zone === 'industrial' ? Math.round(MERGE_TICKS / IND_MERGE_RATE) : MERGE_TICKS);
 const mergeEvery = (t: Template) => (medRes(t) ? 5 : t.zone === 'industrial' ? Math.round(10 / IND_MERGE_RATE) : 10);
 /** Ready to merge: maxed out, or (medium homes) L6+ and at the population cap. */
@@ -285,7 +296,7 @@ function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { powe
   // medium housing is unlocked (1,000 people) — no re-zoning needed. The
   // desirability gate for medium density still applies.
   const promote = tpl.zone === 'residential' && tpl.density === 0 && mediumUnlocked(w) && desireOf(sim, b) >= DENSITY_DESIRE[1];
-  const bigger = growablePool(tpl.zone, w).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]) && (p.density <= 1 || !promote));
+  const bigger = growablePool(tpl.zone, w).filter((p) => mergeKind(p.zone, p.kind) === mergeKind(tpl.zone, tpl.kind) && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]) && (p.density <= 1 || !promote));
   if (!bigger.length) return false;
   zonePromote.on = promote;
   try {
@@ -317,7 +328,7 @@ function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template
   for (const o of near) {
     const ot = TPL[o.tpl];
     const done = o.level >= ot.maxLevel || (medRes(ot) && o.level >= 3); // V1.5b: L6+ medium neighbours count
-    if (isFiller(ot) || (ot.zone === tpl.zone && ot.kind === tpl.kind && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
+    if (isFiller(ot) || (ot.zone === tpl.zone && mergeKind(ot.zone, ot.kind) === mergeKind(tpl.zone, tpl.kind) && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
   }
   replace.add(b.id);
   const opts = lots.options(w, b.host, bigger, replace).filter((o) => {

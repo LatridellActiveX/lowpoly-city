@@ -56,6 +56,7 @@ import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './
 import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
+import { homeModels, commerceModels, industryExtra } from './cityModels';
 import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
 import { landfillDozerModel, landfillGullModel, landfillTopSize, landfillTopY, LF_CZ } from './landfillModel';
@@ -467,6 +468,13 @@ export class CityRenderer {
     for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
     for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
     for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
+    for (const [k, g] of Object.entries({ ...homeModels(), ...commerceModels() })) add(`x.${k}`, g, solid, 64); // V1.6 more homes + shops
+    for (const [k, g] of Object.entries(industryExtra())) add(`x.${k}`, autoSkin(g), industrialMaterial(), 64);
+    // New recipe roles reuse the matching plant model.
+    const roleX = industryExtra();
+    add('role.tailor', autoSkin(roleX.clothing), industrialMaterial(), 64);
+    add('role.pharma', autoSkin(roleX.pharma), industrialMaterial(), 64);
+    add('role.brewery', autoSkin(roleX.brewery), industrialMaterial(), 64);
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
@@ -1246,7 +1254,8 @@ export class CityRenderer {
       const OFFICE: Record<string, string> = { law_firm: 'law', cable_co: 'cable', internet_co: 'isp', data_center: 'data', cell_tower: 'cell', radio_station: 'radio' };
       // V1.5b stage B: the six new industry types have their own models (before roles).
       const IND: Record<string, string> = { warehouse: 'warehouse', chemical_plant: 'chemical', steel_mill: 'steel', textile_mill: 'textile', bottling_plant: 'bottling', assembly_plant: 'assembly' };
-      const special = OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
+      const NEWM: Record<string, string> = { hacienda: 'villa', terrace: 'terrace', modern_house: 'modern', garden_towers: 'gardentowers', sky_residence: 'skyresidence', supermarket: 'supermarket', petrol_station: 'petrol', pharmacy: 'pharmacy', hotel: 'hotel', cinema: 'cinema', department_store: 'department', outlet_mall: 'outlet', office_tower: 'officetower', business_park: 'bizpark', brewery: 'brewery', pharma_lab: 'pharma', clothing_factory: 'clothing', cold_store: 'coldstore', industrial_park: 'indpark', mega_factory: 'megafactory' };
+      const special = NEWM[tpl.id] ? `x.${NEWM[tpl.id]}` : OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);

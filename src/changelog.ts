@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA: merged the latest origin/models (descriptive id: no collisions).
+    id: '2026-10-15-models-merge',
+    title: 'New buildings arrive on nebula',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'This version includes the new homes, shops, offices and industry (and their three new goods) together with the junction, power line, traffic light, zoning and power fixes.' },
+    ],
+  },
+  {
     // NEBULA: Parker's "not enough capacity" with a turbine at 16/645. A
     // descriptive id so it can't collide with other workers' letter ids.
     id: '2026-10-15-power-graphonly-fix',
@@ -59,6 +68,20 @@ export const CHANGELOG: ChangeEntry[] = [
     changes: [
       { tag: 'new', text: '☰ Menu → 🐞 Debug code: "Copy debug code" turns your whole city (roads, buildings, zoning, power and water, money and time) into one line of text you can paste into a bug report.' },
       { tag: 'new', text: '"Load debug code" opens a city from a pasted code, so a reported problem can be reproduced exactly.' },
+    ],
+  },
+  {
+    // From origin/models (5cc753c). Its id was '2026-10-15-o', which nebula already
+    // uses (renumbered zoning entry), so it got a descriptive id in the merge.
+    id: '2026-10-15-models-more-buildings',
+    title: 'More homes, shops and industry',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Five new homes: hacienda, terraced townhouses, modern house, garden towers and the sky residence.' },
+      { tag: 'new', text: 'New shops and offices: supermarket, petrol station, pharmacy & clinic, hotel, multiplex cinema, department store, outlet mall, office tower and business park.' },
+      { tag: 'new', text: 'New industry: brewery, pharmaceutical lab, clothing factory, cold storage, industrial park and mega-factory, each with its own model.' },
+      { tag: 'new', text: 'Three new goods - clothing, medicine and beverages - with new factory types that make them (clothing factory from plastics, pharmaceutical lab from crude oil, brewery from food). Shops now sell clothing and medicine, and grocers take beverages.' },
+      { tag: 'improved', text: 'Commercial buildings of every kind (shops, mixed-use, offices) and factories with food plants now merge together into the bigger footprints: a row of corner shops and a law firm can become a mall or business park, and small factories become industrial parks and mega-factories.' },
     ],
   },
   {

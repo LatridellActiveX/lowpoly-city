@@ -71,11 +71,13 @@ export const PLANT_INPUT_MAX = 48;
 export const PROCESS_RATE = 0.15;
 
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged'
-  | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics';
+  | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics'
+  | 'apparel' | 'medicine' | 'beverages';
 
 export const GOOD_NAMES: Record<GoodType, string> = {
   goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Crude oil', coal: 'Coal', packaged: 'Packaged food',
   wood: 'Logs', materials: 'Building materials', furniture: 'Furniture', fuel: 'Fuel', plastics: 'Plastics', electronics: 'Electronics',
+  apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages',
 };
 /** Units in one truckload (PR 5: 16). */
 export const LOAD = 16;
@@ -92,6 +94,7 @@ export const FACTORY_MAX = 48;
 export const EXPORT_PRICE: Record<GoodType, number> = {
   goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0, packaged: 420,
   wood: 140, materials: 360, furniture: 520, fuel: 400, plastics: 380, electronics: 760,
+  apparel: 460, medicine: 640, beverages: 300,
 };
 /** V1.5: an imported load costs this × its export price (freight + middlemen). */
 export const IMPORT_PREMIUM = 1.5;
@@ -107,7 +110,7 @@ export const COAL_PRICE = 600;
 export const MATERIAL_USE = 0.04;
 
 /** Does a shop selling `sells` accept a load of `good`? Grocers take packaged food too. */
-export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && good === 'packaged');
+export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && (good === 'packaged' || good === 'beverages'));
 
 /** What an (industrial) tile produces right now (see chains.ts roleOf). */
 export function factoryGood(world: World, i: number): GoodType {
@@ -121,7 +124,7 @@ export function factoryGood(world: World, i: number): GoodType {
  */
 export function shopGood(world: World, i: number): GoodType {
   const r = hash2(i % GRID_SIZE, Math.floor(i / GRID_SIZE), world.seed + 321);
-  return r < 0.36 ? 'goods' : r < 0.62 ? 'food' : r < 0.72 ? 'materials' : r < 0.82 ? 'furniture' : r < 0.91 ? 'electronics' : 'fuel';
+  return r < 0.27 ? 'goods' : r < 0.45 ? 'food' : r < 0.53 ? 'materials' : r < 0.61 ? 'furniture' : r < 0.69 ? 'electronics' : r < 0.75 ? 'fuel' : r < 0.86 ? 'apparel' : 'medicine';
 }
 
 const manhattan = (a: number, b: number) => Math.abs((a % GRID_SIZE) - (b % GRID_SIZE)) + Math.abs(Math.floor(a / GRID_SIZE) - Math.floor(b / GRID_SIZE));

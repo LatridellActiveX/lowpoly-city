@@ -78,7 +78,15 @@ for (const name of ['small', 'large']) {
   // what must match, so population is checked exactly and trips within 20%.
   ok(Math.abs(ta - tb) <= 0.2 * Math.max(1, tb), `${name} trips within 20% (${ta} vs ${tb})`);
   const pa = a.stats().population, pb = b.stats().population;
-  ok(Math.abs(pa - pb) <= 0.03 * Math.max(1, pb), `${name} population after 200 ticks within 3% (${pa} vs ${pb})`);
+  // MODELS MERGE: the models branch added big single buildings (terraces,
+  // garden towers, sky residences: 12-300 residents EACH, growing in one
+  // step). In an ~850-person city one such building founded a tick earlier
+  // or later on one side moves population by 5-6 %, and the sign flips with
+  // unrelated changes (842 vs 795 on origin/models, 846 vs 897 after a
+  // parking tweak) — granularity, not a graph/tile divergence. So allow 3 %
+  // OR one large building (100 residents), whichever is bigger.
+  const tol = Math.max(0.03 * Math.max(1, pb), 100);
+  ok(Math.abs(pa - pb) <= tol, `${name} population after 200 ticks within 3% or one big building (${pa} vs ${pb})`);
   // v10 round trip. Saving a live city resets in-flight state on load
   // (cars in transit arrive, crews re-dispatch — pre-1.6 behaviour), so the
   // check is: road graph + graph tiles survive exactly, and a loaded save
