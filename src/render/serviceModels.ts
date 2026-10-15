@@ -120,6 +120,118 @@ function recyclingModel(): THREE.BufferGeometry {
   p.push(part(box(0.07, 0.016, 0.04), 0xf2f2ee, [0.4, 0.41, 0.36]));
   return merge(p);
 }
+/**
+ * V1.6: ELEMENTARY SCHOOL (2×2, svc4). Two-storey brick school with a gabled
+ * roof, dormers, a columned entrance portico, a clock tower with a weather
+ * vane, a perpendicular classroom wing, a gym annex, a chimney; out front a
+ * flag pole, school bus, basketball court and a playground (slide, swings,
+ * seesaw, climbing dome, sandbox), hedges, trees, a bike rack and a sign.
+ * Front faces +z. (The old single-tile school is kept as svc4s for legacy saves.)
+ */
+function elementaryModel(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), 0x9cc47a)];
+  const STONE = 0xe3dccb, YEL = 0xf2c230;
+  // ---- Main block (back), roof, dormers, chimney ----
+  p.push(part(box(1.3, 0.3, 0.42), BRICK, [-0.2, 0.012, -0.6]));
+  p.push(part(box(1.34, 0.012, 0.44), STONE, [-0.2, 0.152, -0.6])); // floor band
+  p.push(part(box(1.34, 0.014, 0.44), STONE, [-0.2, 0.3, -0.6])); // eaves band
+  p.push(part(gable(1.38, 0.17, 0.48), ROOFD, [-0.2, 0.314, -0.6]));
+  p.push(...windows(7, 1.18, 0.05, -0.386, -0.2, 0xfff1c4), ...windows(7, 1.18, 0.19, -0.386, -0.2, 0xfff1c4));
+  p.push(...windows(7, 1.18, 0.05, -0.814, -0.2), ...windows(7, 1.18, 0.19, -0.814, -0.2));
+  for (const x of [-0.65, 0.2]) {
+    p.push(part(box(0.08, 0.06, 0.07), BRICK, [x, 0.34, -0.5]));
+    p.push(part(gable(0.1, 0.04, 0.09), ROOFD, [x, 0.4, -0.5]));
+    p.push(part(box(0.04, 0.03, 0.006), 0xfff1c4, [x, 0.355, -0.463]));
+  }
+  p.push(part(box(0.05, 0.16, 0.05), 0x8a4331, [0.15, 0.32, -0.72])); // chimney
+  p.push(part(box(0.06, 0.012, 0.06), 0x3a3a3a, [0.15, 0.48, -0.72]));
+  // ---- Entrance portico + steps + door ----
+  p.push(part(box(0.34, 0.012, 0.16), STONE, [-0.2, 0.012, -0.31]));
+  p.push(part(box(0.28, 0.012, 0.05), STONE, [-0.2, 0.012, -0.21])); // steps
+  p.push(part(box(0.22, 0.008, 0.03), STONE, [-0.2, 0.012, -0.17]));
+  for (const x of [-0.34, -0.26, -0.14, -0.06]) p.push(part(cyl(0.014, 0.2, 8), 0xf4efe4, [x, 0.024, -0.26]));
+  p.push(part(box(0.36, 0.024, 0.2), STONE, [-0.2, 0.224, -0.31]));
+  p.push(part(gable(0.38, 0.08, 0.2), 0xd9d1bf, [-0.2, 0.248, -0.31]));
+  p.push(part(box(0.09, 0.13, 0.008), 0x3f6fb0, [-0.2, 0.024, -0.382]));
+  p.push(part(box(0.1, 0.012, 0.012), 0xffffff, [-0.2, 0.17, -0.38]));
+  // ---- Clock tower, cupola and weather vane ----
+  p.push(part(box(0.17, 0.27, 0.17), BRICK, [-0.2, 0.3, -0.6]));
+  p.push(part(box(0.19, 0.012, 0.19), STONE, [-0.2, 0.57, -0.6]));
+  p.push(part(new THREE.CylinderGeometry(0.034, 0.034, 0.008, 14).rotateX(Math.PI / 2), 0xffffff, [-0.2, 0.47, -0.511]));
+  p.push(part(box(0.004, 0.026, 0.004), 0x222222, [-0.2, 0.47, -0.505]), part(box(0.02, 0.004, 0.004), 0x222222, [-0.19, 0.47, -0.505]));
+  p.push(part(new THREE.ConeGeometry(0.14, 0.15, 4).rotateY(Math.PI / 4).translate(0, 0.075, 0), ROOFD, [-0.2, 0.582, -0.6]));
+  p.push(part(cyl(0.004, 0.1, 5), 0x555555, [-0.2, 0.72, -0.6]), part(box(0.05, 0.016, 0.004), 0xc9971a, [-0.2, 0.8, -0.6]));
+  // ---- East classroom wing (perpendicular) ----
+  p.push(part(box(0.42, 0.24, 0.92), BRICK, [0.62, 0.012, -0.27]));
+  p.push(part(box(0.44, 0.012, 0.94), STONE, [0.62, 0.24, -0.27]));
+  p.push(part(gable(0.96, 0.15, 0.46), ROOFD, [0.62, 0.252, -0.27], [0, Math.PI / 2, 0]));
+  p.push(...windows(3, 0.32, 0.06, 0.196, 0.62, 0xfff1c4), ...windows(3, 0.32, 0.15, 0.196, 0.62, 0xfff1c4));
+  for (let k = 0; k < 4; k++) for (const y of [0.06, 0.15]) {
+    p.push(part(box(0.008, 0.05, 0.08), WIN, [0.411, y, -0.6 + k * 0.22]));
+    p.push(part(box(0.008, 0.05, 0.08), WIN, [0.829, y, -0.6 + k * 0.22]));
+  }
+  // ---- Gym / cafeteria annex (west) ----
+  p.push(part(box(0.4, 0.18, 0.5), 0xe8dcc4, [-0.72, 0.012, -0.12]));
+  p.push(part(box(0.43, 0.02, 0.53), 0x6d7a86, [-0.72, 0.192, -0.12]));
+  p.push(part(box(0.1, 0.02, 0.1), 0x9aa0a6, [-0.78, 0.212, -0.1]));
+  p.push(part(box(0.2, 0.09, 0.008), 0xd0d4d8, [-0.72, 0.03, 0.132])); // roll-up door
+  p.push(part(box(0.2, 0.012, 0.01), 0x2f6fb0, [-0.72, 0.13, 0.134]));
+  p.push(...windows(2, 0.28, 0.13, 0.133, -0.72));
+  // ---- Forecourt + path ----
+  p.push(part(box(0.5, 0.006, 0.34), CONC, [-0.2, 0.012, 0.0]));
+  p.push(part(box(0.1, 0.006, 0.58), 0xd8cfb8, [-0.2, 0.012, 0.35]));
+  p.push(part(box(0.5, 0.006, 0.26), 0x55595e, [-0.4, 0.012, 0.86])); // bus lay-by
+  // ---- Flag pole ----
+  p.push(part(cyl(0.007, 0.5, 6), 0xd0d0d0, [0.06, 0.012, 0.12]), part(new THREE.SphereGeometry(0.014, 6, 4), 0xc9971a, [0.06, 0.52, 0.12]));
+  p.push(part(box(0.1, 0.06, 0.004), 0xd63a3a, [0.11, 0.43, 0.12]), part(box(0.1, 0.012, 0.004), 0xffffff, [0.11, 0.46, 0.12]), part(box(0.035, 0.03, 0.004), 0x2b4fa6, [0.077, 0.45, 0.12]));
+  // ---- School bus ----
+  p.push(part(box(0.34, 0.09, 0.1), YEL, [-0.4, 0.03, 0.86]));
+  p.push(part(box(0.34, 0.012, 0.102), 0x222222, [-0.4, 0.07, 0.86]));
+  p.push(part(box(0.1, 0.06, 0.098), YEL, [-0.2, 0.03, 0.86]));
+  for (let k = 0; k < 6; k++) p.push(part(box(0.034, 0.03, 0.104), 0x9fd7ff, [-0.54 + k * 0.045, 0.09, 0.86]));
+  for (const wx of [-0.52, -0.26]) for (const s of [-1, 1]) p.push(part(new THREE.CylinderGeometry(0.025, 0.025, 0.014, 10).rotateX(Math.PI / 2), 0x23262a, [wx, 0.027, 0.86 + s * 0.05]));
+  p.push(part(box(0.01, 0.012, 0.1), 0xd02c2c, [-0.24, 0.125, 0.86]));
+  // ---- Basketball court (front-left) ----
+  p.push(part(box(0.46, 0.008, 0.28), 0x4a7fb0, [-0.62, 0.012, 0.5]));
+  p.push(part(box(0.44, 0.002, 0.008), 0xffffff, [-0.62, 0.02, 0.5]), part(box(0.008, 0.002, 0.26), 0xffffff, [-0.62, 0.02, 0.5]));
+  p.push(part(new THREE.TorusGeometry(0.04, 0.003, 4, 14).rotateX(Math.PI / 2), 0xffffff, [-0.62, 0.02, 0.5]));
+  for (const x of [-0.84, -0.4]) {
+    p.push(part(cyl(0.007, 0.2, 6), 0x555c63, [x, 0.012, 0.5]));
+    p.push(part(box(0.006, 0.07, 0.1), 0xffffff, [x + (x < -0.6 ? 0.012 : -0.012), 0.16, 0.5]));
+    p.push(part(new THREE.TorusGeometry(0.02, 0.0025, 4, 10).rotateY(Math.PI / 2), 0xe0601a, [x + (x < -0.6 ? 0.03 : -0.03), 0.16, 0.5]));
+  }
+  // ---- Playground (front-right): rubber surface, slide, swings, seesaw, dome, sandbox ----
+  p.push(part(box(0.74, 0.008, 0.62), 0xc9553f, [0.5, 0.012, 0.58]));
+  for (const [dx, dz] of [[-0.04, -0.04], [0.04, -0.04], [-0.04, 0.04], [0.04, 0.04]]) p.push(part(box(0.008, 0.14, 0.008), 0x2f6fb0, [0.82 + dx, 0.02, 0.4 + dz]));
+  p.push(part(box(0.1, 0.01, 0.1), 0xe04a3f, [0.82, 0.16, 0.4]), part(box(0.11, 0.05, 0.11), 0x2f6fb0, [0.82, 0.17, 0.4]));
+  p.push(part(gable(0.12, 0.04, 0.12), 0xf2c230, [0.82, 0.22, 0.4]));
+  p.push(slab([0.82, 0.16, 0.45], [0.82, 0.02, 0.65], 0.06, 0.008, 0xffd84a)); // slide
+  p.push(slab([0.75, 0.15, 0.36], [0.75, 0.02, 0.3], 0.025, 0.006, 0x8a6440)); // ladder rail
+  for (let k = 0; k < 4; k++) p.push(part(box(0.04, 0.006, 0.006), 0x8a6440, [0.77, 0.03 + k * 0.03, 0.33 - k * 0.012]));
+  for (const x of [0.28, 0.5]) { // swings: two A-frames and a top bar
+    for (const dz of [-0.07, 0.07]) p.push(slab([x, 0.012, 0.58 + dz * 1.8], [x, 0.2, 0.58], 0.01, 0.01, 0x2f6fb0));
+  }
+  p.push(part(box(0.24, 0.012, 0.012), 0x2f6fb0, [0.39, 0.2, 0.58]));
+  for (const x of [0.33, 0.45]) { p.push(part(box(0.003, 0.15, 0.003), 0x555c63, [x, 0.05, 0.58])); p.push(part(box(0.04, 0.008, 0.02), 0x2b2b2b, [x, 0.042, 0.58])); }
+  p.push(part(cyl(0.012, 0.03, 6), 0x555c63, [0.4, 0.012, 0.8]), part(box(0.2, 0.01, 0.03), 0xffd84a, [0.4, 0.04, 0.8], [0, 0, 0.14])); // seesaw
+  p.push(part(new THREE.IcosahedronGeometry(0.065, 1).translate(0, 0.0, 0), 0xe04a3f, [0.66, 0.065, 0.8])); // climbing dome
+  p.push(part(box(0.2, 0.03, 0.2), 0x8a6440, [0.18, 0.012, 0.8]), part(box(0.18, 0.025, 0.18), 0xe7d3a0, [0.18, 0.022, 0.8])); // sandbox
+  p.push(part(cyl(0.012, 0.02, 6), 0xd63a3a, [0.14, 0.047, 0.78]), part(cyl(0.01, 0.015, 6), 0x2f6fb0, [0.22, 0.047, 0.83]));
+  for (let k = 0; k < 5; k++) p.push(part(box(0.012, 0.07, 0.012), 0x8d949c, [0.12 + k * 0.17, 0.012, 0.9])); // fence posts
+  p.push(part(box(0.7, 0.006, 0.006), 0xb8bec4, [0.46, 0.06, 0.9]));
+  // ---- Hedges, trees, bike rack, sign ----
+  for (const [x, z, w, d] of [[-0.2, -0.88, 1.3, 0.05], [-0.92, 0.2, 0.05, 0.4], [0.97, 0.2, 0.05, 0.8]]) p.push(part(box(w, 0.045, d), 0x3f8f3a, [x, 0.012, z]));
+  for (const [x, z, r] of [[-0.9, -0.82, 0.12], [0.9, -0.84, 0.13], [0.9, 0.0, 0.1], [-0.9, 0.82, 0.11]]) {
+    p.push(part(cyl(0.014, 0.12, 6), 0x6b4a2b, [x, 0.012, z]));
+    p.push(part(new THREE.IcosahedronGeometry(r, 0).translate(0, 0.2, 0), 0x3f8f3a, [x, 0, z]));
+  }
+  p.push(part(box(0.1, 0.006, 0.03), 0x8d949c, [0.02, 0.012, 0.36]));
+  for (let k = 0; k < 3; k++) p.push(part(new THREE.TorusGeometry(0.014, 0.002, 4, 8), 0x8d949c, [-0.02 + k * 0.04, 0.03, 0.36]));
+  p.push(part(box(0.3, 0.09, 0.008), 0x2b6fd6, [-0.2, 0.06, 0.93]), part(box(0.28, 0.014, 0.01), 0xffffff, [-0.2, 0.1, 0.93]));
+  for (const x of [-0.34, -0.06]) p.push(part(box(0.01, 0.07, 0.01), 0x6b4a2b, [x, 0.012, 0.93]));
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
@@ -167,8 +279,9 @@ export function serviceModels(): Record<string, THREE.BufferGeometry> {
       part(box(0.5, 0.18, 0.012), 0xd63a3a, [0.55, 0.012, 0.6]), part(box(0.4, 0.02, 0.3), 0x7d8288, [0.55, 0.012, 0.8]),
       ...[-0.8, -0.6, 0.8].map((x) => part(cyl(0.07, 0.18, 7), 0x3f8f3a, [x, 0.012, 0.85])),
     ]),
-    // Elementary school: brick, gable roof, bell tower, playground with a slide.
-    svc4: merge([
+    svc4: elementaryModel(), // V1.6: the 2×2 school
+    // LEGACY 1×1 elementary school (old saves where it couldn't grow): brick, gable roof, bell tower, playground with a slide.
+    svc4s: merge([
       part(box(0.96, 0.012, 0.96), 0xa8c486),
       part(box(0.62, 0.22, 0.34), BRICK, [-0.08, 0.012, -0.2]), part(gable(0.66, 0.12, 0.38), ROOFD, [-0.08, 0.232, -0.2]),
       ...windows(5, 0.56, 0.12, -0.025, -0.08, 0xfff1c4),

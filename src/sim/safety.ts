@@ -25,10 +25,10 @@ import { due, PHASE } from './schedule';
 import { GRID_SIZE } from './types';
 import type { World } from './grid';
 import type { Coverage } from './services';
-import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
+import { POLICE_UNLOCK_POP, SERVICE_DEFS, serviceAnchors, Svc } from './services';
 import { roadNextTo, Traffic } from './traffic';
 
-export const CRIME_START = 500;
+export const CRIME_START = POLICE_UNLOCK_POP; // crime starts exactly when the police station unlocks
 export const CRIME_DENSITY = 40;
 export const CRIME_CITY_MIN = 0.35, CRIME_CITY_FULL = 6000;
 export const POLICE_EFFECT = 0.85;

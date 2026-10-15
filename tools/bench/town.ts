@@ -38,7 +38,7 @@ export function buildTown(s: Simulation, ox = 0, oz = 0): void {
   s.zoneOpt = { density: 1, depth: 3 };
   s.apply('commercial', R(11, 20, 29, 20)); s.apply('commercial', R(31, 20, 49, 20)); s.apply('commercial', R(31, 25, 49, 25));
   s.zoneOpt = { density: 0, depth: 2 }; s.apply('industrial', R(31, 34, 49, 34)); s.apply('industrial', R(11, 34, 29, 34));
-  s.apply('elementarySchool', P(20, 17)); s.apply('garbageDump', P(31, 17)); s.apply('policeStation', P(40, 17));
+  s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]); s.apply('garbageDump', P(31, 17)); s.apply('policeStation', P(40, 17));
 }
 
 /** One full tick the way the game runs it (sim + vehicles + clock). */

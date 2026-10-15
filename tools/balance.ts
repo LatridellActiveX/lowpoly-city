@@ -24,7 +24,7 @@ for (const z of [13, 27]) { s.apply('residential', rect(11, z, 29, z)); s.apply(
 s.zoneOpt = { density: 1, depth: 3 };
 s.apply('commercial', rect(11, 20, 29, 20)); s.apply('commercial', rect(31, 20, 49, 20)); s.apply('commercial', rect(31, 25, 49, 25));
 s.zoneOpt = { density: 0, depth: 2 }; s.apply('industrial', rect(31, 34, 49, 34)); s.apply('industrial', rect(11, 34, 29, 34));
-s.apply('elementarySchool', [[20, 17]]);
+s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
 const later: Array<[number, () => void]> = [
   [1000, () => { s.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); }], // V1.6: 2×2 landfill
   [2000, () => { s.apply('shippingDepot', [[24, 38], [25, 38], [24, 39], [25, 39]]); }],

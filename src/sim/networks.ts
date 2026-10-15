@@ -51,7 +51,7 @@ function isConduit(t: Tile, kind: Kind): boolean {
 
 /**
  * What one source tile produces. Wind turbines scale with the wind (PR 3):
- * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
+ * POWER_OUTPUT.windTurbine (1,000) is the output in a full gale (wind = 1).
  */
 /**
  * V1.5b (Parker): the COAL plant is a 2×2 building. Like the nuclear plant
@@ -60,8 +60,16 @@ function isConduit(t: Tile, kind: Kind): boolean {
  * stay 1×1 ("legacy"); `isBigCoal` tells the two apart.
  */
 export function isBigCoal(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
+  return tiles[i]?.kind === 0 && isBigPlant(tiles, i, N);
+}
+/** V1.6: the OIL plant is 2×2 as well (same anchor + 3 parts layout as coal). */
+export function isBigOil(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
+  return tiles[i]?.kind === PLANT_OIL && isBigPlant(tiles, i, N);
+}
+/** Anchor tile of a 2×2 coal or oil plant. */
+export function isBigPlant(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
   const t = tiles[i];
-  if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return false;
+  if (!t || t.structure !== 'powerPlant' || t.part) return false;
   const r = tiles[i + 1];
   return i % N < N - 1 && !!r && r.structure === 'powerPlant' && r.part === i + 1;
 }

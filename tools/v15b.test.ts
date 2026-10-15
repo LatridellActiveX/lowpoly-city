@@ -166,7 +166,7 @@ import { eduSlow, EDU_SLOW_ELEM } from '../src/sim/growth';
   check('L4 grows slower without elementary coverage', eduSlow(s, fake) === EDU_SLOW_ELEM);
   s.cov.edu.fill(1);
   check('L4 normal speed with elementary coverage', eduSlow(s, fake) === 1);
-  const sc = town({ seed: 32 }); sc.apply('elementarySchool', [[31, 17]]); run(sc, 3);
+  const sc = town({ seed: 32 }); sc.apply('elementarySchool', [[31, 17], [32, 17], [31, 18], [32, 18]]); run(sc, 3);
   check('an elementary school covers nearby homes (edu ≥ 1)', sc.world.at(31, 17).structure === 'service' && sc.cov.edu[idx(31, 13)] >= 1, sc.cov.edu[idx(31, 13)]);
 }
 
@@ -178,7 +178,7 @@ import { ZoneCode, zoneCode } from '../src/sim/cells';
   check('six office building types exist (kind 4)', ids.every((id) => TPL[id] && TPL[id].kind === 4 && TPL[id].zone === 'commercial'));
   const s = town({ seed: 41 });
   s.zoneOpt = { density: 3, depth: 2 }; s.apply('commercial', rect(11, 25, 29, 25));
-  s.apply('elementarySchool', [[20, 17]]);
+  s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
   run(s, 1200);
   const offices = [...s.world.lots.buildings.values()].filter((b) => TPL[b.tpl].kind === 4 && TPL[b.tpl].zone === 'commercial');
   let officeJobs = 0; s.world.tiles.forEach((t) => { if (t.zone === 'commercial' && t.kind === 4) officeJobs += t.jobs; });
@@ -256,7 +256,7 @@ import * as THREE from 'three';
   // 2×2 coal via the 4-tile tool; single-tile keeps the legacy 1×1.
   const s = fresh(); s.apply('powerPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('powerPlant', [[30, 30]]);
   const w = s.world;
-  check('2×2 coal plant: anchor + 3 parts, output on the anchor only', isBigCoal(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 2000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
+  check('2×2 coal plant: anchor + 3 parts, output on the anchor only', isBigCoal(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 5000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
   check('single-tile coal stays a legacy 1×1 plant', w.at(30, 30).structure === 'powerPlant' && !isBigCoal(w.tiles, idx(30, 30)) && w.at(31, 30).structure !== 'powerPlant');
   s.apply('bulldoze', [[21, 21]]);
   check('bulldozing one tile removes the whole 2×2 coal plant', [[20, 20], [21, 20], [20, 21], [21, 21]].every(([x, z]) => w.at(x, z).structure !== 'powerPlant'));
@@ -287,6 +287,29 @@ import { depotOf, DEPOT_BONUS } from '../src/sim/goods';
   check('no depot → no depot shipping', a.depotExports === 0 && a.depotImports === 0);
   check('depot loads counted per depot (Inspect)', (b.s.shipping.depotLoads.get(idx(24, 38)) ?? 0) === b.depotExports + b.depotImports);
   check('catchment: near tiles in, far tiles out', depotOf([idx(30, 36)], idx(40, 40)) === idx(30, 36) && depotOf([idx(30, 36)], idx(5, 5)) === -1 && DEPOT_BONUS > 0);
+}
+
+// ---------------------------------------------------------------- V1.6: 2×2 oil plant + elementary school, output bumps, crime start
+import { isBigOil } from '../src/sim/networks';
+import { migrateOil, migrateLandfills as migrateGrown } from '../src/sim/save';
+import { POWER_OUTPUT, PLANT_OIL } from '../src/sim/rules';
+import { POLICE_UNLOCK_POP } from '../src/sim/services';
+{
+  check('coal plant powers 5,000 and a wind turbine up to 1,000', POWER_OUTPUT.powerPlant === 5000 && POWER_OUTPUT.windTurbine === 1000);
+  check('crime starts exactly when police unlock', CRIME_START === POLICE_UNLOCK_POP && isUnlocked('policeStation', 0, CRIME_START));
+  const s = fresh();
+  s.apply('oilPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('oilPlant', [[30, 30]]);
+  const w = s.world;
+  check('2×2 oil plant: anchor + 3 parts, 8,000 on the anchor only', isBigOil(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 8000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
+  check('single-tile oil stays a legacy 1×1 plant', w.at(30, 30).kind === PLANT_OIL && !isBigOil(w.tiles, idx(30, 30)) && w.at(31, 30).structure !== 'powerPlant');
+  s.apply('bulldoze', [[21, 21]]);
+  check('bulldozing one tile removes the whole 2×2 oil plant', [[20, 20], [21, 20], [20, 21], [21, 21]].every(([x, z]) => w.at(x, z).structure !== 'powerPlant'));
+  const m = fresh(); m.world.at(10, 10).structure = 'powerPlant'; m.world.at(10, 10).kind = PLANT_OIL;
+  check('a legacy 1×1 oil plant grows to 2×2 (and only once)', migrateOil(m.world) === 1 && isBigOil(m.world.tiles, idx(10, 10)) && migrateOil(m.world) === 0);
+  const e = fresh(); e.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
+  check('elementary school is 2×2', serviceSize(e.world.tiles, idx(20, 17)) === 2 && e.world.at(21, 18).part === idx(20, 17) + 1);
+  const o = fresh(); const oa = idx(12, 12); o.world.tiles[oa].structure = 'service'; o.world.tiles[oa].kind = Svc.Elementary;
+  check('a legacy 1×1 school grows to 2×2', serviceSize(o.world.tiles, oa) === 1 && migrateGrown(o.world) === 1 && serviceSize(o.world.tiles, oa) === 2);
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

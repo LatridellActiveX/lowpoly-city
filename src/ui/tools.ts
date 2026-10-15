@@ -63,13 +63,13 @@ export const TOOLS: ToolDef[] = [
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag along a road to zone shops (low: corner shops; high: strip malls and shopping centres; mixed: a shop on the ground floor with flats above — 10 residents + 1 business; office: law firms, cable / internet companies, data centres, cell towers and radio stations — they grow on commercial AND industrial demand and need educated workers). Shops need 1 parking space per 3 jobs.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industry. Factories, FARMS and FOOD PLANTS grow here on their own, weighted by what the city needs (food demand, farms waiting for processing). Farms favour farmland patches and need room behind for fields.', group: 'industry' },
   { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 8 construction trucks (one visit covers every building on a site); new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
-  { id: 'powerPlant', label: 'Coal Plant', icon: '⚡', key: 'p', shape: 'point', hint: '2×2 plant (V1.5b). Output 2,000 (about 2,000 people incl. their shops and factories). Burns coal delivered by truck. $4,000 + $250/month.', group: 'power' },
+  { id: 'powerPlant', label: 'Coal Plant', icon: '⚡', key: 'p', shape: 'point', hint: '2×2 plant (V1.5b). Output 5,000 (about 5,000 people incl. their shops and factories). Burns coal delivered by truck. $4,000 + $250/month.', group: 'power' },
   // V1.5 power tiers: same tier as coal (below nuclear), 4× its output.
-  { id: 'oilPlant', label: 'Oil Plant', icon: '🛢️', key: 'g', shape: 'point', hint: 'Output 8,000 (about 8,000 people). Burns oil delivered by truck. $15,000 + $1,000/month. Unlocks at 2,000 people.', group: 'power' },
+  { id: 'oilPlant', label: 'Oil Plant (2×2)', icon: '🛢️', key: 'g', shape: 'point', hint: 'A 2×2 refinery-style plant. Output 8,000 (about 8,000 people). Burns oil delivered by truck. $15,000 + $1,000/month. Unlocks at 2,000 people.', group: 'power' },
   { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 32,000 (about 32,000 people), no fuel or pollution. $60,000 + $3,000/month. Unlocks at 10,000 people.', group: 'power' },
   { id: 'bigWaterTower', label: 'Large Water Tower', icon: '🛢️', key: 'z', shape: 'point', hint: 'Tall spheroid tower: 3,200 water (4× a water tower, about 4,000 people). Needs 4 power. $12,000 + $600/month. Unlocks at 5,000 people.', group: 'water' },
   { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },
-  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '800 × wind power: ~400 people at average wind, up to ~800 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
+  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '1,000 × wind power: ~500 people at average wind, up to ~1,000 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
   { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'water' },
@@ -79,7 +79,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'policeStation', label: 'Police Station', icon: '🚓', key: '5', shape: 'point', hint: 'Cuts crime within 10 tiles (crime lowers land value and health); patrol cars drive the streets. $5,000 + $250/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'clinic', label: 'Health Clinic', icon: '🩺', key: '6', shape: 'point', hint: 'Healthcare within 8 tiles; uncovered homes are less healthy and worth less. $6,000 + $300/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'hospital', label: 'Hospital', icon: '🏥', key: '7', shape: 'point', hint: '2×2. Healthcare within 18 tiles and ambulances. $24,000 + $1,100/month. Unlocks at 2,500 people.', group: 'services' },
-  { id: 'elementarySchool', label: 'Elementary School', icon: '🏫', key: '8', shape: 'point', hint: 'Education level 1 within 9 tiles: homes need it to grow fast past level 3, and shops need educated workers. $4,000 + $200/month. Available from the start.', group: 'services' },
+  { id: 'elementarySchool', label: 'Elementary School (2×2)', icon: '🏫', key: '8', shape: 'point', hint: 'A 2×2 school. Education level 1 within 9 tiles: homes need it to grow fast past level 3, and shops need educated workers. $4,000 + $200/month. Available from the start.', group: 'services' },
   { id: 'highSchool', label: 'High School', icon: '🎓', key: '9', shape: 'point', hint: 'Education level 2 within 14 tiles (with an elementary school): homes need it for levels 6–7; offices and electronics want educated workers. $9,000 + $450/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'college', label: 'College', icon: '🏛️', key: '0', shape: 'point', hint: '2×2. Education level 3 within 24 tiles: boosts offices, electronics and the top housing levels. $30,000 + $1,400/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
@@ -100,8 +100,8 @@ export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: n
   const out: Array<[number, number]> = [];
   // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
   // V1.5: the roundabout is 2×2 too (hovered tile = top-left).
-  // V1.5b: the hospital and the college are 2×2 as well. V1.6: so is the landfill.
-  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot' || id === 'garbageDump') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < GRID_SIZE && z < GRID_SIZE) as Array<[number, number]>;
+  // V1.5b: the hospital and the college are 2×2 as well. V1.6: so are the landfill, the oil plant and the elementary school.
+  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'oilPlant' || id === 'elementarySchool' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot' || id === 'garbageDump') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < GRID_SIZE && z < GRID_SIZE) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

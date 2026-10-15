@@ -670,7 +670,7 @@ export class Hud {
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
-      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 15, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
+      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       if (t.part) rows.push('<div class="row muted">Part of a 2×2 nuclear plant (output is counted on its top-left tile).</div>');
       rows.push(`<div class="row muted">${netLine('power')}</div>`);

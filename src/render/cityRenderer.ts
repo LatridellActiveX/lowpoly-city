@@ -49,7 +49,8 @@ import { autoSkin, industrialMaterial, Skin } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
 import { bigCoalModel, COAL_STACKS } from './coalModel';
-import { isBigCoal } from '../sim/networks';
+import { isBigCoal, isBigOil } from '../sim/networks';
+import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
 import { officeModels } from './officeModels';
@@ -424,6 +425,12 @@ export class CityRenderer {
       add(`${pre}coalBig`, autoSkin(cm.solid), industrialMaterial(), 16);
       add(`${pre}coalBig.lights`, cm.lights, this.windowGlow, 16, false);
     }
+    // V1.6: the 2×2 oil plant (high + low detail) with night-lit windows and flare.
+    for (const [pre, det] of [['', true], ['lo:', false]] as const) {
+      const om = bigOilModel(det);
+      add(`${pre}oilBig`, autoSkin(om.solid), industrialMaterial(), 16);
+      add(`${pre}oilBig.lights`, om.lights, this.windowGlow, 16, false);
+    }
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
@@ -734,6 +741,14 @@ export class CityRenderer {
         P[`${pre}coalBig.lights`].add(this.place(c2), this.c.setHex(0xffd890));
         if (t.stock > 0) for (const [sx, sy, sz] of COAL_STACKS) this.stacks.push(new THREE.Vector3(sx, sy, sz).add(c2));
         this.addGridTie(tiles, x, z, has, false);
+      } else if (t.structure === 'powerPlant' && isBigOil(tiles, i)) {
+        // V1.6: the detailed 2×2 oil plant, centred on its footprint.
+        const c2 = center.clone().add(new THREE.Vector3(0.5, 0, 0.5));
+        const pre = this.lod === 'low' ? 'lo:' : '';
+        P[`${pre}oilBig`].add(this.place(c2));
+        P[`${pre}oilBig.lights`].add(this.place(c2), this.c.setHex(0xffd890));
+        if (t.stock > 0) for (const [sx, sy, sz] of OIL_STACKS) this.stacks.push(new THREE.Vector3(sx, sy, sz).add(c2));
+        this.addGridTie(tiles, x, z, has, false);
       } else if (t.structure === 'powerPlant') {
         // V1.5: kind 1 = oil-fired plant (own model, same stack position).
         (t.kind === PLANT_OIL ? P.oilPlant : P.powerPlant).add(this.place(center, turn));
@@ -773,7 +788,7 @@ export class CityRenderer {
           const stage = landfillStage(t), c = new THREE.Vector3(x + 1, 0, z + 1);
           P[`svc0_${stage}`]?.add(this.place(c, 0));
           this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
-        } else P[`svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+        } else P[!big && t.kind === Svc.Elementary ? 'svc4s' : `svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
       if (t.zone && t.level > 0 && t.garbage >= G_WARN) {

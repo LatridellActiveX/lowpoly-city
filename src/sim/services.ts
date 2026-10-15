@@ -19,6 +19,9 @@
 import { GRID_SIZE, Tile, ToolId } from './types';
 import type { World } from './grid';
 
+/** People at which police (and with them crime) unlock. */
+export const POLICE_UNLOCK_POP = 2500;
+
 export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8 }
 
 export interface ServiceDef {
@@ -40,10 +43,10 @@ export interface ServiceDef {
 export const SERVICE_DEFS: ServiceDef[] = [
   // V1.6: the dump is now a 2×2 LANDFILL with a finite capacity (garbage.ts LANDFILL_MAX); the tool id stays 'garbageDump' so saves and keybinds keep working.
   { svc: Svc.Dump, tool: 'garbageDump', label: 'Landfill (2×2)', size: 2, cost: 10000, upkeep: 400, unlockPop: 1000, radius: 16, fleet: 6 },
-  { svc: Svc.Police, tool: 'policeStation', label: 'Police Station', size: 1, cost: 5000, upkeep: 250, unlockPop: 2500, radius: 10, fleet: 2 },
+  { svc: Svc.Police, tool: 'policeStation', label: 'Police Station', size: 1, cost: 5000, upkeep: 250, unlockPop: POLICE_UNLOCK_POP, radius: 10, fleet: 2 },
   { svc: Svc.Clinic, tool: 'clinic', label: 'Health Clinic', size: 1, cost: 6000, upkeep: 300, unlockPop: 2500, radius: 8, fleet: 1 },
   { svc: Svc.Hospital, tool: 'hospital', label: 'Hospital (2×2)', size: 2, cost: 24000, upkeep: 1100, unlockPop: 2500, radius: 18, fleet: 3 },
-  { svc: Svc.Elementary, tool: 'elementarySchool', label: 'Elementary School', size: 1, cost: 4000, upkeep: 200, unlockPop: 0, radius: 9, fleet: 0 },
+  { svc: Svc.Elementary, tool: 'elementarySchool', label: 'Elementary School (2×2)', size: 2, cost: 4000, upkeep: 200, unlockPop: 0, radius: 9, fleet: 0 },
   { svc: Svc.High, tool: 'highSchool', label: 'High School', size: 1, cost: 9000, upkeep: 450, unlockPop: 2500, radius: 14, fleet: 0 },
   { svc: Svc.College, tool: 'college', label: 'College (2×2)', size: 2, cost: 30000, upkeep: 1400, unlockPop: 2500, radius: 24, fleet: 0 },
   // V1.5b stage C: the SHIPPING DEPOT (2×2 industrial building). Its
@@ -59,15 +62,18 @@ export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;
 export const serviceOf = (t: Tile): ServiceDef | null => (t.structure === 'service' ? SERVICE_DEFS[t.kind] ?? null : null);
 /**
  * Real footprint (1 or 2 tiles wide) of the service whose ANCHOR is tile i.
- * A landfill from an older save that couldn't grow into 2×2 (save.ts
- * migrateLandfills) stays a legacy 1×1 dump: it has no part tile linked to it.
+ * A landfill or elementary school from an older save that couldn't grow into
+ * 2×2 (save.ts migrateGrownServices) stays a legacy 1×1 building: it has no
+ * part tile linked to it.
  */
+/** Services that used to be 1×1 and so may still exist as legacy 1×1 buildings in old saves. */
+export const GREW_FROM_1X1: Svc[] = [Svc.Dump, Svc.Elementary];
 export function serviceSize(tiles: Tile[], i: number): 1 | 2 {
   const d = SERVICE_DEFS[tiles[i]?.kind];
   if (!d || d.size === 1) return 1;
-  if (d.svc !== Svc.Dump) return 2;
+  if (!GREW_FROM_1X1.includes(d.svc)) return 2;
   const r = tiles[i + 1];
-  return r && r.structure === 'service' && r.kind === Svc.Dump && r.part === i + 1 ? 2 : 1;
+  return r && r.structure === 'service' && r.kind === d.svc && r.part === i + 1 ? 2 : 1;
 }
 
 export interface Coverage {

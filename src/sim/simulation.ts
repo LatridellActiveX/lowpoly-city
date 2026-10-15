@@ -27,7 +27,7 @@
  */
 import { coords, World } from './grid';
 import { prof } from './prof';
-import { computeNetworks, NetworkResult, isBigCoal, servedRev } from './networks';
+import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
 import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND, BIG_TOWER_UPKEEP } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
@@ -408,7 +408,7 @@ export class Simulation {
     const out = [...tiles];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigCoal(this.world.tiles, z * GRID_SIZE + x)); // V1.5b
+      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigPlant(this.world.tiles, z * GRID_SIZE + x)); // V1.5b
       const a = t.part ? t.part - 1 : z * GRID_SIZE + x;
       if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && serviceSize(this.world.tiles, a) === 2)) continue;
       const ax = a % GRID_SIZE, az = Math.floor(a / GRID_SIZE);
@@ -445,7 +445,7 @@ export class Simulation {
   quote(tool: ToolId, tiles: Array<[number, number]>): number {
     let cost = 0;
     // 2×2 plant or service (landfill, hospital, college, depot): one price for the whole footprint.
-    if (tool === 'nuclearPlant' || tool === 'powerPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
+    if (tool === 'nuclearPlant' || tool === 'powerPlant' || tool === 'oilPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
     if (ZONE_TOOLS.has(tool)) return this.zoneQuote(tool, tiles).cost;
     if (tool === 'parkingLot' || tool === 'parkingGarage') return BUILD_COST[tool];
     for (const [x, z] of tiles) {
@@ -583,9 +583,9 @@ export class Simulation {
     // V1.5b: coal is 2×2 too. The UI's 2×2 tool sends all four tiles; a
     // single tile (scripts, tests, old API) still builds the legacy 1×1
     // coal plant (same output), so nothing next to it gets swallowed.
-    if (tool === 'powerPlant' && tiles.length === 1) {
+    if ((tool === 'powerPlant' || tool === 'oilPlant') && tiles.length === 1) {
       /* fall through to the 1×1 path below */
-    } else if (tool === 'nuclearPlant' || tool === 'powerPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
+    } else if (tool === 'nuclearPlant' || tool === 'powerPlant' || tool === 'oilPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
     if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
