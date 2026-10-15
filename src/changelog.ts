@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-q',
+    title: 'Better-looking houses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Low-density homes (levels 1-3) now have textured walls (clapboard siding, stucco, vertical boards, brick) and shingled roofs, plus a lot more detail: roof courses and ridge caps, eave boards, shutters, flower boxes, door panels and porch lamps, stepping stones, picket fences with gates, flower beds, and rounded trees and bushes.' },
+      { tag: 'improved', text: 'The terraced townhouses are rebuilt with much more detail: textured siding, brick and stucco, bay windows, fanlights, chimney pots, dormers, front walls with hedges and flower beds, bins, and street trees.' },
+      { tag: 'fix', text: 'The "update available" prompt now shows on top of the Model viewer and What\'s new screens too.' },
+    ],
+  },
+  {
     id: '2026-10-15-p',
     title: 'Model viewer',
     date: '2026-10-15',

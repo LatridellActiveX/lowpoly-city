@@ -45,7 +45,7 @@ import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { CHUNK } from '../sim/chunks';
 import { owns, REGION, regionSide } from '../sim/regions';
-import { autoSkin, industrialMaterial, Skin } from './textures';
+import { autoSkin, industrialMaterial, Skin, texturedHome } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
 import { TILE_M } from '../roads/graph';
@@ -397,6 +397,10 @@ export class CityRenderer {
               if (zone === 'industrial') {
                 const force = which === 'walls' ? IND_WALL_SKIN[k % IND_WALL_SKIN.length] : which === 'accent' ? (k === 0 || k === 4 ? Skin.Roof : Skin.Metal) : undefined;
                 add(`${pre}${zone}.${k}.${lv + 1}.${which}`, autoSkin(parts[which], force), industrialMaterial(), 32, which !== 'fixed');
+              } else if (zone === 'residential' && lv < 3) {
+                // V1.6: low-density homes are textured (siding / stucco / boards, shingle roofs) from the atlas.
+                if (which === 'walls') texturedHome(parts, k);
+                add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], industrialMaterial(), 32, which !== 'fixed');
               } else add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
             }
             add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
@@ -467,7 +471,7 @@ export class CityRenderer {
     for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
     for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
     for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
-    for (const [k, g] of Object.entries({ ...homeModels(), ...commerceModels() })) add(`x.${k}`, g, solid, 64); // V1.6 more homes + shops
+    for (const [k, g] of Object.entries({ ...homeModels(), ...commerceModels() })) add(`x.${k}`, g, k === 'terrace' ? industrialMaterial() : solid, 64); // V1.6 more homes + shops (the terrace carries its own atlas UVs)
     for (const [k, g] of Object.entries(industryExtra())) add(`x.${k}`, autoSkin(g), industrialMaterial(), 64);
     // New recipe roles reuse the matching plant model.
     const roleX = industryExtra();

@@ -257,7 +257,7 @@ function residential(k: number, level: number, hi = true): DesignParts {
       b.fix(new THREE.CylinderGeometry(0.06, 0.08, 0.12, 6).translate(0, 0.06, 0), 0x6f8a5a, [w / 2 + 0.05, 0, d / 2]); // shrub
       break;
   }
-  if (hi) resDetails(b, k, level, w, h, d, floors);
+  if (hi) { resDetails(b, k, level, w, h, d, floors); resExtras(b, k, level, w, h, d, floors); }
   // V1.5b: back / side detail. A-frame (default) and the modern box (2) have
   // narrower or offset upper walls, so only their ground floor is dressed.
   const lowWall = k === 4 || (k === 2 && floors > 1);
@@ -835,6 +835,93 @@ function resDetails(b: Builder, k: number, level: number, w: number, h: number, 
   if (level === 3) {
     b.fix(new THREE.SphereGeometry(0.04, 10, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-1.1), 0xe4e6e8, [bw / 2 - 0.02, wallH * 0.85, zoff - d / 2 - 0.03]);
     b.fix(box(0.01, 0.04, 0.01), METAL, [bw / 2 - 0.02, wallH * 0.85 - 0.03, zoff - d / 2 - 0.02]);
+  }
+}
+
+/**
+ * V1.6: extra detail for the low-density homes (high LOD only) — roof
+ * courses and ridge cap, eave boards, shutters, flower boxes, a picket
+ * fence with a gate, stepping stones, a porch lamp, door panels, a garden
+ * with flower beds, and rounded trees and bushes.
+ */
+function resExtras(b: Builder, k: number, level: number, w: number, h: number, d: number, floors: number): void {
+  const zoff = k === 1 ? -0.04 : 0;
+  const front = zoff + d / 2;
+  const sloped = k === 0 || k === 1 || k === 3 || k === 5 || k === 6 || k === 4;
+  // Roof courses: thin dark shingle lines down each slope of the ridge roofs.
+  if (k === 0 || k === 5 || k === 4) {
+    const rw = (k === 4 ? w * 0.9 : w) + 0.06, rd = d + (k === 4 ? 0.1 : 0.08);
+    const rh = k === 0 ? 0.24 : k === 5 ? 0.26 + level * 0.03 : 0.32 + level * 0.06;
+    const wallTop = k === 4 ? FLOOR * Math.max(1, floors - 1) + 0.04 : h;
+    const slope = Math.atan2(rh, rd / 2);
+    for (let t = 1; t <= 5; t++) {
+      const f = t / 6;
+      for (const sg of [1, -1]) {
+        b.fix(box(rw + 0.012, 0.008, 0.016), 0x5a4a42, [0, wallTop + rh * f + 0.002, sg * (rd / 2) * (1 - f)], [sg * -slope, 0, 0]);
+      }
+    }
+    b.fix(box(rw + 0.02, 0.022, 0.03), 0x4a403a, [0, wallTop + rh - 0.004, 0]); // ridge cap
+  }
+  if (k === 1 || k === 6) { // hip roofs: a ring of eave boards
+    const wallTop = h;
+    b.fix(box(w + 0.1, 0.018, 0.012), 0x4a403a, [0, wallTop + 0.005, zoff + d / 2 + 0.05]);
+    b.fix(box(w + 0.1, 0.018, 0.012), 0x4a403a, [0, wallTop + 0.005, zoff - d / 2 - 0.05]);
+  }
+  // Fascia / eave board along the front.
+  if (sloped || k === 3) b.fix(box(w + 0.07, 0.022, 0.014), TRIM, [0, h - 0.008, front + 0.045]);
+  // Shutters beside the ground-floor windows (cottage, porch house, saltbox).
+  if (k === 0 || k === 1 || k === 5) {
+    const n = k === 0 ? 1 : 2, width = k === 0 ? w / 2 : w;
+    for (let i = 0; i < n; i++) {
+      const x = -width / 2 + (width * (i + 0.5)) / n;
+      for (const sg of [-1, 1]) b.fix(box(0.022, 0.1, 0.012), 0x3f6a5a, [x + sg * 0.062, 0.1, front + 0.006]);
+      // flower box under the window
+      b.fix(box(0.11, 0.025, 0.035), WOOD, [x, 0.075, front + 0.03]);
+      for (let f = 0; f < 4; f++) b.fix(new THREE.IcosahedronGeometry(0.014, 1).translate(0, 0.014, 0), [0xe05a6d, 0xf2c230, 0xe05a6d, 0xffffff][f], [x - 0.04 + f * 0.027, 0.1, front + 0.032]);
+    }
+  }
+  // Door panels + porch lamp.
+  const dx = [-w / 4, 0, -w * 0.3, 0, 0][k] ?? 0;
+  if (k !== 2) {
+    b.fix(box(0.035, 0.05, 0.006), 0x5a3f2a, [dx - 0.02, 0.05, front + 0.016]);
+    b.fix(box(0.035, 0.05, 0.006), 0x5a3f2a, [dx + 0.02, 0.05, front + 0.016]);
+    b.fix(box(0.035, 0.04, 0.006), 0x5a3f2a, [dx - 0.02, 0.11, front + 0.016]);
+    b.fix(box(0.035, 0.04, 0.006), 0x5a3f2a, [dx + 0.02, 0.11, front + 0.016]);
+  }
+  b.fix(cyl(0.01, 0.03, 8), DARK, [dx + 0.09, 0.14, front + 0.012]);
+  b.fix(new THREE.SphereGeometry(0.014, 8, 6), 0xffe9a8, [dx + 0.09, 0.175, front + 0.012]);
+  // Stepping stones to the street.
+  for (let i = 0; i < 3; i++) b.fix(new THREE.CylinderGeometry(0.035, 0.035, 0.008, 8), 0xb9b2a6, [dx, 0.004, front + 0.16 + i * 0.075]);
+  // Picket fence with a gate on the cottage, porch house and saltbox.
+  if (k === 0 || k === 1 || k === 5 || k === 3) {
+    const fw = w + 0.12, fz = front + 0.3;
+    const n = Math.round(fw / 0.045);
+    for (let i = 0; i <= n; i++) {
+      const x = -fw / 2 + (fw * i) / n;
+      if (Math.abs(x - dx) < 0.05) continue; // gate gap
+      b.fix(box(0.02, 0.07, 0.01), 0xf4f1ea, [x, 0, fz]);
+      b.fix(new THREE.ConeGeometry(0.014, 0.02, 4).rotateY(Math.PI / 4).translate(0, 0.08, 0), 0xf4f1ea, [x, 0, fz]);
+    }
+    b.fix(box(fw, 0.01, 0.008), 0xe8e4da, [0, 0.02, fz + 0.006]);
+    b.fix(box(fw, 0.01, 0.008), 0xe8e4da, [0, 0.055, fz + 0.006]);
+  }
+  // Flower beds either side of the path.
+  for (const sg of [-1, 1]) {
+    const bx = dx + sg * 0.21;
+    b.fix(box(0.14, 0.018, 0.06), 0x5a4a3a, [bx, 0, front + 0.14]);
+    for (let f = 0; f < 5; f++) b.fix(new THREE.IcosahedronGeometry(0.016, 1).translate(0, 0.03, 0), [0xe05a6d, 0xf2c230, 0xb872c4, 0xff9aa8, 0xffffff][(f + (sg > 0 ? 2 : 0)) % 5], [bx - 0.05 + f * 0.025, 0.012, front + 0.14 + ((f % 2) - 0.5) * 0.02]);
+  }
+  // A rounded tree at the back corner (trunk + three canopy blobs) and a hedge of bushes.
+  const tx = -w / 2 - 0.1, tz = zoff - d / 2 - 0.02;
+  b.fix(cyl(0.018, 0.14, 8), 0x6b4a2f, [tx, 0, tz]);
+  for (const [ox, oy, oz, r] of [[0, 0.2, 0, 0.09], [0.05, 0.27, 0.02, 0.07], [-0.04, 0.26, -0.03, 0.065]] as const)
+    b.fix(new THREE.IcosahedronGeometry(r, 1).translate(ox, oy, oz), 0x4f8a45, [tx, 0, tz]);
+  for (const bx of [w / 2 + 0.08, w / 2 + 0.08]) b.fix(new THREE.IcosahedronGeometry(0.05, 1).translate(0, 0.04, 0), 0x5a9a4a, [bx, 0, zoff + d / 4]);
+  // Dormer window on the bigger gable cottages.
+  if (k === 0 && level >= 2) {
+    b.wall(box(0.14, 0.1, 0.1), [w * 0.2, h + 0.07, d * 0.1]);
+    b.acc(gable(0.18, 0.07, 0.14), [w * 0.2, h + 0.17, d * 0.1]);
+    b.fix(box(0.07, 0.06, 0.012), GLASS, [w * 0.2, h + 0.09, d * 0.1 + 0.052]);
   }
 }
 

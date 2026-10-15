@@ -19,7 +19,7 @@ import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndu
 import { officeModels } from './officeModels';
 import { commerceModels, homeModels, industryExtra } from './cityModels';
 import { ringIslandModel } from './roundaboutModel';
-import { autoSkin, industrialMaterial } from './textures';
+import { autoSkin, industrialMaterial, texturedHome } from './textures';
 import { SERVICE_DEFS } from '../sim/services';
 
 export interface CatalogItem {
@@ -61,6 +61,10 @@ export function buildCatalog(): CatalogItem[] {
     const g = new THREE.Group();
     if (zone === 'industrial') {
       for (const w of ['walls', 'accent', 'fixed'] as const) g.add(textured(p[w].clone()));
+    } else if (zone === 'residential' && lv < 3) {
+      const q = { walls: p.walls.clone(), accent: p.accent.clone(), fixed: p.fixed.clone() };
+      texturedHome(q, k);
+      for (const w of ['walls', 'accent', 'fixed'] as const) g.add(mesh(q[w], w === 'fixed' ? industrialMaterial() : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: industrialMaterial().map, color: w === 'walls' ? WALLS[k % WALLS.length] : ACCENTS[k % ACCENTS.length] })));
     } else {
       g.add(mesh(p.walls, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, color: WALLS[k % WALLS.length] })));
       g.add(mesh(p.accent, new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, color: ACCENTS[k % ACCENTS.length] })));
@@ -70,7 +74,7 @@ export function buildCatalog(): CatalogItem[] {
   };
   for (let k = 0; k < RES_DESIGNS; k++) for (const lv of [0, 1, 2]) add('Homes', `House ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('residential', k, lv));
   const homes = homeModels();
-  for (const [key, g] of Object.entries(homes)) if (key !== 'gardentowers' && key !== 'skyresidence') add('Homes', LABEL[key] ?? pretty(key), () => plain(g));
+  for (const [key, g] of Object.entries(homes)) if (key !== 'gardentowers' && key !== 'skyresidence') add('Homes', LABEL[key] ?? pretty(key), () => (key === 'terrace' ? mesh(g, industrialMaterial()) : plain(g)));
   for (let k = 0; k < RES_DESIGNS; k++) for (const lv of [3, 4, 5, 6]) add('Apartments & towers', `Block ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('residential', k, lv));
   for (const key of ['gardentowers', 'skyresidence']) add('Apartments & towers', LABEL[key], () => plain(homes[key]));
   for (let k = 0; k < designs.commercial.length; k++) for (const lv of [0, 1, 2]) add('Shops & offices', `Shop ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('commercial', k, lv));

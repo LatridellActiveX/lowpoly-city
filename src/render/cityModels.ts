@@ -12,6 +12,7 @@
  */
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
+import { remapUV, Skin, skinProjected } from './textures';
 
 type G = THREE.BufferGeometry;
 const cyl = (r: number, h: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
@@ -63,19 +64,48 @@ export function homeModels(): Record<string, G> {
     p.push(...car(0.33, 0.42, 0xe8e8e8));
     out.villa = merge(p);
   }
-  { // TERRACE: a row of five narrow townhouses in alternating pastels, bay windows, chimneys.
-    const p: G[] = [plot(0xc9c5bb)];
-    const cols = [0xd98e73, 0xe8c36a, 0x79a9c4, 0xc7d26b, 0xd98ca8];
+  { // TERRACE: five textured townhouses (siding / brick / stucco walls, shingle roofs) with bay windows,
+    // fanlights, chimneys, front walls, hedges, flower beds, bins and a street tree.
+    // UVs are set per part (skinProjected), so register this one WITHOUT autoSkin and with industrialMaterial.
+    const p: G[] = [];
+    const sp = (geo: G, color: number, pos: [number, number, number], sk: Skin, rot?: [number, number, number]) => skinProjected(part(geo, color, pos, rot), sk);
+    const ball = (r: number, x: number, y: number, z: number, c: number) => sp(new THREE.IcosahedronGeometry(r, 1), c, [x, y, z], Skin.Plain);
+    p.push(sp(box(0.98, 0.012, 0.98), 0xc9c5bb, [0, 0, 0], Skin.Concrete)); // pavement
+    p.push(sp(box(0.98, 0.014, 0.3), 0x7fb35f, [0, 0.012, 0.34], Skin.Plain)); // front lawns
+    const cols = [0xe3a88e, 0xf0d58a, 0x9ec2d6, 0xd6dc8e, 0xe6a8be];
+    const walls = [Skin.Siding, Skin.Brick, Skin.Stucco, Skin.Siding, Skin.Brick];
+    const bricks = [0xffffff, 0xc2644a, 0xffffff, 0xffffff, 0xb95a44];
     for (let k = 0; k < 5; k++) {
-      const x = -0.4 + k * 0.2;
-      p.push(part(box(0.19, 0.3 + (k % 2) * 0.03, 0.5), cols[k], [x, 0.012, -0.05]));
-      p.push(part(gable(0.2, 0.07, 0.52), 0x5c4a45, [x, 0.312 + (k % 2) * 0.03, -0.05], [0, Math.PI / 2, 0]));
-      p.push(part(box(0.05, 0.07, 0.008), GL, [x - 0.04, 0.09, 0.2]), part(box(0.05, 0.07, 0.008), GL, [x - 0.04, 0.2, 0.2]));
-      p.push(part(box(0.045, 0.1, 0.008), 0x4a3224, [x + 0.05, 0.012, 0.2]));
-      p.push(part(box(0.03, 0.06, 0.03), 0x8a4a38, [x + 0.05, 0.36 + (k % 2) * 0.03, -0.2]));
-      p.push(part(box(0.15, 0.02, 0.1), 0x8fc06a, [x, 0.012, 0.32]));
+      const x = -0.4 + k * 0.2, tall = 0.3 + (k % 2) * 0.03;
+      const wall = walls[k] === Skin.Brick ? bricks[k] : cols[k];
+      p.push(sp(box(0.19, tall, 0.5), wall, [x, 0.012, -0.05], walls[k]));
+      p.push(sp(box(0.2, 0.012, 0.52), 0xd8d2c4, [x, 0.012 + 0.0, -0.05], Skin.Concrete)); // plinth
+      p.push(sp(gable(0.2, 0.08, 0.54), 0x6a5a55, [x, 0.012 + tall, -0.05], Skin.Shingle, [0, Math.PI / 2, 0]));
+      p.push(sp(box(0.2, 0.014, 0.012), 0xf4f1ea, [x, 0.012 + tall - 0.006, 0.22], Skin.Plain)); // fascia
+      // chimney + pot
+      p.push(sp(box(0.045, 0.1, 0.045), 0xa4533b, [x + 0.05, 0.012 + tall + 0.02, -0.2], Skin.Brick), sp(box(0.055, 0.014, 0.055), 0xcfc8bb, [x + 0.05, 0.012 + tall + 0.12, -0.2], Skin.Concrete), sp(new THREE.CylinderGeometry(0.01, 0.012, 0.03, 8).translate(0, 0.015, 0), 0xc2713f, [x + 0.05, 0.012 + tall + 0.134, -0.2], Skin.Plain));
+      // ground-floor bay window with its own roof, upper window with sill + lintel, shutters on odd houses
+      p.push(sp(box(0.08, 0.1, 0.045), wall, [x - 0.04, 0.05, 0.222], walls[k]), sp(box(0.07, 0.07, 0.008), GL, [x - 0.04, 0.065, 0.248], Skin.Glass), sp(box(0.09, 0.014, 0.05), 0xf4f1ea, [x - 0.04, 0.15, 0.222], Skin.Plain), sp(box(0.09, 0.012, 0.05), 0xe8e4da, [x - 0.04, 0.04, 0.226], Skin.Concrete));
+      p.push(sp(box(0.06, 0.075, 0.008), GL, [x - 0.04, 0.2, 0.2], Skin.Glass), sp(box(0.075, 0.012, 0.02), 0xf4f1ea, [x - 0.04, 0.195, 0.205], Skin.Plain), sp(box(0.07, 0.012, 0.014), 0xf4f1ea, [x - 0.04, 0.28, 0.2], Skin.Plain), sp(box(0.004, 0.075, 0.01), 0xf4f1ea, [x - 0.04, 0.2, 0.205], Skin.Plain));
+      if (k % 2) for (const sg of [-1, 1]) p.push(sp(box(0.02, 0.075, 0.01), 0x3f6a5a, [x - 0.04 + sg * 0.046, 0.2, 0.203], Skin.Boards));
+      // front door: frame, panels, fanlight, step, lamp, number plate
+      p.push(sp(box(0.05, 0.11, 0.012), 0x5a3a22, [x + 0.05, 0.012, 0.204], Skin.Boards), sp(box(0.06, 0.12, 0.008), 0xf4f1ea, [x + 0.05, 0.012, 0.2], Skin.Plain), sp(new THREE.CylinderGeometry(0.026, 0.026, 0.01, 10, 1, false, 0, Math.PI).rotateX(Math.PI / 2).translate(0, 0.123, 0), 0xbfe6ff, [x + 0.05, 0.012, 0.208], Skin.Glass));
+      for (const dy of [0.04, 0.08]) p.push(sp(box(0.03, 0.03, 0.006), 0x4a2f1a, [x + 0.05, dy, 0.211], Skin.Boards));
+      p.push(sp(box(0.07, 0.018, 0.05), 0xcfc8bb, [x + 0.05, 0.012, 0.238], Skin.Concrete), sp(box(0.012, 0.016, 0.006), 0xc9a646, [x + 0.09, 0.14, 0.205], Skin.Plain), sp(new THREE.SphereGeometry(0.009, 6, 5), 0xffe9a8, [x + 0.09, 0.16, 0.208], Skin.Plain));
+      // drainpipe + party wall pilaster
+      p.push(sp(box(0.008, tall, 0.008), 0x4a4f55, [x + 0.092, 0.012, 0.207], Skin.Metal), sp(box(0.012, tall + 0.02, 0.52), 0xcfc8bb, [x - 0.1, 0.012, -0.05], Skin.Concrete));
+      // dormer on alternate houses
+      if (k % 2 === 0) p.push(sp(box(0.07, 0.06, 0.06), wall, [x, 0.012 + tall + 0.012, 0.1], walls[k]), sp(gable(0.09, 0.04, 0.08), 0x6a5a55, [x, 0.012 + tall + 0.072, 0.1], Skin.Shingle, [0, Math.PI / 2, 0]), sp(box(0.04, 0.035, 0.008), GL, [x, 0.012 + tall + 0.03, 0.132], Skin.Glass));
+      // front garden: low brick wall, gate gap by the door, hedge balls, flower bed, bin
+      p.push(sp(box(0.1, 0.03, 0.012), 0xa4533b, [x - 0.04, 0.012, 0.47], Skin.Brick), sp(box(0.03, 0.04, 0.014), 0xa4533b, [x + 0.01, 0.012, 0.47], Skin.Brick));
+      for (let h = 0; h < 3; h++) p.push(ball(0.022, x - 0.07 + h * 0.035, 0.044, 0.44, 0x4f8a45));
+      for (let f = 0; f < 4; f++) p.push(ball(0.011, x - 0.075 + f * 0.04, 0.034, 0.36, [0xe05a6d, 0xf2c230, 0xffffff, 0xb872c4][(f + k) % 4]));
+      p.push(sp(cyl(0.016, 0.045, 8), [0x2f6f4f, 0x2f4f8a, 0x555a60][k % 3], [x + 0.07, 0.014, 0.4], Skin.Plain), sp(cyl(0.017, 0.008, 8), 0x333333, [x + 0.07, 0.059, 0.4], Skin.Plain));
+      p.push(sp(box(0.036, 0.004, 0.14), 0xb9b2a6, [x + 0.05, 0.013, 0.34], Skin.Concrete)); // path
     }
-    p.push(...car(-0.3, 0.44, CARS[1]), ...car(0.1, 0.44, CARS[0]));
+    // street trees + cars
+    for (const tx of [-0.46, 0.46]) p.push(sp(cyl(0.012, 0.09, 6), 0x6b4a2f, [tx, 0.012, 0.44], Skin.Boards), ball(0.06, tx, 0.14, 0.44, 0x4f8a45), ball(0.045, tx + 0.03, 0.18, 0.43, 0x5a9a4a));
+    p.push(...car(-0.18, 0.5, CARS[1]).map((g) => remapUV(g, Skin.Plain)), ...car(0.2, 0.5, CARS[0]).map((g) => remapUV(g, Skin.Plain)));
     out.terrace = merge(p);
   }
   { // MODERN HOUSE: stacked white and timber boxes, flat roofs, big glazing, solar panels.
