@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA debug codes. A descriptive id (not a letter) so it can't collide
+    // with letter ids other workers add on nebula at the same time.
+    id: '2026-10-15-debugcode',
+    title: 'Debug codes',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: '☰ Menu → 🐞 Debug code: "Copy debug code" turns your whole city (roads, buildings, zoning, power and water, money and time) into one line of text you can paste into a bug report.' },
+      { tag: 'new', text: '"Load debug code" opens a city from a pasted code, so a reported problem can be reproduced exactly.' },
+    ],
+  },
+  {
     id: '2026-10-15-n',
     title: 'Faster update checks',
     date: '2026-10-15',

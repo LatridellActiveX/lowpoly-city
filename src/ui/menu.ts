@@ -15,13 +15,14 @@ import { sound } from '../audio/sound';
  */
 import { Simulation } from '../sim/simulation';
 import { saveSettings } from '../sim/settings';
-import { SAVE_VERSION } from '../sim/save';
+import { SAVE_VERSION, serializeWorld, importSaveText } from '../sim/save';
+import { decodeDebugCode, encodeDebugCode } from '../sim/debugCode';
 import { copyText, gameLog, Severity } from './gameLog';
 
 export class GameMenu {
   readonly button = document.createElement('button');
   readonly el = document.createElement('div');
-  private view: 'main' | 'settings' | 'log' = 'main';
+  private view: 'main' | 'settings' | 'log' | 'debug' = 'main';
   private readonly filter = new Set<Severity>(['info', 'event', 'warn', 'error']);
 
   /** Opens the What's new screen (set by main.ts). */
@@ -45,7 +46,14 @@ export class GameMenu {
     if (show) this.show('main');
   }
 
-  show(view: 'main' | 'settings' | 'log'): void {
+  /**
+   * NEBULA debug code: called after a pasted code was written to the save.
+   * Default: reload the page — the title screen then offers "Continue" with
+   * the pasted city (main.ts may override this to load it in place).
+   */
+  onDebugLoaded: () => void = () => location.reload();
+
+  show(view: 'main' | 'settings' | 'log' | 'debug'): void {
     this.view = view;
     const back = view === 'main' ? '' : '<button class="btn back">‹ Back</button>';
     const close = '<button class="close" aria-label="Close">×</button>';
@@ -53,10 +61,11 @@ export class GameMenu {
       this.el.innerHTML = `${close}<h3>Menu</h3>
         <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
+        <button class="menu-item" data-go="debug">🐞 Debug code<span>Copy this city as a code to share for bug reports, or load one</span></button>
         <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>
         <button class="menu-item" data-go="mainmenu">🏠 Main menu<span>Save this city and return to the title screen</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
-        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log');
+        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log' | 'debug');
       }));
     } else if (view === 'settings') {
       const s = this.getSim().settings;
@@ -103,6 +112,43 @@ export class GameMenu {
           gameLog.info(`Setting changed: ${inp.dataset.k} = ${inp instanceof HTMLInputElement && inp.type === 'checkbox' ? inp.checked : inp.value}`);
         };
       });
+    } else if (view === 'debug') {
+      // ---- NEBULA: DEBUG CODE panel ----
+      // Copy: serialize the LIVE world (not the last autosave, so the code is
+      // exactly what's on screen), compress it into "LPC1:…" and copy it.
+      // The textarea always shows the code too, so if the clipboard is blocked
+      // (insecure context, permissions) it can be selected and copied by hand.
+      // Load: paste a code, validate it (decodeDebugCode never throws), store
+      // it as the main save via importSaveText, then onDebugLoaded().
+      this.el.innerHTML = `${close}${back}<h3>Debug code</h3>
+        <div class="muted small">A debug code is your whole city (roads, buildings, zoning, utilities, money, time) in one line of text. Paste it into a bug report so the exact city can be reproduced.</div>
+        <div class="log-actions"><button class="btn dbg-copy">📋 Copy debug code</button><span class="muted small dbg-msg"></span></div>
+        <textarea class="dbg-out" readonly rows="4" style="width:100%;font:11px monospace;word-break:break-all" placeholder="The code appears here"></textarea>
+        <h4>Load a debug code</h4>
+        <textarea class="dbg-in" rows="4" style="width:100%;font:11px monospace;word-break:break-all" placeholder="Paste a code starting with LPC1:"></textarea>
+        <div class="log-actions"><button class="btn dbg-load">📥 Load debug code</button><span class="muted small dbg-err"></span></div>
+        <div class="muted small">Loading replaces your current city (copy its code first if you want to keep it).</div>`;
+      const out = this.el.querySelector('.dbg-out') as HTMLTextAreaElement;
+      const msg = this.el.querySelector('.dbg-msg') as HTMLElement;
+      (this.el.querySelector('.dbg-copy') as HTMLButtonElement).onclick = async () => {
+        const code = encodeDebugCode(serializeWorld(this.getSim().world));
+        out.value = code;
+        const ok = await copyText(code);
+        msg.textContent = ok ? `Copied! (${code.length.toLocaleString()} characters)` : 'Copy failed — select the code below and copy it manually';
+        if (!ok) { out.focus(); out.select(); }
+        gameLog.info(`Debug code created (${code.length} characters)`);
+      };
+      out.onfocus = () => out.select();
+      (this.el.querySelector('.dbg-load') as HTMLButtonElement).onclick = () => {
+        const err = this.el.querySelector('.dbg-err') as HTMLElement;
+        const r = decodeDebugCode((this.el.querySelector('.dbg-in') as HTMLTextAreaElement).value);
+        if (!r.ok) { err.textContent = r.error; gameLog.warn(`Debug code rejected: ${r.error}`); return; }
+        if (!confirm('Replace your current city with the city in this debug code?')) return;
+        if (!importSaveText(r.saveJson)) { err.textContent = 'The save inside this code is not readable by this version.'; return; }
+        gameLog.info('Debug code loaded');
+        this.toggle(false);
+        this.onDebugLoaded();
+      };
     } else {
       this.el.innerHTML = `${close}${back}<h3>Game log</h3>
         <div class="log-filters">${(['info', 'event', 'warn', 'error'] as Severity[]).map((s) => `<label class="sev-${s}"><input type="checkbox" data-sev="${s}" ${this.filter.has(s) ? 'checked' : ''}>${s}</label>`).join('')}</div>

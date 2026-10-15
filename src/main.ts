@@ -423,6 +423,9 @@ menu.onMainMenu = () => {
   if (!inTitle) saveWorld(sim.world);
   window.location.reload();
 };
+// NEBULA debug code: a pasted code was written to the save — load it in place
+// (no page reload, so the beforeunload autosave can't overwrite it).
+menu.onDebugLoaded = () => startGame('continue');
 
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);
