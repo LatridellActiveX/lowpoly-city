@@ -392,6 +392,11 @@ app.append(menu.el);
 const changelog = new ChangelogPanel();
 document.body.append(changelog.el);
 menu.onChangelog = () => changelog.open();
+// Back to the title screen: save the city first (Continue picks it up), then reload clean.
+menu.onMainMenu = () => {
+  if (!inTitle) saveWorld(sim.world);
+  window.location.reload();
+};
 
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);

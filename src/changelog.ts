@@ -55,6 +55,7 @@ export const CHANGELOG: ChangeEntry[] = [
     changes: [
       { tag: 'improved', text: 'All map views (power, water, pollution, zoning…) now live in one dropdown behind the round 👁 view-menu button.' },
       { tag: 'improved', text: 'Power and Water are merged into a single Utilities toolbar menu with Power and Water sections.' },
+      { tag: 'new', text: 'The ☰ menu has a Main menu entry: it saves your city and takes you back to the title screen (use Continue to resume).' },
       { tag: 'improved', text: 'Bridges are automatic: drag a road across water and it bridges. The separate Bridge row is gone from the Roads menu.' },
     ],
   },
