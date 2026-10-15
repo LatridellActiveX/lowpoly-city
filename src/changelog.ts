@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-d',
+    title: 'Oil plant and recycling checks',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Fixed the automated checks for the 2×2 Oil Plant (they now unlock it at the Town tier, as the game does) and for landfill trucks hauling to a Recycling Center (the center now sits on a road). Gameplay is unchanged.' },
+    ],
+  },
+  {
     id: '2026-10-15-c',
     title: 'Roundabouts',
     date: '2026-10-15',

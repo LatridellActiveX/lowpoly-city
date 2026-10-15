@@ -298,6 +298,12 @@ import { POLICE_UNLOCK_POP } from '../src/sim/services';
   check('coal plant powers 5,000 and a wind turbine up to 1,000', POWER_OUTPUT.powerPlant === 5000 && POWER_OUTPUT.windTurbine === 1000);
   check('crime starts exactly when police unlock', CRIME_START === POLICE_UNLOCK_POP && isUnlocked('policeStation', 0, CRIME_START));
   const s = fresh();
+  // Fix (oasis): the oil plant is gated to the Town tier (TOOL_TIER.oilPlant
+  // = 2, progression.ts; the tool tooltip says "Unlocks at 2,000 people").
+  // fresh() is a tier-0 Hamlet, so apply() returned { locked: true } and
+  // NOTHING was built: both oil checks below failed for that reason alone.
+  // The gate is intended game design, so the test raises the tier instead.
+  s.world.tier = 2; s.world.peakPop = 2000;
   s.apply('oilPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('oilPlant', [[30, 30]]);
   const w = s.world;
   check('2×2 oil plant: anchor + 3 parts, 8,000 on the anchor only', isBigOil(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 8000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
@@ -326,10 +332,14 @@ import { POLICE_UNLOCK_POP } from '../src/sim/services';
   check('a recycling center produces coal-plant power', output(p.world.at(31, 17), 'power', 0.5) === POWER_OUTPUT.powerPlant && p.net.power.some((n) => n.capacity >= (POWER_OUTPUT.powerPlant ?? 0)));
   // Landfill trucks haul stored garbage to the recycling center to be burned.
   const h = town({ seed: 28 }); h.world.peakPop = 3000;
-  h.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); h.apply('recyclingCenter', [[24, 17]]);
+  h.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); h.apply('recyclingCenter', [[24, 18]]);
+  // Fix (oasis): the recycling center is a 1x1 service. At (24,17) it sat two
+  // tiles above the town's road (z = 19), so serviceAnchors() skipped it as
+  // unconnected and no landfill truck could find it (hauled 0). (24,18) is
+  // directly on the road, matching the "on a road" setup used elsewhere.
   const la = idx(31, 17); h.world.tiles[la].stock = 6000;
   run(h, 1500);
-  check('landfill trucks haul garbage to the recycling center and it is burned', h.garbage.stats.hauled > 0 && h.garbage.burnedBy(idx(24, 17)) > 0 && h.world.tiles[la].stock < 6000, { hauled: h.garbage.stats.hauled, burned: h.garbage.burnedBy(idx(24, 17)), stock: h.world.tiles[la].stock });
+  check('landfill trucks haul garbage to the recycling center and it is burned', h.garbage.stats.hauled > 0 && h.garbage.burnedBy(idx(24, 18)) > 0 && h.world.tiles[la].stock < 6000, { hauled: h.garbage.stats.hauled, burned: h.garbage.burnedBy(idx(24, 18)), stock: h.world.tiles[la].stock });
 }
 
 // ---------------------------------------------------------------- V1.6: roundabout direction stays counter-clockwise even for touching rings
