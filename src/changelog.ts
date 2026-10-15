@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-c',
+    title: 'Roundabouts',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Roundabouts have a much more detailed island: cobbled apron, kerb stones, flower beds, hedges, a big tree, rocks and chevron boards facing each entry.' },
+      { tag: 'new', text: 'Painted counter-clockwise arrows on the ring, give-way markings and a roundabout sign at every entry, so the direction of travel is clear.' },
+      { tag: 'fix', text: 'Cars now follow a smooth circle around the island, and two roundabouts built side by side both keep counter-clockwise traffic (the ring remembers its own corners).' },
+    ],
+  },
+  {
     id: '2026-10-15-b',
     title: 'Services, power and polish',
     date: '2026-10-15',

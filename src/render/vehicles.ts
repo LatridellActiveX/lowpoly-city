@@ -15,6 +15,7 @@ import { GRID_SIZE, Tile } from '../sim/types';
 import { Vehicle } from '../sim/traffic';
 import { surfaceY } from './roads';
 import { hash2 } from '../sim/random';
+import { RING_LANE_R } from './roundaboutModel';
 
 const LANE = 0.17;
 const GLASS = 0x2a3440;
@@ -295,7 +296,10 @@ function routePoint(v: Vehicle, tiles: Tile[], seg: number, t: number, pos: THRE
   P0.set(cx - ix * 0.5 - iz * (laneIn + wob), 0, cz - iz * 0.5 + ix * (laneIn + wob));
   P3.set(cx + ox * 0.5 - oz * (laneOut + wob), 0, cz + oz * 0.5 + ox * (laneOut + wob));
   const uturn = din !== dout && (din >> 1) === (dout >> 1);
-  const h = din === dout ? 0.33 : uturn ? 0.45 : 0.28;
+  // V1.6: between two ring tiles the car follows a true circle round the island (a quarter-circle Bézier needs handles of 0.552·r).
+  const prevT = tiles[t >= 0.5 ? path[seg] : path[seg - 1] ?? tile], nextR = tiles[t >= 0.5 ? path[seg + 2] ?? tile : path[seg + 1]];
+  const onRing = T.roadType === 2 && prevT?.roadType === 2 && nextR?.roadType === 2 && din !== dout;
+  const h = onRing ? 0.552 * RING_LANE_R : din === dout ? 0.33 : uturn ? 0.45 : 0.28;
   P1.set(P0.x + ix * h, 0, P0.z + iz * h);
   P2.set(P3.x - ox * h, 0, P3.z - oz * h);
   // Cubic Bézier B(u) and its derivative B'(u).

@@ -50,6 +50,7 @@ const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.R
 import { truckBody } from '../sim/truckBodies';
 import { bigCoalModel, COAL_STACKS } from './coalModel';
 import { isBigCoal, isBigOil } from '../sim/networks';
+import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './roundaboutModel';
 import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
@@ -70,7 +71,7 @@ import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
-import { isIntersection, lightState } from '../sim/traffic';
+import { isIntersection, lightState, ringCorner } from '../sim/traffic';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
@@ -407,16 +408,10 @@ export class CityRenderer {
     for (const [k, geo, cap] of [['pine', NATURE.pine(), 512], ['oak', NATURE.oak(), 512], ['birch', NATURE.birch(), 512], ['bush', NATURE.bush(), 256], ['rock', NATURE.rock(), 256]] as const)
       this.decoPools[k] = new InstancePool(this.group, geo, solid, cap, true);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
-    // V1.5 roundabout island: kerb ring, lawn, flower bed and a small tree.
-    add('ringIsland', merge([
-      part(new THREE.CylinderGeometry(0.46, 0.48, 0.07, 24).translate(0, 0.035, 0), 0xc9c6bf),
-      part(new THREE.CylinderGeometry(0.43, 0.43, 0.075, 24).translate(0, 0.04, 0), 0x6fb54f),
-      part(new THREE.CylinderGeometry(0.2, 0.2, 0.08, 16).translate(0, 0.045, 0), 0xb5651d),
-      ...[0, 1, 2, 3, 4, 5].map((k) => part(new THREE.SphereGeometry(0.035, 6, 4), [0xe84a5f, 0xffd166, 0xf8f8ff][k % 3], [Math.cos(k) * 0.14, 0.1, Math.sin(k) * 0.14])),
-      part(new THREE.CylinderGeometry(0.025, 0.03, 0.28, 6).translate(0, 0.14, 0), 0x6b4a2b),
-      part(new THREE.IcosahedronGeometry(0.14, 0).translate(0, 0.36, 0), 0x3f8f3a),
-      ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => part(new THREE.SphereGeometry(0.04, 6, 4), 0x4f9e45, [Math.cos(k * 0.785 + 0.3) * 0.34, 0.09, Math.sin(k * 0.785 + 0.3) * 0.34])),
-    ]), solid, 32);
+    // V1.6 roundabout (roundaboutModel.ts): detailed central island, CCW lane arrows and give-way markings.
+    add('ringIsland', ringIslandModel(), solid, 32);
+    add('ringArrow', ringArrowModel(), solid, 128, false);
+    add('ringYield', ringYieldModel(), solid, 128, false);
     add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
     // V1.5b: the 2×2 coal plant (high + low detail) with night-lit windows.
@@ -884,7 +879,19 @@ export class CityRenderer {
       P.road.add(this.place(center), tint);
       [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.sidewalk.add(this.place(center, yaw as number)));
       const ring = (q: Tile) => q.roadType === 2;
-      if (has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), hash2(x, z, 515) * 6));
+      // V1.6: the ring corner (0 NW, 1 NE, 2 SW, 3 SE) is stored on the tile; the island is drawn once, from the NW tile, and is NOT rotated (its chevron boards face the four entries).
+      const corner = this.sim ? ringCorner(this.sim.world.tiles, z * GRID_SIZE + x) : 0;
+      const bx = x + (corner === 1 || corner === 3 ? 0 : 1), bz = z + (corner >= 2 ? 0 : 1); // block centre
+      if (corner === 0 && has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(bx, 0, bz), 0));
+      // A painted arrow along the counter-clockwise lane (traffic.ts ringStepOk): NW→SW is south, SW→SE east, SE→NE north, NE→NW west.
+      const S = Math.SQRT1_2, ARROW: Array<[number, number]> = [[-S, S], [-S, -S], [S, S], [S, -S]]; // travel direction per corner (dx, dz)
+      const OUT: Array<[number, number]> = [[-S, -S], [S, -S], [-S, S], [S, S]]; // where that tile's arc midpoint lies from the block centre
+      const [adx, adz] = ARROW[corner], [ox, oz] = OUT[corner];
+      P.ringArrow.add(this.place(new THREE.Vector3(bx + ox * RING_LANE_R, 0, bz + oz * RING_LANE_R), Math.atan2(-adz, adx)));
+      // Give-way markings + roundabout sign on every side where a street arrives from outside the ring.
+      [[n, 0, x, z - 1], [w, Math.PI / 2, x - 1, z], [s, Math.PI, x, z + 1], [e, (3 * Math.PI) / 2, x + 1, z]].forEach(([has_, yaw, nx, nz]) => {
+        if (has_ && !has(nx as number, nz as number, ring)) P.ringYield.add(this.place(center, yaw as number));
+      });
       return;
     }
     if (t.water) {

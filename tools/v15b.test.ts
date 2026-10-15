@@ -332,5 +332,15 @@ import { POLICE_UNLOCK_POP } from '../src/sim/services';
   check('landfill trucks haul garbage to the recycling center and it is burned', h.garbage.stats.hauled > 0 && h.garbage.burnedBy(idx(24, 17)) > 0 && h.world.tiles[la].stock < 6000, { hauled: h.garbage.stats.hauled, burned: h.garbage.burnedBy(idx(24, 17)), stock: h.world.tiles[la].stock });
 }
 
+// ---------------------------------------------------------------- V1.6: roundabout direction stays counter-clockwise even for touching rings
+{
+  const s = fresh();
+  s.apply('roundabout', [[30, 18], [31, 18], [30, 19], [31, 19]]); s.apply('roundabout', [[32, 18], [33, 18], [32, 19], [33, 19]]);
+  const t = s.world.tiles, ccw = (x: number, z: number, dx: number, dz: number) => ringStepOk(t, idx(x, z), idx(x + dx, z + dz));
+  // Ring A: NE(31,18)→NW(30,18) west, NW→SW(30,19) south, SW→SE(31,19) east, SE→NE north. Ring B the same, shifted by 2.
+  check('touching roundabouts both circulate counter-clockwise', [0, 2].every((o) => ccw(31 + o, 18, -1, 0) && ccw(30 + o, 18, 0, 1) && ccw(30 + o, 19, 1, 0) && ccw(31 + o, 19, 0, -1)));
+  check('and never the other way round', [0, 2].every((o) => !ccw(30 + o, 18, 1, 0) && !ccw(30 + o, 19, 0, -1) && !ccw(31 + o, 19, -1, 0) && !ccw(31 + o, 18, 0, 1)));
+}
+
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
 process.exit(fails ? 1 : 0);

@@ -518,7 +518,7 @@ export class Simulation {
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
+    tiles.forEach(([x, z], k) => { applyTool('roundabout', w.at(x, z)); w.at(x, z).kind = 1 + k; w.lots.markAround(x, z); }); // V1.6: kind remembers the ring corner (traffic.ts ringCorner)
     this.net = this.refreshNet();
     this.env = this.envWithServices(w);
     this.version++;
