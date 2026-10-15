@@ -17,9 +17,9 @@ import { bigCoalModel } from './coalModel';
 import { bigOilModel } from './oilPlantModel';
 import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
-import { commerceModels, homeModels, industryExtra, PRESKINNED } from './cityModels';
+import { commerceModels, homeModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
 import { ringIslandModel } from './roundaboutModel';
-import { autoSkin, industrialMaterial, texturedHome, texturedShop } from './textures';
+import { autoSkin, autoSkinMap, industrialMaterial, texturedHome, texturedShop } from './textures';
 import { SERVICE_DEFS } from '../sim/services';
 
 export interface CatalogItem {
@@ -87,7 +87,7 @@ export function buildCatalog(): CatalogItem[] {
   for (const [key, g] of Object.entries(officeModels())) add('Shops & offices', LABEL[key] ?? pretty(key), () => plain(g));
   for (let k = 0; k < designs.industrial.length; k++) for (const lv of [0, 1, 2, 3, 4]) add('Industry', `Factory ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('industrial', k, lv));
   for (const [key, g] of Object.entries(newIndustryModels())) add('Industry', LABEL[key] ?? pretty(key), () => textured(g));
-  for (const [key, g] of Object.entries(industryExtra())) add('Industry', LABEL[key] ?? pretty(key), () => (PRESKINNED.has(key) ? mesh(g, industrialMaterial()) : textured(g)));
+  for (const [key, g] of Object.entries(industryExtra())) add('Industry', LABEL[key] ?? pretty(key), () => (PRESKINNED.has(key) ? mesh(g, industrialMaterial()) : mesh(autoSkinMap(g, FACTORY_SKINS), industrialMaterial())));
 
   // ---- Resources, farms, processors ----
   add('Resources & farms', 'Farm', () => textured(farmModel()));

@@ -81,7 +81,7 @@ export function homeModels(): Record<string, G> {
       const wall = walls[k] === Skin.Brick ? bricks[k] : cols[k];
       p.push(sp(box(0.19, tall, 0.5), wall, [x, 0.012, -0.05], walls[k]));
       p.push(sp(box(0.2, 0.012, 0.52), 0xd8d2c4, [x, 0.012 + 0.0, -0.05], Skin.Concrete)); // plinth
-      p.push(sp(gable(0.2, 0.08, 0.54), 0x6a5a55, [x, 0.012 + tall, -0.05], Skin.Shingle, [0, Math.PI / 2, 0]));
+      p.push(sp(gable(0.5, 0.08, 0.19), 0x6a5a55, [x, 0.012 + tall, -0.05], Skin.Shingle, [0, Math.PI / 2, 0]));
       p.push(sp(box(0.2, 0.014, 0.012), 0xf4f1ea, [x, 0.012 + tall - 0.006, 0.22], Skin.Plain)); // fascia
       // chimney + pot
       p.push(sp(box(0.045, 0.1, 0.045), 0xa4533b, [x + 0.05, 0.012 + tall + 0.02, -0.2], Skin.Brick), sp(box(0.055, 0.014, 0.055), 0xcfc8bb, [x + 0.05, 0.012 + tall + 0.12, -0.2], Skin.Concrete), sp(new THREE.CylinderGeometry(0.01, 0.012, 0.03, 8).translate(0, 0.015, 0), 0xc2713f, [x + 0.05, 0.012 + tall + 0.134, -0.2], Skin.Plain));
@@ -96,7 +96,7 @@ export function homeModels(): Record<string, G> {
       // drainpipe + party wall pilaster
       p.push(sp(box(0.008, tall, 0.008), 0x4a4f55, [x + 0.092, 0.012, 0.207], Skin.Metal), sp(box(0.012, tall + 0.02, 0.52), 0xcfc8bb, [x - 0.1, 0.012, -0.05], Skin.Concrete));
       // dormer on alternate houses
-      if (k % 2 === 0) p.push(sp(box(0.07, 0.06, 0.06), wall, [x, 0.012 + tall + 0.012, 0.1], walls[k]), sp(gable(0.09, 0.04, 0.08), 0x6a5a55, [x, 0.012 + tall + 0.072, 0.1], Skin.Shingle, [0, Math.PI / 2, 0]), sp(box(0.04, 0.035, 0.008), GL, [x, 0.012 + tall + 0.03, 0.132], Skin.Glass));
+      if (k % 2 === 0) p.push(sp(box(0.07, 0.06, 0.06), wall, [x, 0.012 + tall + 0.012, 0.1], walls[k]), sp(gable(0.06, 0.04, 0.07), 0x6a5a55, [x, 0.012 + tall + 0.072, 0.1], Skin.Shingle, [0, Math.PI / 2, 0]), sp(box(0.04, 0.035, 0.008), GL, [x, 0.012 + tall + 0.03, 0.132], Skin.Glass));
       // front garden: low brick wall, gate gap by the door, hedge balls, flower bed, bin
       p.push(sp(box(0.1, 0.03, 0.012), 0xa4533b, [x - 0.04, 0.012, 0.47], Skin.Brick), sp(box(0.03, 0.04, 0.014), 0xa4533b, [x + 0.01, 0.012, 0.47], Skin.Brick));
       for (let h = 0; h < 3; h++) p.push(ball(0.022, x - 0.07 + h * 0.035, 0.044, 0.44, 0x4f8a45));
@@ -211,16 +211,6 @@ export function commerceModels(): Record<string, G> {
     p.push(part(box(0.26, 0.012, 0.14), 0x4fb3d9, [-0.26, 0.012, 0.38]), ...tree(0.36, 0.38), ...car(0.12, 0.3, CARS[3]));
     out.hotel = merge(p);
   }
-  { // CINEMA: windowless hall with a bright marquee and tall poster boards.
-    const p: G[] = [plot(0xb2aea6)];
-    p.push(part(box(0.84, 0.36, 0.56), 0x6b3f5e, [0, 0.012, -0.18]));
-    p.push(part(box(0.7, 0.14, 0.2), 0x4e2c44, [0.0, 0.372, -0.28]));
-    p.push(part(box(0.56, 0.12, 0.1), 0xf2c230, [0, 0.24, 0.17]), part(box(0.58, 0.02, 0.12), 0xd23b2e, [0, 0.36, 0.17]));
-    for (const x of [-0.3, -0.1, 0.1, 0.3]) p.push(part(box(0.1, 0.16, 0.01), [0xd24a4a, 0x3e7fc4, 0x4aa86b, 0xc99a2b][Math.round((x + 0.3) / 0.2) % 4], [x, 0.06, 0.112]));
-    p.push(...stalls(-0.3, 0.38, 7, 0.1));
-    p.push(...car(-0.2, 0.38, CARS[0]), ...car(0.2, 0.38, CARS[2]));
-    out.cinema = merge(p);
-  }
   { // DEPARTMENT STORE: stone-faced block, corner clock tower, flag poles, display windows.
     const p: G[] = [plot(0xb9b4aa)];
     p.push(part(box(0.9, 0.4, 0.6), 0xd8cdb6, [0, 0.012, -0.12]));
@@ -285,6 +275,12 @@ const tankAt = (x: number, z: number, r: number, h: number, c = STEEL) => [
 ];
 const truck = (x: number, z: number, c = 0xe8e8e8) => [part(box(0.1, 0.09, 0.3), c, [x, 0.03, z]), part(box(0.1, 0.07, 0.06), 0x2f6fb0, [x, 0.03, z + 0.18]), part(box(0.1, 0.012, 0.36), 0x333333, [x, 0.012, z + 0.02])];
 
+/** Surfaces for the factory extras (brewery … mega-factory), picked by exact vertex colour. */
+export const FACTORY_SKINS: Record<number, Skin> = {
+  0xcfc9bd: Skin.Concrete, 0xe6eef2: Skin.Metal, 0xf2f4f5: Skin.Stucco, 0xe6e9eb: Skin.Metal, 0xd7dbde: Skin.Metal, 0xd0d4d8: Skin.Metal,
+  0x8a9aa5: Skin.Roof, 0x7a8790: Skin.Roof, 0x4aa3c7: Skin.Glass, 0xb5543c: Skin.Brick, 0xc4c0b6: Skin.Concrete, 0xc27b3a: Skin.Rust,
+  0x9ea2a4: Skin.Concrete, 0xe0b030: Skin.Plain, 0xe8e8e8: Skin.Metal, 0xeef3f6: Skin.Metal,
+};
 export function industryExtra(): Record<string, G> {
   const out: Record<string, G> = {};
   { // BREWERY: brick brewhouse, shiny copper kettles, tall fermenters, bottling hall, delivery lorry.

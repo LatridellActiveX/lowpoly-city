@@ -126,7 +126,7 @@ function recyclingModel(): THREE.BufferGeometry {
  * vane, a perpendicular classroom wing, a gym annex, a chimney; out front a
  * flag pole, school bus, basketball court and a playground (slide, swings,
  * seesaw, climbing dome, sandbox), hedges, trees, a bike rack and a sign.
- * Front faces +z. (The old single-tile school is kept as svc4s for legacy saves.)
+ * Front faces +z. (Old 1×1 schools from early saves are drawn with this model at half size.)
  */
 function elementaryModel(): THREE.BufferGeometry {
   const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), 0x9cc47a)];
@@ -237,7 +237,7 @@ function elementaryModel(): THREE.BufferGeometry {
  * entrance and sign, a three-bay patrol garage on the left, a holding block with
  * a helipad roof on the right, radio mast and dish, a front car park with patrol
  * cars and a motorcycle, flag poles, lamp posts, bollards, planters and a fence.
- * Front faces +z. (The old single-tile station is kept as svc1s for legacy saves.)
+ * Front faces +z. (Old 1×1 stations from early saves are drawn with this model at half size.)
  */
 function policeModel(): THREE.BufferGeometry {
   const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), 0xb9b6ad)];
@@ -320,30 +320,9 @@ export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
     svc8: recyclingModel(), // V1.6
-    // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>); svc0 below is the LEGACY 1×1 dump kept for old saves.
+    // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>).
     ...Object.fromEntries(Array.from({ length: 6 }, (_, k) => [`svc0_${k}`, landfillStageModel(k)])),
-    // LEGACY 1×1 garbage dump (old saves whose dump couldn't grow to 2×2): fenced yard, two waste mounds, a compactor shed and a parked truck.
-    svc0: merge([
-      part(box(0.96, 0.012, 0.96), 0x8f8676),
-      ...[[-0.47, 0, 0.94, 0.02], [0.47, 0, 0.94, 0.02], [0, -0.47, 0.02, 0.94]].map(([x, z, w, d]) => part(box(w, 0.1, d), 0x6d7177, [x, 0.012, z])),
-      part(new THREE.ConeGeometry(0.28, 0.24, 9).translate(0, 0.12, 0), 0x6b6450, [-0.18, 0.012, -0.18]),
-      part(new THREE.ConeGeometry(0.2, 0.17, 8).translate(0, 0.085, 0), 0x7d7558, [0.2, 0.012, -0.22]),
-      ...[[-0.25, -0.12, 0x3d7a3a], [-0.1, -0.25, 0x2c5f8a], [0.15, -0.1, 0xb33b2e], [0.28, -0.3, 0xd9c23a]].map(([x, z, c]) => part(box(0.05, 0.04, 0.04), c, [x, 0.1, z])),
-      part(box(0.3, 0.2, 0.22), 0x9aa0a6, [0.22, 0.012, 0.2]), part(box(0.32, 0.03, 0.24), 0x3d7a3a, [0.22, 0.212, 0.2]),
-      part(box(0.26, 0.1, 0.12), 0x3c8d40, [-0.2, 0.012, 0.3]), part(box(0.08, 0.1, 0.12), 0xe8e8e8, [-0.05, 0.012, 0.3]),
-    ]),
     svc1: policeModel(), // V1.6: the 2×2 station
-    // LEGACY 1×1 police station (old saves where it couldn't grow): two-storey white/blue block, flag pole, blue lamp, parked patrol cars.
-    svc1s: merge([
-      part(box(0.96, 0.012, 0.96), CONC),
-      part(box(0.66, 0.36, 0.42), 0xeef1f5, [0, 0.012, -0.12]), part(box(0.68, 0.06, 0.44), 0x24529e, [0, 0.33, -0.12]),
-      ...windows(5, 0.6, 0.12, 0.095), ...windows(5, 0.6, 0.24, 0.095),
-      part(box(0.16, 0.14, 0.03), 0x24529e, [0, 0.012, 0.1]), part(box(0.1, 0.04, 0.012), 0xffffff, [0, 0.16, 0.118]),
-      part(new THREE.SphereGeometry(0.025, 8, 6), 0x3f7fff, [0.1, 0.2, 0.12]),
-      part(cyl(0.008, 0.5, 6), 0xd0d0d0, [-0.38, 0.012, 0.25]), part(box(0.12, 0.07, 0.004), 0x2a62c9, [-0.32, 0.43, 0.25]),
-      ...[0.05, 0.25].map((x) => part(box(0.14, 0.05, 0.08), 0x1e2a44, [x, 0.012, 0.32])),
-      ...[0.05, 0.25].map((x) => part(box(0.05, 0.015, 0.06), 0xff3b30, [x, 0.062, 0.32])),
-    ]),
     // Health clinic: white single storey, green cross sign, ramp and planters.
     svc2: merge([
       part(box(0.96, 0.012, 0.96), CONC),
@@ -365,16 +344,6 @@ export function serviceModels(): Record<string, THREE.BufferGeometry> {
       ...[-0.8, -0.6, 0.8].map((x) => part(cyl(0.07, 0.18, 7), 0x3f8f3a, [x, 0.012, 0.85])),
     ]),
     svc4: elementaryModel(), // V1.6: the 2×2 school
-    // LEGACY 1×1 elementary school (old saves where it couldn't grow): brick, gable roof, bell tower, playground with a slide.
-    svc4s: merge([
-      part(box(0.96, 0.012, 0.96), 0xa8c486),
-      part(box(0.62, 0.22, 0.34), BRICK, [-0.08, 0.012, -0.2]), part(gable(0.66, 0.12, 0.38), ROOFD, [-0.08, 0.232, -0.2]),
-      ...windows(5, 0.56, 0.12, -0.025, -0.08, 0xfff1c4),
-      part(box(0.08, 0.12, 0.08), 0xe8dcc4, [-0.08, 0.3, -0.2]), part(new THREE.ConeGeometry(0.07, 0.1, 4).translate(0, 0.05, 0), ROOFD, [-0.08, 0.42, -0.2]),
-      part(box(0.4, 0.008, 0.3), 0xd8b47a, [0.2, 0.012, 0.25]),
-      part(box(0.03, 0.12, 0.03), 0xe04a3f, [0.1, 0.012, 0.2]), part(box(0.03, 0.03, 0.18), 0xffd84a, [0.1, 0.08, 0.3], [0.5, 0, 0]),
-      part(box(0.16, 0.012, 0.012), 0x666666, [0.3, 0.14, 0.22]), ...[0.23, 0.37].map((x) => part(box(0.01, 0.14, 0.01), 0x666666, [x, 0.012, 0.22])),
-    ]),
     // High school: bigger two-storey block, gym hall, running track + field.
     svc5: merge([
       part(box(0.96, 0.012, 0.96), 0x9fbf7c),

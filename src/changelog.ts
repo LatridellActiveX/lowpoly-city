@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-s',
+    title: 'Roof fixes, cinema and factory textures',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Townhouse and mansard roofs no longer hang over the edge: the rowhouse blocks (A, C, E, G at level 4), the mansard apartment block (H at level 5), the terraced townhouses and the print works now have roofs that match their walls.' },
+      { tag: 'improved', text: 'The multiplex cinema is rebuilt with brick and concrete textures, a glass lobby, a curved lit marquee, a neon blade sign, poster cases, a ticket booth, a popcorn cart, queue posts, a fly tower and a searchlight.' },
+      { tag: 'improved', text: 'The brewery, pharmaceutical lab, clothing factory, cold storage, industrial park and mega-factory now have proper surface textures (concrete, metal, brick, stucco, glass and roof membrane).' },
+      { tag: 'improved', text: 'Removed the old 1x1 landfill, police station and school models. Any left over in very old saves are drawn at half size using the current models.' },
+    ],
+  },
+  {
     id: '2026-10-15-r',
     title: 'Textured shops and new businesses',
     date: '2026-10-15',

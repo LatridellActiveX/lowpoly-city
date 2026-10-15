@@ -522,14 +522,14 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
       const h = v === 0 ? hBase + (u % 2) * 0.05 : hBase;
       if (v === 1) b.fix(box(uw - 0.004, h, d), BRICK, [x, 0, 0]);
       else b.wall(box(uw - 0.004, h, d), [x, 0, 0]);
-      if (v === 0) b.acc(gable(uw + 0.01, 0.16, d + 0.06), [x, h, 0], [0, Math.PI / 2, 0]);
+      if (v === 0) b.acc(gable(d, 0.16, uw - 0.004), [x, h, 0], [0, Math.PI / 2, 0]); // ridge runs front-to-back, no overhang past the unit
       else if (v === 1) {
         b.acc(box(uw + 0.004, 0.04, d + 0.02), [x, h, 0]); // cornice
         b.wall(box(uw * 0.6, FLOOR * 2 - 0.04, 0.07), [x, FLOOR, d / 2 + 0.035]); // bay
         b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR + 0.07, d / 2 + 0.072]);
         b.fix(box(uw * 0.5, 0.1, 0.02), GLASS, [x, FLOOR * 2 + 0.07, d / 2 + 0.072]);
       } else {
-        b.acc(gambrel(uw + 0.01, 0.2, d + 0.04), [x, h, 0], [0, Math.PI / 2, 0]);
+        b.acc(gambrel(d, 0.2, uw - 0.004), [x, h, 0], [0, Math.PI / 2, 0]);
         b.wall(box(0.09, 0.08, 0.08), [x, h + 0.05, d / 2 - 0.02]);
         b.fix(box(0.06, 0.05, 0.02), GLASS, [x, h + 0.065, d / 2 + 0.025]);
       }
@@ -570,7 +570,7 @@ function medium(v: number, level: number, hi: boolean): DesignParts {
     } else if (v === 3) {
       // PR 6 MANSARD block: steep slate mansard on top, a balcony on every bay.
       b.wall(box(w, h - FLOOR, d));
-      b.acc(gambrel(w + 0.02, FLOOR + 0.1, d + 0.02), [0, h - FLOOR, 0], [0, Math.PI / 2, 0]);
+      b.acc(gambrel(d, FLOOR + 0.1, w), [0, h - FLOOR, 0], [0, Math.PI / 2, 0]);
       for (let f = 0; f < floors - 1; f++) b.windows(4, w, d, 0.1 + f * FLOOR, GLASS, 0.085);
       for (const dx of [-0.3, 0, 0.3]) { b.wall(box(0.1, 0.09, 0.08), [dx, h - FLOOR + 0.04, d / 2 - 0.03]); b.fix(box(0.07, 0.06, 0.02), GLASS, [dx, h - FLOOR + 0.055, d / 2 + 0.015]); }
       if (hi) for (let f = 1; f < floors - 1; f++) for (const dx of [-0.3, 0, 0.3]) balcony(b, dx, f * FLOOR + 0.02, d / 2, 0.14);

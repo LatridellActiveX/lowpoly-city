@@ -53,6 +53,8 @@ const carAt = (x: number, z: number, c: number, yaw = 0): G[] => [
   sp(box(0.05, 0.02, 0.1), c, [x, 0.014, z], Skin.Metal, [0, yaw, 0]), sp(box(0.044, 0.016, 0.05), 0x2b3a47, [x, 0.034, z], Skin.Glass, [0, yaw, 0]),
 ];
 const CARS = [0xc0392b, 0x2f6fb0, 0xe8e8e8, 0x2d2d2d, 0xe0b030, 0x3f9e4a];
+/** Rooftop air-handling unit with a fan. */
+const hvacBox = (x: number, y: number, z: number): G[] => [sp(box(0.08, 0.04, 0.06), 0xb8bec4, [x, y, z], Skin.Metal), sp(cylC(0.02, 0.006, 10), 0x333a40, [x, y + 0.043, z], Skin.Metal)];
 /** Chimney with a stack of smoke puffs. */
 const chimney = (x: number, y: number, z: number, smoke = false): G[] => [
   sp(box(0.05, 0.1, 0.05), 0xa4533b, [x, y, z], Skin.Brick), sp(box(0.06, 0.014, 0.06), 0xcfc8bb, [x, y + 0.1, z], Skin.Concrete),
@@ -171,6 +173,35 @@ export function newShopModels(): Record<string, G> {
     p.push(...pot(-0.3, 0.3), ...pot(0.2, 0.3, 0xe05a6d), ...tree(-0.43, 0.2, 0.9), ...carAt(0.1, 0.45, CARS[2]));
     out.vetclinic = merge(p);
   }
+  { // MULTIPLEX CINEMA: brick-and-concrete front, glass lobby, curved lit marquee, vertical neon blade sign, poster cases,
+    // ticket booth, popcorn cart, queue posts, a windowless auditorium block with a fly tower, rooftop plant and a searchlight.
+    const p: G[] = [pave(0xb2aea6)];
+    p.push(sp(box(0.84, 0.3, 0.3), 0x7a3a4a, [0, 0.012, -0.34], Skin.Concrete)); // auditorium block (rear)
+    p.push(sp(box(0.5, 0.2, 0.28), 0x6a3040, [-0.12, 0.312, -0.34], Skin.Concrete), sp(box(0.52, 0.02, 0.3), 0x3a4048, [-0.12, 0.512, -0.34], Skin.Roof)); // fly tower
+    for (let i = 0; i < 7; i++) p.push(sp(box(0.008, 0.3, 0.012), 0x5a2a38, [-0.38 + i * 0.127, 0.012, -0.186], Skin.Concrete)); // panel seams
+    p.push(sp(box(0.86, 0.02, 0.32), 0x3a4048, [0, 0.312, -0.34], Skin.Roof));
+    p.push(sp(box(0.84, 0.3, 0.3), 0xa4533b, [0, 0.012, -0.04], Skin.Brick), sp(box(0.86, 0.02, 0.32), 0x3a4048, [0, 0.312, -0.04], Skin.Roof)); // front block
+    p.push(sp(box(0.5, 0.2, 0.014), 0xbfe6ff, [-0.05, 0.03, 0.112], Skin.Glass)); // glass lobby
+    for (let i = 0; i <= 5; i++) p.push(sp(box(0.008, 0.2, 0.02), 0xe8e4da, [-0.3 + i * 0.1, 0.03, 0.116], Skin.Plain));
+    p.push(...door(0.3, 0.114, 0x2a2a30, 0.14));
+    p.push(sp(new THREE.CylinderGeometry(0.34, 0.34, 0.05, 20, 1, false, -Math.PI / 4, Math.PI / 2).scale(1, 1, 0.5).translate(-0.05, 0.225, 0.09), 0xd23b2e, [0, 0, 0], Skin.Stucco)); // curved marquee
+    for (let i = 0; i < 11; i++) { const th = ((i - 5) / 5) * (Math.PI / 4); p.push(ball(0.009, 0xffe9a8, [-0.05 + 0.34 * Math.sin(th), 0.205, 0.09 + 0.17 * Math.cos(th) + 0.006])); } // marquee bulbs
+    p.push(sp(box(0.5, 0.05, 0.014), 0x1a1a22, [-0.05, 0.275, 0.12], Skin.Boards)); // title board
+    for (let i = 0; i < 6; i++) p.push(sp(box(0.05, 0.026, 0.008), [0xffe9a8, 0xffffff][i % 2], [-0.27 + i * 0.075, 0.287, 0.128], Skin.Plain));
+    p.push(sp(box(0.07, 0.4, 0.05), 0x1a1a22, [0.36, 0.012, 0.14], Skin.Metal), sp(box(0.05, 0.36, 0.01), 0x6fd0ff, [0.36, 0.03, 0.168], Skin.Glass)); // vertical neon blade sign
+    for (let i = 0; i < 5; i++) p.push(sp(box(0.03, 0.04, 0.006), [0xff4fa0, 0x6fd0ff, 0xffe9a8, 0xff4fa0, 0x6fd0ff][i], [0.36, 0.06 + i * 0.065, 0.174], Skin.Plain));
+    for (let i = 0; i < 4; i++) p.push(sp(box(0.075, 0.1, 0.014), 0x2a2a30, [-0.34 + i * 0.113, 0.042, 0.108 - 0.0], Skin.Metal), sp(box(0.06, 0.082, 0.006), [0xd23b2e, 0x2f6fb0, 0xf2c230, 0x3f9e4a][i], [-0.34 + i * 0.113, 0.05, 0.114], Skin.Plain)); // poster cases
+    p.push(sp(box(0.12, 0.12, 0.1), 0xe8e4da, [-0.36, 0.012, 0.3], Skin.Siding), sp(box(0.13, 0.014, 0.11), 0xd23b2e, [-0.36, 0.132, 0.3], Skin.Stucco), sp(box(0.07, 0.05, 0.006), GL, [-0.36, 0.06, 0.352], Skin.Glass)); // ticket booth
+    p.push(sp(box(0.07, 0.05, 0.05), 0xd23b2e, [0.2, 0.03, 0.36], Skin.Stucco), sp(box(0.074, 0.02, 0.054), 0xffffff, [0.2, 0.05, 0.36], Skin.Plain), sp(cyl(0.004, 0.06, 5), 0x777777, [0.2, 0.012, 0.36], Skin.Metal));
+    for (let i = 0; i < 6; i++) p.push(ball(0.012, 0xfff2b0, [0.18 + (i % 3) * 0.02, 0.1 + Math.floor(i / 3) * 0.015, 0.36])); // popcorn
+    for (let i = 0; i < 4; i++) p.push(sp(cyl(0.006, 0.05, 5), 0xc9a646, [-0.18 + i * 0.07, 0.012, 0.32], Skin.Metal), ball(0.01, 0xc9a646, [-0.18 + i * 0.07, 0.066, 0.32])); // queue posts
+    p.push(sp(box(0.21, 0.004, 0.004), 0x8a1a2a, [-0.115, 0.05, 0.32], Skin.Plain));
+    for (let i = 0; i < 4; i++) p.push(...hvacBox(-0.35 + i * 0.1, 0.332, -0.04));
+    p.push(sp(cyl(0.012, 0.07, 8), 0x333333, [0.4, 0.332, -0.3], Skin.Metal), sp(new THREE.ConeGeometry(0.018, 0.04, 8).translate(0, 0.02, 0), 0xfff2b0, [0.4, 0.402, -0.3], Skin.Plain)); // searchlight
+    for (let i = 0; i < 6; i++) p.push(sp(box(0.004, 0.003, 0.08), 0xf5f5f0, [-0.45 + i * 0.1, 0.013, 0.45], Skin.Plain));
+    p.push(...carAt(-0.3, 0.45, CARS[0]), ...carAt(0.1, 0.45, CARS[2]), ...tree(-0.45, 0.2, 0.8), ...tree(0.45, 0.4, 0.8));
+    out.cinema = merge(p);
+  }
   return out;
 }
 
@@ -181,7 +212,7 @@ export function newFactoryModels(): Record<string, G> {
   { // PRINT WORKS: brick saw-tooth hall, paper-roll yard, ink tank, book-stack sign.
     const p: G[] = [apron()];
     p.push(sp(box(0.84, 0.24, 0.5), 0xa4533b, [0, 0.012, -0.14], Skin.Brick));
-    for (let i = 0; i < 4; i++) p.push(sp(gable(0.21, 0.08, 0.52), 0x4b535b, [-0.315 + i * 0.21, 0.252, -0.14], Skin.Roof, [0, Math.PI / 2, 0]), sp(box(0.2, 0.05, 0.006), GL, [-0.315 + i * 0.21, 0.27, 0.12], Skin.Glass));
+    for (let i = 0; i < 4; i++) p.push(sp(gable(0.5, 0.08, 0.21), 0x4b535b, [-0.315 + i * 0.21, 0.252, -0.14], Skin.Roof, [0, Math.PI / 2, 0]), sp(box(0.2, 0.05, 0.006), GL, [-0.315 + i * 0.21, 0.27, 0.12], Skin.Glass));
     for (let i = 0; i < 5; i++) p.push(sp(box(0.1, 0.11, 0.008), 0x8f969d, [-0.34 + i * 0.17, 0.04, 0.115], Skin.Metal), ...[0].map(() => sp(box(0.11, 0.05, 0.04), 0xc4c0b6, [-0.34 + i * 0.17, 0, 0.135], Skin.Concrete)));
     for (let i = 0; i < 4; i++) p.push(sp(cylC(0.04, 0.09, 12).rotateX(Math.PI / 2), 0xf4f1ea, [-0.35 + i * 0.1, 0.05, 0.3], Skin.Plain), sp(cylC(0.012, 0.095, 8).rotateX(Math.PI / 2), 0x8a6a48, [-0.35 + i * 0.1, 0.05, 0.3], Skin.Boards)); // paper rolls
     for (let i = 0; i < 3; i++) p.push(sp(box(0.08, 0.016, 0.06), [0xb5543c, 0x3f6fa0, 0x4f8a45][i], [0.3, 0.012 + i * 0.016, 0.3], Skin.Plain)); // book stack
