@@ -32,6 +32,7 @@
  *   extra trip) and GIVES UP; the destination's `gaveUp` counter rises and
  *   lowers its happiness. Counters decay so they describe recent history.
  */
+import { due, PHASE } from './schedule';
 import { CELL_GRID, CellRole, cidx, tileOfCell } from './cells';
 import { parkingRequired, supplyAt, TPL } from './footprints';
 import { World } from './grid';
@@ -315,7 +316,7 @@ export class Parking {
     // Measuring is every GROW_INTERVAL ticks; looking for a free tile for the
     // hot list is every tick, and the sim calls this BEFORE lots grow, so a
     // freshly zoned commercial tile can become a garage before a shop claims it.
-    if (world.tick % GROW_INTERVAL === 0) this.hot = this.measure(lots);
+    if (due(world.tick, GROW_INTERVAL, PHASE.garages)) this.hot = this.measure(lots);
     const hot = this.hot.filter((h) => lots.buildings.has(h.b.id));
     if (!hot.length) return null;
     let best: { b: Building; ratio: number } | null = null;

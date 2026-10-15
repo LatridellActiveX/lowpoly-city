@@ -37,7 +37,7 @@ function grassTexture(size = 256): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.repeat.set(24, 24); // ~2.7 units per tile on the 64-unit map
+  tex.repeat.set(24 * GRID_SIZE / 64, 24 * GRID_SIZE / 64); // V1.6 A1: ~2.7 units per tile at any map size
   return tex;
 }
 
@@ -53,6 +53,9 @@ export interface SceneBundle {
   sun: THREE.DirectionalLight;
   /** Sky/ground fill light (dimmed at night by dayNight.ts). */
   hemi: THREE.HemisphereLight;
+  /** V1.6 A6: the grass slab and the grid lines (resizeScene refits them). */
+  slab: THREE.Mesh;
+  grid: THREE.GridHelper;
 }
 
 export function createScene(container: HTMLElement): SceneBundle {
@@ -113,5 +116,34 @@ export function createScene(container: HTMLElement): SceneBundle {
   ground.position.set(half, 0, half);
   scene.add(ground);
 
-  return { renderer, scene, ground, sun, hemi };
+  return { renderer, scene, ground, sun, hemi, slab, grid };
+}
+
+/**
+ * V1.6 A6: fit the diorama to a new map size (64 / 128 / 192) after
+ * setGridSize(): stretch the slab and the picking plane, re-tile the grass,
+ * rebuild the tile grid lines, and re-aim the sun and its shadow box.
+ * (The scene is built once at start-up for 64; startGame calls this.)
+ */
+export function resizeScene(b: SceneBundle, n: number): void {
+  const k = n / 64, half = n / 2;
+  b.slab.scale.set(k, 1, k);
+  b.slab.position.set(half, -1, half);
+  const top = (b.slab.material as THREE.MeshLambertMaterial[])[2];
+  top.map?.repeat.set(24 * k, 24 * k);
+  b.ground.scale.set(k, 1, k);
+  b.ground.position.set(half, 0, half);
+  const parent = b.grid.parent!;
+  parent.remove(b.grid);
+  b.grid.geometry.dispose();
+  const grid = new THREE.GridHelper(n, n, 0x6aa548, 0x6aa548);
+  grid.position.set(half, 0.005, half);
+  (grid.material as THREE.Material).transparent = true;
+  (grid.material as THREE.Material).opacity = 0.35;
+  parent.add(grid);
+  b.grid = grid;
+  b.sun.target.position.set(half, 0, half);
+  const s = n * 0.75;
+  Object.assign(b.sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, far: 200 + n });
+  b.sun.shadow.camera.updateProjectionMatrix();
 }

@@ -17,6 +17,8 @@ import { hash2 } from './random';
 import { CellLayer } from './cells';
 import { Lots } from './lots';
 import { Parking } from './parking';
+import { ChunkIndex } from './chunks';
+import { allRegions, extendHighway, startRegion } from './regions';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -131,6 +133,11 @@ export class World {
    * building entities (lots.ts) and public parking lots (parking.ts). All
    * three are saved (save.ts v6).
    */
+  /**
+   * V1.6 A6: owned regions bitmask (regions.ts). A new 64 map owns its one
+   * region; a new big map owns only the start region. Saves restore it.
+   */
+  regionsOwned = GRID_SIZE > 64 ? 1 << startRegion() : allRegions();
   cells = new CellLayer();
   lots = new Lots();
   parking = new Parking();
@@ -151,7 +158,8 @@ export class World {
       // A brand-new map: water first (so trees don't grow in the river),
       // then the highway connection, then trees/rocks on what's left.
       if (!opts.dry) generateWater(this.tiles, this.seed, false);
-      placeEdgeConnection(this.tiles, this.seed);
+      const edge = placeEdgeConnection(this.tiles, this.seed);
+      extendHighway(this.tiles, edge); // V1.6 A6: big maps — highway reaches the start region
       scatterDecorations(this.tiles, this.seed);
     }
   }
@@ -168,8 +176,26 @@ export class World {
 
   /** PR 4: index of the out-of-city road tile, or -1 if this map has none. */
   get edgeIndex(): number {
-    return this.tiles.findIndex((t) => t.edge);
+    // V1.6 A2: cached. The cached tile is re-checked on every call (cheap);
+    // a "no edge" answer is re-checked whenever the topology revision moves.
+    const c = this.edgeCache;
+    if (c >= 0 && this.tiles[c]?.edge) return c;
+    if (c === -1 && this.edgeRev === this.chunks.topoRev) return -1;
+    this.edgeCache = this.tiles.findIndex((t) => t.edge);
+    this.edgeRev = this.chunks.topoRev;
+    return this.edgeCache;
   }
+  private edgeCache = -2;
+  private edgeRev = 0;
+
+  /**
+   * V1.6 A2: 16×16 chunk index + change detection (chunks.ts). Built on
+   * first use; Simulation calls chunks.sync() at the start of every tick.
+   */
+  get chunks(): ChunkIndex {
+    return (this.chunkIndex ??= new ChunkIndex(this.tiles, Math.round(Math.sqrt(this.tiles.length))));
+  }
+  private chunkIndex: ChunkIndex | null = null;
 
   /** Current month number (1-based), for the clock. */
   get month(): number {

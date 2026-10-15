@@ -194,8 +194,9 @@ export const TEMPLATES: Template[] = [
     maxLevel: 3, capacity: [8, 12, 16], model: { level: [1, 2, 3] }, weight: 2 },
   // "factory 6×6 + loading yard".
   { id: 'factory', label: 'Factory', zone: 'industrial', kind: 0, density: 1, tier: 0, w: 6, d: 8,
-    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 6, B)], garage: 0, bays: 2,
-    maxLevel: 3, capacity: [16, 24, 32], model: { level: [2, 3, 3] }, weight: 2 },
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 6, B)], garage: 6, bays: 2,
+    // V1.5b stage B: factories now reach LEVEL 5 (more workers and output).
+    maxLevel: 5, capacity: [16, 24, 32, 42, 54], model: { level: [2, 3, 3, 4, 5] }, weight: 2 },
   // Farm: barn + silo with a small yard; FIELDS are claimed separately (industry.ts).
   { id: 'farm', label: 'Farm', zone: 'industrial', kind: 1, density: 0, tier: 0, w: 3, d: 3,
     rects: [R(0, 0, 3, 1, P), R(0, 1, 3, 2, B)], garage: 0, bays: 0,
@@ -253,6 +254,52 @@ export const TEMPLATES: Template[] = [
   { id: 'perimeter', label: 'Perimeter block', zone: 'residential', kind: 0, density: 1, tier: 2, w: 10, d: 8,
     rects: [R(0, 0, 10, 3, B), R(0, 3, 3, 4, B), R(7, 3, 3, 4, B), R(3, 3, 4, 4, Gd), R(0, 7, 10, 1, P)], garage: 56, bays: 0,
     maxLevel: 4, capacity: [150, 230, 345, 500], homes: [60, 92, 138, 200], model: { level: [5, 5, 7, 7], grow: [1, 1, 1, 1.2] }, weight: 1 },
+  // ---------------- V1.5b stage H: offices (Commercial ▸ Office, kind 4) ----------------
+  // Parker: "counts toward both commercial and industrial demand and jobs".
+  // capacity = jobs. Offices want educated workers (demand.ts EDU_SHARE_OFFICE).
+  // `special` models: render/officeModels.ts (key office.<id>).
+  { id: 'law_firm', label: 'Law firm', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 10, bays: 0,
+    maxLevel: 3, capacity: [10, 18, 28], model: { level: [1, 2, 3] }, weight: 1.5 },
+  { id: 'cable_co', label: 'Cable company', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 10, bays: 0,
+    maxLevel: 3, capacity: [12, 20, 30], model: { level: [1, 2, 3] }, weight: 1.2 },
+  { id: 'internet_co', label: 'Internet company', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 6, d: 4,
+    rects: [R(0, 0, 6, 1, P), R(0, 1, 6, 3, B)], garage: 8, bays: 0,
+    maxLevel: 3, capacity: [16, 28, 42], model: { level: [1, 2, 3] }, weight: 1.2 },
+  { id: 'data_center', label: 'Data center', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 8, d: 8,
+    rects: [R(0, 0, 8, 1, P), R(0, 1, 8, 7, B)], garage: 17, bays: 0,
+    maxLevel: 3, capacity: [20, 34, 50], model: { level: [1, 2, 3] }, weight: 0.8 },
+  { id: 'cell_tower', label: 'Cell tower', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 3, d: 3,
+    rects: [R(0, 0, 3, 3, B)], garage: 1, bays: 0,
+    maxLevel: 1, capacity: [2], model: { level: [1] }, weight: 0.6 },
+  { id: 'radio_station', label: 'Radio station', zone: 'commercial', kind: 4, density: 1, tier: 0, w: 4, d: 4,
+    rects: [R(0, 0, 4, 1, P), R(0, 1, 4, 3, B)], garage: 3, bays: 0,
+    maxLevel: 2, capacity: [8, 14], model: { level: [1, 2] }, weight: 0.8 },
+  // ---------------- V1.5b stage B: six new industry types (Parker) ----------------
+  // Factory-family (kind 0) buildings with their own textured models
+  // (render/industryModels.ts newIndustryModels). Bigger footprints and up to
+  // LEVEL 5 (more workers → more output: goods.ts produces level × rate).
+  // Parking: (w−2)×2 surface stalls + an in-plant garage allowance so the
+  // L5 workforce is covered (FACTORY_JOBS_PER_SPACE = 4).
+  { id: 'warehouse', label: 'Warehouse / distribution centre', zone: 'industrial', kind: 0, density: 0, tier: 1, w: 8, d: 6,
+    rects: [R(0, 0, 6, 2, P), R(6, 0, 2, 2, Bay), R(0, 2, 8, 4, B)], garage: 6, bays: 2,
+    maxLevel: 5, capacity: [12, 20, 28, 36, 44], model: { level: [1, 2, 3, 4, 5] }, weight: 1 },
+  { id: 'chemical_plant', label: 'Chemical plant', zone: 'industrial', kind: 0, density: 1, tier: 2, w: 6, d: 8,
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 6, B)], garage: 10, bays: 2,
+    maxLevel: 5, capacity: [18, 28, 38, 48, 58], model: { level: [2, 3, 3, 4, 5] }, weight: 1 },
+  { id: 'steel_mill', label: 'Steel mill', zone: 'industrial', kind: 0, density: 1, tier: 2, w: 8, d: 8,
+    rects: [R(0, 0, 6, 2, P), R(6, 0, 2, 2, Bay), R(0, 2, 8, 6, B)], garage: 12, bays: 2,
+    maxLevel: 5, capacity: [24, 36, 48, 60, 72], model: { level: [2, 3, 3, 4, 5] }, weight: 1 },
+  { id: 'textile_mill', label: 'Textile mill', zone: 'industrial', kind: 0, density: 0, tier: 1, w: 6, d: 6,
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 4, B)], garage: 4, bays: 1,
+    maxLevel: 4, capacity: [12, 18, 26, 34], model: { level: [1, 2, 3, 4] }, weight: 1 },
+  { id: 'bottling_plant', label: 'Bottling plant', zone: 'industrial', kind: 0, density: 0, tier: 1, w: 6, d: 6,
+    rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 4, B)], garage: 4, bays: 2,
+    maxLevel: 4, capacity: [10, 16, 24, 32], model: { level: [1, 2, 3, 4] }, weight: 1 },
+  { id: 'assembly_plant', label: 'Assembly plant', zone: 'industrial', kind: 0, density: 1, tier: 2, w: 8, d: 8,
+    rects: [R(0, 0, 6, 2, P), R(6, 0, 2, 2, Bay), R(0, 2, 8, 6, B)], garage: 14, bays: 3,
+    maxLevel: 5, capacity: [24, 36, 50, 64, 80], model: { level: [2, 3, 3, 4, 5] }, weight: 1 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));

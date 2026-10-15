@@ -449,3 +449,119 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
     ]),
   };
 }
+
+// ----------------------------------------------------------------------------
+// V1.5b stage B — SIX NEW INDUSTRY TYPES (Parker). One model each, 1×1 unit,
+// front (+z) to the road, scaled to the body like the role models. Colours
+// are picked so textures.ts `autoSkin` lands the right surface: brick reds,
+// mid-grey corrugated metal, light concrete, dark roofs, yellow hazard
+// stripes, orange-brown rust. Signage boards are bright saturated colours.
+// ----------------------------------------------------------------------------
+const BRICK = 0x9a4a35, MET = 0x8f989f, MET_D = 0x5b636a, CON = 0xc4c0b6, ROOFD = 0x4b535b, HAZ = 0xf2c230, RUST = 0x8a4f26;
+/** Rooftop HVAC unit with a fan grille. */
+function hvac(p: THREE.BufferGeometry[], x: number, y: number, z: number): void {
+  p.push(part(box(0.1, 0.05, 0.07), 0xb8bec4, [x, y, z]));
+  p.push(part(new THREE.CylinderGeometry(0.022, 0.022, 0.006, 10), 0x3a3f44, [x + 0.02, y + 0.053, z]));
+}
+/** Sign board on posts / wall with a coloured face (company signage). */
+function sign(p: THREE.BufferGeometry[], x: number, y: number, z: number, w: number, color: number): void {
+  p.push(part(box(w, 0.06, 0.012), color, [x, y, z]));
+  p.push(part(box(w * 0.7, 0.014, 0.014), 0xffffff, [x, y + 0.022, z + 0.001]));
+}
+/** Hazard-striped kerb + two bollards in front of a door. */
+function hazardKerb(p: THREE.BufferGeometry[], x: number, z: number, w: number): void {
+  p.push(part(box(w, 0.012, 0.025), HAZ, [x, 0.012, z]));
+  for (const s of [-1, 1]) p.push(part(cyl(0.012, 0.07, 8), HAZ, [x + s * (w / 2), 0.012, z + 0.02]));
+}
+const apron = () => part(box(0.98, 0.012, 0.98), 0x9ea2a4);
+
+export function newIndustryModels(): Record<string, THREE.BufferGeometry> {
+  const out: Record<string, THREE.BufferGeometry> = {};
+  { // WAREHOUSE / DISTRIBUTION CENTRE: long low metal shed, many dock doors, trailers, yard.
+    const p = [apron()];
+    p.push(part(box(0.86, 0.24, 0.56), MET, [0, 0.012, -0.12]));
+    p.push(part(box(0.88, 0.02, 0.58), ROOFD, [0, 0.252, -0.12]));
+    docks(p, -0.35, 6, 0.16, 0.24);
+    for (let k = 0; k < 4; k++) hvac(p, -0.3 + k * 0.2, 0.272, -0.15);
+    for (const x of [-0.3, -0.02]) { p.push(part(box(0.1, 0.09, 0.32), 0xe8e8e8, [x, 0.03, 0.38])); p.push(part(box(0.1, 0.012, 0.32), 0x3a3a3a, [x, 0.012, 0.38])); }
+    sign(p, 0.25, 0.18, 0.165, 0.26, 0x2f6fb0);
+    hazardKerb(p, 0.3, 0.42, 0.2);
+    out.warehouse = merge(p);
+  }
+  { // CHEMICAL PLANT: process columns, spherical tanks, pipe racks, flare stack.
+    const p = [apron()];
+    p.push(part(box(0.36, 0.2, 0.26), CON, [-0.26, 0.012, 0.2]));
+    p.push(part(box(0.38, 0.015, 0.28), ROOFD, [-0.26, 0.212, 0.2]));
+    for (const [x, z, h] of [[0.05, -0.15, 0.62], [0.17, -0.2, 0.5], [0.05, 0.02, 0.42]] as const) {
+      p.push(part(cyl(0.045, h, 12), 0xd0d4d8, [x, 0.012, z]));
+      for (let r = 1; r < 4; r++) p.push(part(box(0.11, 0.006, 0.11), MET_D, [x, 0.012 + (h * r) / 4, z]));
+    }
+    for (const [x, z] of [[0.32, 0.2], [0.32, -0.05]]) { p.push(part(new THREE.SphereGeometry(0.1, 14, 8), 0xe6e8ea, [x, 0.17, z])); for (const s of [-1, 1]) p.push(part(box(0.012, 0.1, 0.012), MET_D, [x + s * 0.07, 0.012, z])); }
+    p.push(part(new THREE.CylinderGeometry(0.015, 0.015, 0.7, 6).rotateZ(Math.PI / 2), RUST, [0, 0.3, -0.32]));
+    p.push(part(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6).rotateZ(Math.PI / 2), 0x3f8a5a, [0, 0.26, -0.32]));
+    for (const x of [-0.3, 0, 0.3]) p.push(part(box(0.015, 0.3, 0.015), MET_D, [x, 0.012, -0.32]));
+    p.push(part(cyl(0.018, 0.85, 8), 0xc23b2e, [-0.38, 0.012, -0.36]));
+    p.push(part(new THREE.ConeGeometry(0.03, 0.06, 8).translate(0, 0.03, 0), 0xff8a20, [-0.38, 0.86, -0.36]));
+    barrels(p, -0.4, 0.38);
+    hazardKerb(p, -0.2, 0.36, 0.18);
+    sign(p, -0.26, 0.15, 0.335, 0.22, 0xe07a1f);
+    out.chemical = merge(p);
+  }
+  { // STEEL MILL: tall brick-and-rust melt shop, blast furnace, stacks, ore piles.
+    const p = [apron()];
+    p.push(part(box(0.5, 0.42, 0.42), RUST, [-0.18, 0.012, 0.1]));
+    p.push(part(gable(0.52, 0.1, 0.44, 0.02), ROOFD, [-0.18, 0.43, 0.1]));
+    p.push(part(box(0.5, 0.12, 0.006), BRICK, [-0.18, 0.012, 0.32]));
+    p.push(part(new THREE.CylinderGeometry(0.08, 0.12, 0.55, 12).translate(0, 0.275, 0), MET_D, [0.25, 0.012, -0.15]));
+    p.push(part(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8).rotateZ(0.9), RUST, [0.12, 0.5, -0.15]));
+    for (const [x, h] of [[0.36, 0.95], [0.18, 0.85]] as const) {
+      p.push(part(new THREE.CylinderGeometry(0.03, 0.045, h, 10).translate(0, h / 2, 0), 0xb9b2a6, [x, 0.012, -0.38]));
+      p.push(part(new THREE.CylinderGeometry(0.033, 0.033, 0.04, 10), 0xc23b2e, [x, h - 0.08, -0.38]));
+    }
+    p.push(part(new THREE.ConeGeometry(0.14, 0.1, 8).translate(0, 0.05, 0).scale(1.4, 1, 1), 0x7a4a36, [0.28, 0.012, 0.3]));
+    conveyor(p, 0.2, 0.05, -0.05, 0.38, 0.22);
+    for (let k = 0; k < 3; k++) p.push(part(box(0.12, 0.025, 0.08), 0x6d6f73, [-0.35 + k * 0.14, 0.012, 0.42])); // slabs
+    sign(p, -0.18, 0.3, 0.325, 0.2, 0x3d5a80);
+    out.steel = merge(p);
+  }
+  { // TEXTILE MILL: classic red-brick multi-storey mill with tall windows + chimney + water tower.
+    const p = [apron()];
+    p.push(part(box(0.72, 0.4, 0.34), BRICK, [-0.05, 0.012, 0.0]));
+    p.push(part(box(0.74, 0.02, 0.36), ROOFD, [-0.05, 0.412, 0]));
+    for (let f = 0; f < 3; f++) for (let c = 0; c < 7; c++) p.push(part(box(0.06, 0.07, 0.006), 0x9fd7ff, [-0.38 + c * 0.1, 0.06 + f * 0.12, 0.173]));
+    p.push(part(box(0.1, 0.5, 0.1), BRICK, [0.34, 0.012, -0.05])); // stair tower
+    p.push(part(new THREE.ConeGeometry(0.08, 0.1, 4).rotateY(Math.PI / 4).translate(0, 0.05, 0), ROOFD, [0.34, 0.512, -0.05]));
+    p.push(part(new THREE.CylinderGeometry(0.03, 0.05, 0.9, 10).translate(0, 0.45, 0), 0x8a4532, [-0.38, 0.012, -0.32]));
+    p.push(part(cyl(0.07, 0.1, 10), 0x6b4a32, [0.1, 0.43, -0.08])); // rooftop water tank
+    for (let k = 0; k < 4; k++) p.push(part(box(0.06, 0.04, 0.06), 0xd3c7e8, [0.3 + (k % 2) * 0.07, 0.012 + Math.floor(k / 2) * 0.04, 0.32])); // bales of cloth
+    sign(p, -0.05, 0.33, 0.18, 0.3, 0x7d2f6b);
+    out.textile = merge(p);
+  }
+  { // BOTTLING PLANT: clean concrete hall, glass-front lobby, silo + syrup tanks, crate stacks.
+    const p = [apron()];
+    p.push(part(box(0.66, 0.24, 0.42), CON, [-0.1, 0.012, -0.08]));
+    p.push(part(box(0.68, 0.02, 0.44), ROOFD, [-0.1, 0.252, -0.08]));
+    p.push(part(box(0.2, 0.16, 0.006), 0x9fd7ff, [-0.25, 0.04, 0.134]));
+    for (let k = 0; k < 3; k++) tank(p, 0.36, -0.3 + k * 0.17, 0.065, 0.32);
+    p.push(part(new THREE.CylinderGeometry(0.015, 0.015, 0.3, 6).rotateZ(Math.PI / 2), 0xd0d4d8, [0.12, 0.2, -0.14]));
+    for (let k = 0; k < 4; k++) p.push(part(box(0.07, 0.05, 0.07), [0x2f9a4c, 0xc23b2e][k % 2], [0.08 + (k % 2) * 0.08, 0.012 + Math.floor(k / 2) * 0.05, 0.32]));
+    docks(p, 0.02, 2, 0.134, 0.22);
+    hvac(p, -0.2, 0.272, -0.12); hvac(p, 0.05, 0.272, -0.2);
+    sign(p, -0.1, 0.27, 0.14, 0.32, 0xd02c2c);
+    out.bottling = merge(p);
+  }
+  { // ASSEMBLY PLANT: big sawtooth-roof hall, paint shop with stacks, finished-goods lot.
+    const p = [apron()];
+    p.push(part(box(0.78, 0.26, 0.5), MET, [0, 0.012, -0.18]));
+    for (let s = 0; s < 4; s++) p.push(part(gable(0.78, 0.08, 0.125, 0.12), ROOFD, [0, 0.272, -0.37 + s * 0.125]));
+    for (let s = 0; s < 4; s++) p.push(part(box(0.76, 0.05, 0.006), 0x9fd7ff, [0, 0.29, -0.42 + s * 0.125])); // sawtooth glazing
+    p.push(part(box(0.22, 0.18, 0.18), CON, [-0.26, 0.012, 0.2])); // paint shop
+    for (const x of [-0.32, -0.2]) exhaustStack(p, x, 0.192, 0.2, 0.2);
+    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) p.push(part(box(0.06, 0.04, 0.1), [0x2f6fb0, 0xe8e8e8, 0xc23b2e, 0x3a3a3a][(r + c) % 4], [0.02 + c * 0.1, 0.012, 0.18 + r * 0.16])); // finished products
+    docks(p, 0.1, 3, 0.07, 0.24);
+    hazardKerb(p, 0.24, 0.12, 0.3);
+    sign(p, 0.0, 0.2, 0.074, 0.18, 0x1f7a3d);
+    out.assembly = merge(p);
+  }
+  return out;
+}

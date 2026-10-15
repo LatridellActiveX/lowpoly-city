@@ -41,6 +41,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   commercial: 25,
   industrial: 30,
   powerPlant: 4000, // V1.5: coal plant
+  bigWaterTower: 12000, // V1.5b: 3,200 water (4× the basic tower)
   oilPlant: 15000, // V1.5: 8,000 power — cheaper per unit than coal, dearer upkeep
   // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
   //   PR 5: coal plant 2,000 power (~2,000 people) for $4,000 + $250/mo; nuclear 8,000 (~8,000 people) = $20,000 + $1,250/mo;
@@ -72,6 +73,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   clinic: 6000,
   hospital: 24000,
   elementarySchool: 4000,
+  shippingDepot: 15000, // V1.5b stage C
   highSchool: 9000,
   college: 30000,
 };

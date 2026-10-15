@@ -70,21 +70,6 @@ export function gable(w: number, h: number, d: number, ridge = 0.5): THREE.Buffe
   return g;
 }
 
-/**
- * Closed tube/ring (outer wall, flat top, inner wall) spun from a profile with
- * LatheGeometry. Materials are single-sided, so an open-ended cylinder is
- * see-through from the inside; this ring has a proper inner wall facing the
- * opening instead. Base sits at y = 0.
- */
-export function solidRing(rOut: number, rIn: number, h: number, seg = 8): THREE.BufferGeometry {
-  return new THREE.LatheGeometry(
-    [new THREE.Vector2(rOut, 0), new THREE.Vector2(rOut, h), new THREE.Vector2(rIn, h), new THREE.Vector2(rIn, 0)],
-    seg,
-  );
-}
-/** Flat disc facing up (a recessed floor seen through an opening). */
-export const floorDisc = (r: number, seg = 8) => new THREE.CircleGeometry(r, seg).rotateX(-Math.PI / 2);
-
 export const MODELS = {
   /** Road surface (instance colour is white; the slab is asphalt grey). */
   road: () => merge([part(box(1, 0.04, 1), 0x50555e)]),
@@ -119,19 +104,14 @@ export const MODELS = {
     merge([
       part(box(0.94, 0.12, 0.94), 0x9aa0a6),
       part(box(0.42, 0.42, 0.5), 0xb5543c, [-0.2, 0.12, 0.15]),
-      part(new THREE.CylinderGeometry(0.15, 0.21, 0.56, 8).translate(0, 0.28, 0), 0xe1e4e8, [0.22, 0.12, -0.2]),
-      part(new THREE.CylinderGeometry(0.12, 0.17, 0.46, 8).translate(0, 0.23, 0), 0xe1e4e8, [0.25, 0.12, 0.25]),
+      part(new THREE.CylinderGeometry(0.15, 0.21, 0.6, 8).translate(0, 0.3, 0), 0xe1e4e8, [0.22, 0.12, -0.2]),
+      part(new THREE.CylinderGeometry(0.12, 0.17, 0.5, 8).translate(0, 0.25, 0), 0xe1e4e8, [0.25, 0.12, 0.25]),
       part(new THREE.CylinderGeometry(0.04, 0.05, 0.9, 6).translate(0, 0.45, 0), 0x55595e, [-0.32, 0.12, -0.3]),
       part(box(0.06, 0.05, 0.06), 0xffcc33, [-0.2, 0.54, 0.15]),
       // PR 5 detail: cooling-tower rims, boiler-house windows, a coal pile,
       // a conveyor up to the boiler house, pipe racks and a perimeter fence.
-      // Cooling-tower openings: a closed red rim (inner wall faces the opening)
-      // around a dark recessed floor, so the top reads as a solid hollow tower
-      // instead of a see-through tube.
-      part(solidRing(0.152, 0.12, 0.05), 0xc23b2f, [0.22, 0.68, -0.2]),
-      part(floorDisc(0.12), 0x4a5057, [0.22, 0.684, -0.2]),
-      part(solidRing(0.122, 0.092, 0.05), 0xc23b2f, [0.25, 0.58, 0.25]),
-      part(floorDisc(0.092), 0x4a5057, [0.25, 0.584, 0.25]),
+      part(new THREE.CylinderGeometry(0.155, 0.155, 0.03, 12, 1, true).translate(0, 0.72, 0), 0xc23b2f, [0.22, 0, -0.2]),
+      part(new THREE.CylinderGeometry(0.125, 0.125, 0.03, 12, 1, true).translate(0, 0.6, 0), 0xc23b2f, [0.25, 0, 0.25]),
       ...[-0.32, -0.2, -0.08].flatMap((x) => [part(box(0.06, 0.07, 0.01), 0x3e5f7a, [x, 0.3, 0.405]), part(box(0.07, 0.01, 0.02), 0xf4f1ea, [x, 0.29, 0.41])]),
       part(new THREE.ConeGeometry(0.13, 0.1, 9).translate(0, 0.05, 0), 0x2b2724, [-0.3, 0.12, -0.05]),
       part(box(0.05, 0.02, 0.36), 0x55595e, [-0.3, 0.3, 0.02], [0.55, 0, 0]),
@@ -183,6 +163,38 @@ export const MODELS = {
       part(box(0.008, 0.6, 0.008), 0x6b7078, [0.27, 0, 0.17]),
       part(new THREE.CylinderGeometry(0.035, 0.035, 0.6, 8).translate(0, 0.3, 0), 0x7d8288),
       part(new THREE.SphereGeometry(0.03, 8, 4), 0x3f7fa8, [0, 1.0, 0]),
+    ]);
+  },
+  /**
+   * V1.5b large water tower (kind 1): a tall fluted pedestal column flaring
+   * into a big spheroid tank (squashed sphere), with a catwalk ring + rail,
+   * a balcony around the tank's equator, an access door/hut at the base,
+   * a ladder, aviation light finial and a painted band. ~1.9 units tall.
+   */
+  bigWaterTower: () => {
+    const steel = 0x8a8f96, rail = 0x6b7078, tank = 0x7fc0e6, band = 0x2f6f9a;
+    const flutes = Array.from({ length: 8 }, (_, k) => {
+      const a = (k / 8) * Math.PI * 2;
+      return part(box(0.02, 1.0, 0.02), 0x9aa0a8, [Math.cos(a) * 0.1, 0.1, Math.sin(a) * 0.1]);
+    });
+    return merge([
+      part(new THREE.CylinderGeometry(0.3, 0.32, 0.08, 12).translate(0, 0.04, 0), 0x9a958c), // footing
+      part(new THREE.CylinderGeometry(0.09, 0.2, 0.25, 12).translate(0, 0.125, 0), steel, [0, 0.08, 0]), // flared base
+      part(new THREE.CylinderGeometry(0.09, 0.09, 1.0, 12).translate(0, 0.5, 0), steel, [0, 0.1, 0]), // column
+      ...flutes,
+      part(new THREE.CylinderGeometry(0.34, 0.09, 0.3, 14).translate(0, 0.15, 0), steel, [0, 1.05, 0]), // cone into tank
+      part(new THREE.SphereGeometry(0.42, 16, 10).scale(1, 0.62, 1), tank, [0, 1.52, 0]), // spheroid tank
+      part(new THREE.CylinderGeometry(0.425, 0.425, 0.06, 16), band, [0, 1.52, 0]), // painted band
+      part(new THREE.TorusGeometry(0.43, 0.012, 4, 24).rotateX(Math.PI / 2), rail, [0, 1.42, 0]), // equator walk
+      part(new THREE.TorusGeometry(0.45, 0.006, 3, 24).rotateX(Math.PI / 2), rail, [0, 1.5, 0]), // its rail
+      part(new THREE.TorusGeometry(0.22, 0.01, 4, 16).rotateX(Math.PI / 2), rail, [0, 1.06, 0]), // lower catwalk
+      part(box(0.008, 1.3, 0.008), rail, [0.11, 0.1, 0.03]), // ladder rails
+      part(box(0.008, 1.3, 0.008), rail, [0.11, 0.1, -0.03]),
+      part(box(0.1, 0.12, 0.08), 0xb9b2a4, [0.16, 0.08, 0.16]), // base hut
+      part(box(0.03, 0.08, 0.005), 0x3a3a3a, [0.16, 0.08, 0.2]), // door
+      part(new THREE.CylinderGeometry(0.06, 0.08, 0.05, 10), steel, [0, 1.8, 0]), // roof hatch
+      part(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 4).translate(0, 0.06, 0), rail, [0, 1.83, 0]), // mast
+      part(new THREE.SphereGeometry(0.02, 6, 4), 0xff4030, [0, 1.96, 0]), // aviation light
     ]);
   },
   /** Water pipe junction + a 1-unit segment along +x (lies on the ground). */

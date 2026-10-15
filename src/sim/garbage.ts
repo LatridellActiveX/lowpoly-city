@@ -23,11 +23,16 @@ import { roadNextTo, Traffic } from './traffic';
 import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
 
 export const GARBAGE_START = 800;
-export const GARBAGE_RATE = 0.01;
+/** Parker tune: halved 0.01 → 0.005 (garbage piled up too often). */
+export const GARBAGE_RATE = 0.005;
 export const G_PICKUP = 6;
-export const G_WARN = 30;
+/** Piles + 🗑 warning from here (was 30). */
+export const G_WARN = 42;
 export const G_MAX = 60;
 export const GARBAGE_PURPOSE = 'garbage';
+/** Before the dump unlocks (1,000 people) garbage penalties are scaled by this. */
+export const EARLY_PENALTY = 0.3;
+export const garbagePenalty = (peakPop: number) => (peakPop < 1000 ? EARLY_PENALTY : 1);
 export const GARBAGE_TRUCK_COLOR = 0x3c8d40;
 
 export class Garbage {
@@ -43,7 +48,7 @@ export class Garbage {
     const tiles = world.tiles, N = GRID_SIZE;
     if (world.peakPop < GARBAGE_START) return;
     // 1. Build-up.
-    tiles.forEach((t, i) => {
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2
       if (t.zone && t.level > 0 && t.units > 0 && operating(i)) t.garbage = Math.min(G_MAX, t.garbage + GARBAGE_RATE * t.units);
     });
     // 2. Dispatch.

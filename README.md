@@ -74,13 +74,28 @@ Version 1.5 is being built on the `version-1.5` branch. So far it includes:
 See the wiki page *Version 1.5* for details.
 
 ## Version 1.5b
-
-Version 1.5b is in progress on the same branch:
-* **Residential push:**
-  * Medium homes become mid-rise apartments at L6 and L7.
-  * Neighbours merge more often into new large footprints (apartment complex, twin mid-rise, perimeter block).
-  * Empty residential zoning cools R demand, and new homes raise industrial (and some commercial) job demand.
-* Run `npm run test:v15b-res`.
+Version 1.5b is on the same branch (`version-1.5`):
+* **Residential:**
+  * Mid-rise apartments at L6 and L7, and larger merged footprints.
+  * Detail on every side of the building.
+  * Under sustained high demand, homes densify and the zoning upgrades to match.
+  * Empty residential zoning cools R demand.
+* **Services:**
+  * Garbage dump and trucks.
+  * Police and crime.
+  * Clinic, hospital and ambulances.
+  * Schools: elementary is available from the start. Workforce education matters.
+* **Offices:** Commercial ▸ Office zoning, with law firms, cable and internet companies, data centres, cell towers and radio stations.
+* **Industry:**
+  * A detailed 2×2 coal plant.
+  * Procedurally textured industrial models.
+  * Factories reach L5, and industry merges and redevelops more often.
+  * Six new industry types: warehouse, chemical plant, steel mill, textile mill, bottling plant and assembly plant.
+  * Tanker and dump trucks.
+* **Shipping Depot:** industry and shops in its catchment ship through it.
+* **Water:** a large water tower tier (3,200 water, unlocks at 5,000 people).
+* **Traffic:** the right-on-red throughput fix.
+* Run the tests with `npm run test:v15b`, `test:v15b-res`, `test:v15`, `test:cells` and `test:industry`. `npm run balance` prints the rebalance probe.
 * See the wiki page *Version 1.5b*.
 
 ## Roadmap

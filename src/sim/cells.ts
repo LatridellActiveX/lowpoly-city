@@ -33,7 +33,9 @@ import { GRID_SIZE, ZoneType } from './types';
 /** Cells along one side of a tile. */
 export const CELLS_PER_TILE = 4;
 /** Cells along one side of the map (256 on the 64-tile map). */
-export const CELL_GRID = GRID_SIZE * CELLS_PER_TILE;
+export let CELL_GRID = GRID_SIZE * CELLS_PER_TILE; // V1.6 A1: live binding, see sim/mapsize.ts
+/** Internal (sim/mapsize.ts). */
+export function _setCellGrid(n: number): void { CELL_GRID = n * CELLS_PER_TILE; }
 /** World size of one cell in tile units (the renderer uses 1 tile = 1 unit). */
 export const CELL = 1 / CELLS_PER_TILE;
 
@@ -56,6 +58,8 @@ export enum ZoneCode {
   FoodPlant = 9,
   /** V1.5: mixed-use (shops on the ground floor, homes above) — Commercial ▸ Mixed. */
   ComMixed = 10,
+  /** V1.5b stage H: offices (Commercial ▸ Office) — law firms, telecoms, data centres. */
+  ComOffice = 11,
 }
 
 /** Static facts about each zone code (index = code). */
@@ -80,13 +84,15 @@ export const ZONE_CODES: ZoneCodeInfo[] = [
   { zone: 'industrial', density: 0, kind: 2, label: 'Food plant' },
   // V1.5: commercial kind 3 = mixed-use. Density 1 so only mixed templates fit.
   { zone: 'commercial', density: 1, kind: 3, label: 'Mixed use' },
+  // V1.5b: commercial kind 4 = office.
+  { zone: 'commercial', density: 1, kind: 4, label: 'Office' },
 ];
 
 /** The zone code for a zone + density (+ industrial kind). */
 export function zoneCode(zone: ZoneType, density: number, kind = 0): ZoneCode {
   if (zone === 'residential') return (ZoneCode.ResLow + Math.min(2, density)) as ZoneCode;
   // V1.5: commercial "density" 2 in the zone bar = Mixed use.
-  if (zone === 'commercial') return density >= 2 ? ZoneCode.ComMixed : ((ZoneCode.ComLow + Math.min(1, density)) as ZoneCode);
+  if (zone === 'commercial') return density >= 3 ? ZoneCode.ComOffice : density >= 2 ? ZoneCode.ComMixed : ((ZoneCode.ComLow + Math.min(1, density)) as ZoneCode);
   if (kind === 1) return ZoneCode.Farm;
   if (kind === 2) return ZoneCode.FoodPlant;
   return (ZoneCode.IndLight + Math.min(1, density)) as ZoneCode;

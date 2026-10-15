@@ -15,8 +15,17 @@
  * `z * GRID_SIZE + x`. Helpers for that live in grid.ts.
  */
 
-/** Width and height of the map in tiles. */
-export const GRID_SIZE = 64;
+/**
+ * Width and height of the map in tiles.
+ * V1.6 A1: a RUNTIME value (64, 128 or 192). It is an ES-module live
+ * binding: every `import { GRID_SIZE }` sees the new value after
+ * setGridSize() (sim/mapsize.ts). Change it only BEFORE creating a World —
+ * a World's arrays are sized when it is built. Never write 64 in code; use
+ * GRID_SIZE (tools/lint-grid.mjs checks this).
+ */
+export let GRID_SIZE = 64;
+/** Internal: use setGridSize() from sim/mapsize.ts (it also updates CELL_GRID). */
+export function _setGridSize(n: number): void { GRID_SIZE = n; }
 
 /** The three zone types the player can paint. */
 export type ZoneType = 'residential' | 'commercial' | 'industrial';
@@ -146,6 +155,7 @@ export type ToolId =
   | 'commercial'
   | 'industrial'
   | 'powerPlant'
+  | 'bigWaterTower' // V1.5b: places a waterTower structure with kind = 1 (3,200 water)
   | 'oilPlant' // V1.5: places a powerPlant structure with kind = PLANT_OIL
   | 'nuclearPlant'
   | 'windTurbine'
@@ -167,6 +177,7 @@ export type ToolId =
   | 'elementarySchool'
   | 'highSchool'
   | 'college'
+  | 'shippingDepot' // V1.5b stage C
   | 'bulldoze';
 
 /** Per-tile result of the most recent utility calculation (see networks.ts). */

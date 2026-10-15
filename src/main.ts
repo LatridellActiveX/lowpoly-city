@@ -1,3 +1,4 @@
+import { TPL } from './sim/footprints';
 /**
  * main.ts — wires the three layers together and runs the game loop.
  *
@@ -22,8 +23,10 @@ import { clearSave, downloadSave, importSaveText, hasSave, loadWorld, saveWorld 
 import { Simulation } from './sim/simulation';
 import { GRID_SIZE, ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
+import { setGridSize } from './sim/mapsize';
+import { REGION, regionSide, startRegion } from './sim/regions';
 import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
-import { createScene } from './render/scene';
+import { createScene, resizeScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput, pointer } from './ui/input';
@@ -44,7 +47,8 @@ import { World } from './sim/grid';
 gameLog.install();
 
 const app = document.getElementById('app')!;
-const { renderer, scene, ground, sun, hemi } = createScene(app);
+const sceneBundle = createScene(app);
+const { renderer, scene, ground, sun, hemi } = sceneBundle;
 const cam = new IsoCamera();
 const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
@@ -135,7 +139,7 @@ function renderZoneBar(): void {
   const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant';
   zoneBar.classList.toggle('hidden', !show);
   if (!show) return;
-  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed'] : ['Light', 'Heavy'];
+  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed', 'Office'] : ['Light', 'Heavy'];
   const d = Math.min(sim.zoneOpt.density, names.length - 1);
   zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
     <span class="muted" style="margin-left:10px">Depth</span> ${[1, 2, 3, 4].map((k) => `<button class="btn${k === sim.zoneOpt.depth ? ' active' : ''}" data-depth="${k}">${k}</button>`).join('')} <span class="muted">tiles</span>`;
@@ -212,7 +216,7 @@ function updatePreview(): void {
     const area: Array<{ x: number; z: number; ok: boolean | null }> = [];
     for (let dz = -5; dz <= 4; dz++) for (let dx = -5; dx <= 4; dx++) {
       const x = hoverTile[0] + dx, z = hoverTile[1] + dz;
-      if (x >= 0 && z >= 0 && x < 64 && z < 64) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
+      if (x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
     }
     preview.show(area, affordable && valid > 0);
   }
@@ -292,7 +296,7 @@ attachInput(renderer.domElement, cam, ground, {
     const end = t ?? hoverTile;
     if (dragFrom && end) {
       sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
-      hud.pickCell = [Math.max(0, Math.min(255, Math.floor(pointer.x * 4))), Math.max(0, Math.min(255, Math.floor(pointer.z * 4)))];
+      hud.pickCell = [Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.x * 4))), Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.z * 4)))];
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
@@ -389,6 +393,7 @@ renderer.setAnimationLoop(() => {
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.cameraQuat.copy(cam.camera.quaternion);
+  city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
@@ -423,6 +428,7 @@ if (resume === 'continue') hud.flash('Updated — welcome back');
 function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'river' }): void {
   if (kind === 'new') {
     clearSave();
+    setGridSize(opts.size ?? 64); // V1.6 A6: map size chosen on the title screen
     sim = new Simulation(new World(undefined, opts.seed, { dry: opts.map === 'dry' }));
     gameLog.event(`New city founded (seed ${sim.world.seed}${opts.map === 'dry' ? ', dry land' : ''})`);
   } else {
@@ -433,7 +439,11 @@ function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'rive
   inTitle = false;
   title.hide();
   dayNight.override = null;
-  cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+  // V1.6 A6: the map may have changed size (new big map, or a save of another size).
+  resizeScene(sceneBundle, GRID_SIZE);
+  const sr = startRegion(), rs = regionSide();
+  if (rs > 1) cam.target.set((sr % rs) * REGION + REGION / 2, 0, Math.floor(sr / rs) * REGION + REGION / 2);
+  else cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
   cam.zoomBy(1 / 1.5);
   sim.speed = lastSpeed;
   hud.inspect(null);
@@ -479,12 +489,16 @@ updater.start();
     return sim;
   },
   cam,
+  /** V1.6 A5: the city renderer (chunk culling toggle + render stats for the render bench). */
+  renderer: city,
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
   useSim: (s: Simulation) => {
     sim = s;
     hud.notices.reset(sim);
   },
   setTool,
+  /** V1.5b: template table (screenshots place showcase buildings). */
+  TPL,
   updater,
   /** V1.5: leave the title screen (tests/screenshots). */
   startGame,

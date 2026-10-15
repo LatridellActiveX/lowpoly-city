@@ -51,6 +51,34 @@ export const VEHICLES = {
       part(box(0.02, 0.05, 0.11), GLASS, [0.2, 0.08, 0]),
       part(box(0.36, 0.025, 0.1), 0x3a3a3a, [0.02, 0.02, 0]), // chassis
     ]),
+  /**
+   * V1.5b stage B: TANKER body (oil, fuel, plastics, chemicals) — a horizontal
+   * cylinder with end caps, a top walkway + hatches, a rear valve cabinet and
+   * hazard placard. White-ish so the instance colour can tint it (fuel = red, …).
+   */
+  tankerBody: () =>
+    merge([
+      part(new THREE.CylinderGeometry(0.06, 0.06, 0.25, 12).rotateZ(Math.PI / 2), 0xffffff, [-0.05, 0.11, 0]),
+      part(new THREE.SphereGeometry(0.06, 10, 6).scale(0.35, 1, 1), 0xd8d8d8, [0.075, 0.11, 0]),
+      part(new THREE.SphereGeometry(0.06, 10, 6).scale(0.35, 1, 1), 0xd8d8d8, [-0.175, 0.11, 0]),
+      part(box(0.2, 0.008, 0.03), 0x8a8f96, [-0.05, 0.17, 0]),
+      part(new THREE.CylinderGeometry(0.015, 0.015, 0.012, 8), 0x6d757b, [-0.1, 0.17, 0]),
+      part(new THREE.CylinderGeometry(0.015, 0.015, 0.012, 8), 0x6d757b, [0, 0.17, 0]),
+      part(box(0.03, 0.04, 0.1), 0x6d757b, [-0.19, 0.04, 0]),
+      part(box(0.004, 0.03, 0.03), 0xf2a12e, [-0.202, 0.1, 0]),
+    ]),
+  /**
+   * V1.5b stage B: DUMP truck body (quarry stone, coal) — a tapered steel
+   * tipper bed with a cab-shield lip and a heap of the load showing on top.
+   */
+  dumpBody: () =>
+    merge([
+      part(box(0.24, 0.09, 0.13), 0xd29b2a, [-0.05, 0.045, 0]),
+      part(box(0.04, 0.03, 0.13), 0xb27f1d, [0.085, 0.135, 0]),
+      part(box(0.24, 0.012, 0.004), 0x8a6a1a, [-0.05, 0.09, 0.066]),
+      part(box(0.24, 0.012, 0.004), 0x8a6a1a, [-0.05, 0.09, -0.066]),
+      part(new THREE.ConeGeometry(0.06, 0.05, 6).scale(1.8, 1, 1), 0xffffff, [-0.05, 0.15, 0]),
+    ]),
   /** Truck cargo box: white, tinted per cargo type by the instance colour. */
   truckBox: () => merge([part(box(0.24, 0.13, 0.13), 0xffffff, [-0.05, 0.045, 0])]),
   /**

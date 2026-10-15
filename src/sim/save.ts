@@ -32,17 +32,74 @@ import { GRID_SIZE, Tile } from './types';
 import { b64ToBytes, bytesToB64, CellRole, cidx, zoneCode } from './cells';
 import { TPL } from './footprints';
 import { localToCell } from './lots';
+import { MAP_SIZES, setGridSize } from './mapsize';
+import { allRegions } from './regions';
 
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
 /** v6 (PR 6): cell grid (zone/owner/role, base64), building entities, public lots; roads gain water mains. */
 /** v7 (V1.5): public lots gain garage/decks/grown; whole-tile surface lots; ledger trade.parking. */
-export const SAVE_VERSION = 7;
+/** v8 (V1.5b): coal plants become 2×2 where there is room (migrateCoal). */
+/**
+ * v9 (V1.6 A6): big maps. Adds `size` handling (64 / 128 / 192), the owned
+ * regions bitmask, and COMPACT storage: a 192 map has 36,864 tiles and
+ * 589,824 cells, which as v8 JSON would not fit in localStorage (~5 MB).
+ *   tiles → one run-length-encoded column per field (`rle`): most fields
+ *           are 0 / false almost everywhere, so a column is a handful of
+ *           runs. Empty grass costs nothing.
+ *   cells → zone / role / owner run-length-encoded the same way.
+ * The 64 map keeps the v8 layout (tiles array, base64 cells): it fits fine,
+ * and tools that patch saves keep working. The loader decides by field.
+ * v1–v8 saves are always 64 maps; they load unchanged as 64 maps with every
+ * region owned.
+ */
+export const SAVE_VERSION = 9;
 
-export function saveWorld(world: World): void {
+/* ---- V1.6 A6: run-length encoding ---- */
+/** [value, count, value, count, …] — consecutive equal values collapse. */
+export function rle(values: ArrayLike<unknown>): unknown[] {
+  const out: unknown[] = [];
+  for (let i = 0; i < values.length;) {
+    const v = values[i];
+    let j = i + 1;
+    while (j < values.length && values[j] === v) j++;
+    out.push(v, j - i);
+    i = j;
+  }
+  return out;
+}
+/** Inverse of rle(); writes into `into` (typed array or plain array). */
+export function unrle<T>(runs: unknown[], into: { length: number; [i: number]: T }): void {
+  let k = 0;
+  for (let r = 0; r < runs.length; r += 2) {
+    const v = runs[r] as T, n = runs[r + 1] as number;
+    for (let e = k + n; k < e && k < into.length; k++) into[k] = v;
+  }
+}
+/** Tile fields stored by v9, in column order. */
+const TILE_FIELDS = Object.keys(emptyTile()) as Array<keyof Tile>;
+function encodeTiles(tiles: Tile[]): Record<string, unknown[]> {
+  const cols: Record<string, unknown[]> = {};
+  for (const f of TILE_FIELDS) { if (f === 'movingIn') continue; cols[f] = rle(tiles.map((t) => t[f])); }
+  return cols;
+}
+function decodeTiles(cols: Record<string, unknown[]>, n: number): Tile[] {
+  const tiles = Array.from({ length: n }, emptyTile);
+  for (const f of Object.keys(cols)) {
+    if (!(TILE_FIELDS as string[]).includes(f)) continue;
+    const col = new Array(n);
+    unrle(cols[f], col);
+    for (let i = 0; i < n; i++) if (col[i] !== undefined) (tiles[i] as unknown as Record<string, unknown>)[f] = col[i];
+  }
+  return tiles;
+}
+
+/** V1.6 A6: the save as a JSON string (saveWorld stores it; tests call it directly). */
+export function serializeWorld(world: World): string {
   const data = {
     version: SAVE_VERSION,
     size: GRID_SIZE,
+    regionsOwned: world.regionsOwned,
     tick: world.tick,
     seed: world.seed,
     cash: world.cash,
@@ -57,16 +114,23 @@ export function saveWorld(world: World): void {
     clock: world.clock,
     tier: world.tier,
     peakPop: world.peakPop,
-    tiles: world.tiles,
-    // PR 6 cell layer: typed arrays as base64 (≈ 90 KB zone/role + 350 KB owners, before JSON).
-    cells: { zone: bytesToB64(world.cells.zone), role: bytesToB64(world.cells.role), owner: bytesToB64(new Uint8Array(world.cells.owner.buffer)) },
+    // v9: big maps store run-length columns; the 64 map keeps the v8 layout
+    // (a tiles array + base64 cells, ~1 MB) so every older tool can read it.
+    // The loader picks the layout by which fields are present.
+    ...(GRID_SIZE > 64
+      ? { tilesRle: encodeTiles(world.tiles), cellsRle: { zone: rle(world.cells.zone), role: rle(world.cells.role), owner: rle(world.cells.owner) } }
+      : { tiles: world.tiles, cells: { zone: bytesToB64(world.cells.zone), role: bytesToB64(world.cells.role), owner: bytesToB64(new Uint8Array(world.cells.owner.buffer)) } }),
     buildings: [...world.lots.buildings.values()],
     nextBuilding: world.lots.nextId,
     lots: [...world.parking.lots.values()],
     nextLot: world.parking.nextId,
   };
+  return JSON.stringify(data);
+}
+
+export function saveWorld(world: World): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(data));
+    localStorage.setItem(KEY, serializeWorld(world));
   } catch (e) {
     // Storage full or blocked (private mode). console.warn is captured by the Game Log.
     console.warn('Save failed:', e instanceof Error ? e.message : e);
@@ -81,17 +145,31 @@ export function hasSave(): boolean {
 export function loadWorld(): World | null {
   const raw = localStorage.getItem(KEY);
   if (!raw) return null;
+  return deserializeWorld(raw);
+}
+
+/**
+ * V1.6 A6: parse a save string. SWITCHES THE MAP SIZE (setGridSize) to the
+ * save's size first — callers (main.ts startGame) re-frame the camera.
+ */
+export function deserializeWorld(raw: string): World | null {
   try {
     const data = JSON.parse(raw);
-    if (data.size !== GRID_SIZE || !Array.isArray(data.tiles)) return null;
     const version: number = data.version ?? 1;
+    const size: number = version >= 9 ? data.size : 64; // v1–v8 are always 64 maps
+    if (!(MAP_SIZES as readonly number[]).includes(size)) return null;
+    if (!Array.isArray(data.tiles) && !data.tilesRle) return null;
+    setGridSize(size);
     // Merge each saved tile over a default tile so fields added later get defaults.
     // PR 5: movingIn is reset — cars in transit aren't saved, so anyone who
     // was still driving in simply arrives when the save loads.
-    const tiles: Tile[] = data.tiles.map((t: Partial<Tile>) => ({ ...emptyTile(), ...t, movingIn: false }));
+    const tiles: Tile[] = data.tilesRle
+      ? decodeTiles(data.tilesRle, size * size)
+      : data.tiles.map((t: Partial<Tile>) => ({ ...emptyTile(), ...t, movingIn: false }));
     const seed: number = data.seed ?? Math.floor(Math.random() * 1e9);
     const w = new World(tiles, seed);
     w.tick = data.tick ?? 0;
+    w.regionsOwned = version >= 9 && typeof data.regionsOwned === 'number' ? data.regionsOwned : allRegions(size); // v9
     if (version < 2) {
       // ---- v1 -> v2 migration ----
       w.cash = STARTING_CASH;
@@ -132,11 +210,15 @@ export function loadWorld(): World | null {
       w.tiles.forEach((t) => { if (t.construct > 0) t.crew = true; });
     }
     if (version < 6) migrateToCells(w);
-    else if (data.cells) {
-      // ---- v6: restore the cell layer and entities ----
-      w.cells.zone.set(b64ToBytes(data.cells.zone));
-      w.cells.role.set(b64ToBytes(data.cells.role));
-      w.cells.owner.set(new Int32Array(b64ToBytes(data.cells.owner).buffer));
+    else if (data.cells || data.cellsRle) {
+      // ---- v6: restore the cell layer and entities (v9: run-length columns) ----
+      if (data.cellsRle) {
+        unrle(data.cellsRle.zone, w.cells.zone); unrle(data.cellsRle.role, w.cells.role); unrle(data.cellsRle.owner, w.cells.owner);
+      } else {
+        w.cells.zone.set(b64ToBytes(data.cells.zone));
+        w.cells.role.set(b64ToBytes(data.cells.role));
+        w.cells.owner.set(new Int32Array(b64ToBytes(data.cells.owner).buffer));
+      }
       for (const b of data.buildings ?? []) if (TPL[b.tpl]) w.lots.buildings.set(b.id, { ...b, movingIn: false });
       w.lots.nextId = data.nextBuilding ?? w.lots.buildings.size + 1;
       // V1.5 (save v7): lots gained garage/decks/grown. PR 6 lots: size 4 was
@@ -145,6 +227,7 @@ export function loadWorld(): World | null {
       for (const l of data.lots ?? []) w.parking.lots.set(l.id, { garage: l.size === 4, decks: 3, grown: false, ...l, parked: 0 });
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
+    if (version < 8) migrateCoal(w);
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
     w.tiles.forEach((t, i) => t.zone && w.lots.markDirty(i));
     w.lots.aggregate(w);
@@ -255,7 +338,9 @@ export function exportSaveText(): string | null {
 export function importSaveText(text: string): boolean {
   try {
     const d = JSON.parse(text);
-    if (d.size !== GRID_SIZE || !Array.isArray(d.tiles)) return false;
+    // V1.6 A6: v9 saves carry their own size and run-length tiles; v1–v8 are 64 maps with a tiles array.
+    const ok = (d.version ?? 1) >= 9 ? (MAP_SIZES as readonly number[]).includes(d.size) && (!!d.tilesRle || Array.isArray(d.tiles)) : (d.size === undefined || d.size === 64) && Array.isArray(d.tiles);
+    if (!ok) return false;
     localStorage.setItem(KEY, text);
     return true;
   } catch {
@@ -275,4 +360,32 @@ export function downloadSave(name = 'lowpoly-city-save'): boolean {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   return true;
+}
+
+/**
+ * V1.5b save v8: every 1×1 COAL plant grows into a 2×2 plant (expanding
+ * right and down) when those three tiles are empty land — no road, water,
+ * structure, zone cells, wires or pipes. Otherwise it stays a legacy 1×1
+ * plant (still works; drawn with the old model). Oil plants stay 1×1.
+ */
+export function migrateCoal(w: World): number {
+  const N = GRID_SIZE;
+  let n = 0;
+  w.tiles.forEach((t, i) => {
+    if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return;
+    const x = i % N, z = Math.floor(i / N);
+    if (x >= N - 1 || z >= N - 1) return;
+    const others = [i + 1, i + N, i + N + 1];
+    const free = others.every((j) => {
+      const o = w.tiles[j];
+      if (o.road || o.water || o.edge || o.structure !== 'none' || o.zone || o.powerLine || o.waterPipe) return false;
+      const ox = j % N, oz = Math.floor(j / N);
+      for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) { const c = (oz * 4 + dz) * N * 4 + ox * 4 + dx; if (w.cells.zone[c] || w.cells.owner[c]) return false; }
+      return true;
+    });
+    if (!free) return;
+    for (const j of others) { const o = w.tiles[j]; o.structure = 'powerPlant'; o.kind = 0; o.part = i + 1; o.deco = 0; o.stock = 0; }
+    n++;
+  });
+  return n;
 }
