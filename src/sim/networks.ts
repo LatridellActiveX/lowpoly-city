@@ -115,7 +115,8 @@ function solve(
   const visited = new Uint8Array(tiles.length);
   const networks: Network[] = [];
 
-  for (let start = 0; start < tiles.length; start++) {
+  // V1.6 A2: sources only exist in active chunks; ascending order = same network ids as before.
+  for (const start of world.chunks.activeTilesSorted()) {
     if (visited[start] || !isSource(tiles[start], kind)) continue;
 
     // ---- Flood-fill one network starting from this source ----

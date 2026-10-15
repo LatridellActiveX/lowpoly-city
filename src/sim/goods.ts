@@ -202,7 +202,7 @@ export class Shipping {
     // V1.5b stage C: road-connected depots and who is inside their catchment.
     const depots = serviceAnchors(world, Svc.Depot);
     const depotFor = (i: number): number => depotOf(depots, i);
-    tiles.forEach((t, i) => {
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
       if (t.structure === 'powerPlant' && !t.part) plants.push(i); // V1.5b: a 2×2 coal plant is fuelled at its anchor
       if (t.structure === 'constructionYard') yards.push(i);
       if (t.zone && t.construct > 0 && t.crew) sites++;

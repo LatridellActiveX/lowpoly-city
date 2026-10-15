@@ -40,6 +40,7 @@ import { JOBS_PER_LEVEL, residentsOf } from './rules';
 import { jobsOf } from './industry';
 import { ZoneType } from './types';
 import { ZONE_CODES } from './cells';
+import { CHUNK } from './chunks';
 
 export const WORK_SHARE = 0.55;
 // PR 5 retune: was 0.22, which made a 120-person town with a couple of shops
@@ -87,7 +88,9 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   let officeJobs = 0;
   let covered = 0;
   let pop = 0, shopJobs = 0, factoryJobs = 0, shops = 0, emptyShops = 0;
-  world.tiles.forEach((t, i) => {
+  // V1.6 A2: only active chunks hold buildings (ascending order = same sums as before).
+  world.chunks.activeTilesSorted().forEach((i) => {
+    const t = world.tiles[i];
     if (!t.zone || t.level === 0 || !operating(i)) return;
     pop += residentsOf(t); // V1.5: mixed-use shops house people too
     if (edu && edu[i] >= 1) covered += residentsOf(t);
@@ -112,7 +115,14 @@ export function computeDemand(world: World, desirabilityAvg: number, operating: 
   // V1.5b: pending (zoned, unbuilt) residential capacity cools demand.
   const { zone: cz, owner } = world.cells;
   let freeCells = 0;
-  for (let c = 0; c < cz.length; c++) if (cz[c] && owner[c] === 0 && ZONE_CODES[cz[c]]?.zone === 'residential') freeCells++;
+  // V1.6 A2: zoned cells only exist under zoned tiles, which live in active
+  // chunks — count the cells of active chunks instead of all CELL_GRID².
+  const CG = Math.round(Math.sqrt(cz.length)), CPT = CG / Math.round(Math.sqrt(world.tiles.length)), ch = world.chunks, span = CHUNK * CPT;
+  for (const c of ch.active) {
+    const cx0 = (c % ch.side) * span, cz0 = ((c / ch.side) | 0) * span;
+    for (let y = cz0; y < Math.min(CG, cz0 + span); y++) for (let k = y * CG + cx0, e = y * CG + Math.min(CG, cx0 + span); k < e; k++)
+      if (cz[k] && owner[k] === 0 && ZONE_CODES[cz[k]]?.zone === 'residential') freeCells++;
+  }
   const pending = freeCells * RES_PER_FREE_CELL;
   const rZoned = (ZONED_WEIGHT * Math.max(0, pending - Math.max(ZONED_BUFFER, pop * 0.3))) / Math.max(150, pop + pending);
   const r = clamp(0.35 + rJobs + rDes - rZoned + tax('residential'));

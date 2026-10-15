@@ -132,7 +132,7 @@ export class Redevelopment {
   month(sim: Simulation): void {
     const w = sim.world, lots = w.lots;
     let res = 0, jobs = 0;
-    w.tiles.forEach((t) => { res += t.res; jobs += t.jobs; });
+    w.chunks.activeTilesSorted().forEach((i) => { const t = w.tiles[i]; res += t.res; jobs += t.jobs; }); // V1.6 A2
     const workerRatio = jobs > 0 ? res / (jobs * 1.2) : 1; // ~1.2 residents per job keeps every shift staffed
     const cands: Building[] = [];
     this.stats.low = 0;

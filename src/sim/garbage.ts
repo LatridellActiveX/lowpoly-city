@@ -48,7 +48,7 @@ export class Garbage {
     const tiles = world.tiles, N = GRID_SIZE;
     if (world.peakPop < GARBAGE_START) return;
     // 1. Build-up.
-    tiles.forEach((t, i) => {
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2
       if (t.zone && t.level > 0 && t.units > 0 && operating(i)) t.garbage = Math.min(G_MAX, t.garbage + GARBAGE_RATE * t.units);
     });
     // 2. Dispatch.

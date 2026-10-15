@@ -17,6 +17,7 @@ import { hash2 } from './random';
 import { CellLayer } from './cells';
 import { Lots } from './lots';
 import { Parking } from './parking';
+import { ChunkIndex } from './chunks';
 
 /** Make a brand-new empty tile. */
 export function emptyTile(): Tile {
@@ -168,8 +169,26 @@ export class World {
 
   /** PR 4: index of the out-of-city road tile, or -1 if this map has none. */
   get edgeIndex(): number {
-    return this.tiles.findIndex((t) => t.edge);
+    // V1.6 A2: cached. The cached tile is re-checked on every call (cheap);
+    // a "no edge" answer is re-checked whenever the topology revision moves.
+    const c = this.edgeCache;
+    if (c >= 0 && this.tiles[c]?.edge) return c;
+    if (c === -1 && this.edgeRev === this.chunks.topoRev) return -1;
+    this.edgeCache = this.tiles.findIndex((t) => t.edge);
+    this.edgeRev = this.chunks.topoRev;
+    return this.edgeCache;
   }
+  private edgeCache = -2;
+  private edgeRev = 0;
+
+  /**
+   * V1.6 A2: 16×16 chunk index + change detection (chunks.ts). Built on
+   * first use; Simulation calls chunks.sync() at the start of every tick.
+   */
+  get chunks(): ChunkIndex {
+    return (this.chunkIndex ??= new ChunkIndex(this.tiles, Math.round(Math.sqrt(this.tiles.length))));
+  }
+  private chunkIndex: ChunkIndex | null = null;
 
   /** Current month number (1-based), for the clock. */
   get month(): number {

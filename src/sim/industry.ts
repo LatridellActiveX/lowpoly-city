@@ -182,7 +182,7 @@ export class Crews {
     const tiles = world.tiles;
     const yards: number[] = [];
     const sites: number[] = [];
-    tiles.forEach((t, i) => {
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
       if (t.structure === 'constructionYard') yards.push(i);
       // Only sites that can actually be worked on (road + power + water):
       // sending a crew to a site without water would just park a truck there.

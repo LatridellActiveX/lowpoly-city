@@ -91,7 +91,7 @@ export function roleOutput(world: World, i: number, role: Role): GoodType {
 /** Every good some building in the city makes (all outputs, refinery's both). */
 export function cityMakes(world: World): Set<GoodType> {
   const out = new Set<GoodType>();
-  world.tiles.forEach((t, i) => {
+  world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0) return;
     const r = roleOf(world, i);
     const rec = RECIPES[r];
@@ -108,7 +108,7 @@ export function refreshRoles(world: World, operating: (i: number) => boolean): v
   for (const i of [...m.keys()]) { const t = world.tiles[i]; if (t.zone !== 'industrial' || t.level === 0) m.delete(i); }
   if (world.tick % ROLE_REFRESH !== 0) return;
   const makes = cityMakes(world);
-  world.tiles.forEach((t, i) => {
+  world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0 || !operating(i) || roleOf(world, i) !== 'factory') return;
     const options = ADOPTABLE.filter((r) => RECIPES[r]!.inputs.some((g) => makes.has(g)));
     if (!options.length) return;

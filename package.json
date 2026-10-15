@@ -16,7 +16,8 @@
     "balance": "esbuild tools/balance.ts --bundle --platform=node --format=esm --outfile=/tmp/balance.mjs --log-level=error && node /tmp/balance.mjs",
     "bench": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs",
     "bench:check": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs --check",
-    "test:mapsize": "esbuild tools/mapsize.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mapsize-test.mjs --log-level=error && node /tmp/mapsize-test.mjs"
+    "test:mapsize": "esbuild tools/mapsize.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mapsize-test.mjs --log-level=error && node /tmp/mapsize-test.mjs",
+    "test:chunks": "esbuild tools/chunks.test.ts --bundle --platform=node --format=esm --outfile=/tmp/chunks-test.mjs --log-level=error && node /tmp/chunks-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

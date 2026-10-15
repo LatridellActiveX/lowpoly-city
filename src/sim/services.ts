@@ -77,7 +77,7 @@ function connected(world: World, i: number, size: number): boolean {
 /** Anchor tiles of every operating (road-connected) service building of `svc`. */
 export function serviceAnchors(world: World, svc?: Svc): number[] {
   const out: number[] = [];
-  world.tiles.forEach((t, i) => {
+  world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2: active chunks only
     if (t.structure !== 'service' || t.part) return;
     if (svc !== undefined && t.kind !== svc) return;
     if (connected(world, i, SERVICE_DEFS[t.kind].size)) out.push(i);
