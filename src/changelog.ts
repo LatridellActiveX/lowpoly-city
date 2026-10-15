@@ -21,6 +21,19 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA rectangle zoning (descriptive id: can't collide with letter ids).
+    id: '2026-10-15-zone-rectangle',
+    title: 'Zoning: drag a rectangle',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Zoning is now one simple rectangle: press on one corner and drag to the opposite corner. Every free small square inside gets zoned; a click zones a single small square.' },
+      { tag: 'new', text: 'Beside curved or angled roads the rectangle follows the road — along it and away from it — so zones line up with the road instead of making a staircase.' },
+      { tag: 'improved', text: 'Squares in the rectangle that cannot be zoned (road, water, buildings, too far from a road) show red, and the tip shows the size, squares, price and how many are skipped.' },
+      { tag: 'improved', text: 'Zone colours on empty land now show only while a zoning tool is selected (or in the Zoning overlay), so the normal view stays clean.' },
+      { tag: 'improved', text: 'The old zoning depth buttons and road-following strips are gone — the rectangle is the only way to zone.' },
+    ],
+  },
+  {
     // NEBULA: merged the latest origin/models (descriptive id: no collisions).
     id: '2026-10-15-models-merge',
     title: 'New buildings arrive on nebula',
