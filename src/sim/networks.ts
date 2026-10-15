@@ -34,7 +34,7 @@ import { GRID_SIZE } from './types';
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
 import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
-import { applyGraphUtilities, graphOnly } from './graphutil';
+import { applyGraphUtilities, graphOnly, prepareGraphUtilities } from './graphutil';
 import { Svc } from './services';
 
 type Kind = 'power' | 'water';
@@ -351,16 +351,38 @@ export function computeNetworks(world: World): NetworkResult {
   const water = allocate(world, 'water', topo.water, servedW, servedP);
   const tiles = world.tiles;
   let flipped = false;
-  const gOnly = world.graphRoads ? graphOnly(world) : undefined; // OASIS: served by sim/graphutil.ts instead
-  for (const i of topo.watch) {
-    if (gOnly?.has(i)) continue;
-    const s = topo.service[i], t = tiles[i];
-    const p = servedP[i] === 1 || (topo.powerNet[i] >= 0 && isSource(t, 'power'));
-    const w = servedW[i] === 1 || (topo.waterNet[i] >= 0 && isSource(t, 'water'));
-    if (p !== s.powered || w !== s.watered) { s.powered = p; s.watered = w; flipped = true; }
-  }
-  if (flipped) servedRev.set(world, (servedRev.get(world) ?? 0) + 1);
   const res = { service: topo.service, power, water };
+  // NEBULA fix: bring sim/graphutil.ts's graph-only lists up to date with
+  // THIS topology first (they used to lag a tick behind), and learn which
+  // tiles stopped being graph-only so we can hand them back below.
+  const dropped = world.graphRoads ? prepareGraphUtilities(world, res, { power: topo.powerNet, water: topo.waterNet }) : undefined;
+  // Each utility skips only the tiles graphutil serves for THAT utility. A
+  // tile can be tile-connected for power (roads carry power in the tile
+  // flood) yet graph-only for water (only pipes carry water there): its power
+  // flag must still be written here. (The old single skip set left it at the
+  // fresh-topology default `false` -> "outage: not enough capacity" while its
+  // network had plenty spare: Parker's right-side industry.)
+  const gP = world.graphRoads ? graphOnly(world, 'power') : undefined;
+  const gW = world.graphRoads ? graphOnly(world, 'water') : undefined;
+  const update = (i: number) => {
+    const s = topo!.service[i], t = tiles[i];
+    if (!gP?.has(i)) {
+      // Back from graph-only: graphutil had overwritten powerNet, restore the tile flood's id.
+      if (s.powerNet !== topo!.powerNet[i]) { s.powerNet = topo!.powerNet[i]; flipped = true; }
+      const p = servedP[i] === 1 || (topo!.powerNet[i] >= 0 && isSource(t, 'power'));
+      if (p !== s.powered) { s.powered = p; flipped = true; }
+    }
+    if (!gW?.has(i)) {
+      if (s.waterNet !== topo!.waterNet[i]) { s.waterNet = topo!.waterNet[i]; flipped = true; }
+      const w = servedW[i] === 1 || (topo!.waterNet[i] >= 0 && isSource(t, 'water'));
+      if (w !== s.watered) { s.watered = w; flipped = true; }
+    }
+  };
+  for (const i of topo.watch) update(i);
+  // Tiles graphutil no longer serves and that the tile flood doesn't watch
+  // (no longer connected at all): reset them to the tile result too.
+  if (dropped) for (const i of [...dropped.power, ...dropped.water]) update(i);
+  if (flipped) servedRev.set(world, (servedRev.get(world) ?? 0) + 1);
   // OASIS: graph worlds also connect buildings that only the free road's real
   // geometry reaches (sim/graphutil.ts). Bump servedRev when it connects any,
   // so served-dependent caches refresh.

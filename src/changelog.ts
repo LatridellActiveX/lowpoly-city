@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA: Parker's "not enough capacity" with a turbine at 16/645. A
+    // descriptive id so it can't collide with other workers' letter ids.
+    id: '2026-10-15-power-graphonly-fix',
+    title: 'Power fix: lots past the junction',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Lots beside a road past a junction no longer show "no power — not enough capacity" while the power plant has plenty to spare. A lot that got its water through the road network had its power status frozen after the city changed.' },
+      { tag: 'improved', text: '"Not enough capacity" now only appears when the network really is short; anything else says "connected but not delivered" so it can be reported.' },
+    ],
+  },
+  {
     // NEBULA favicon. Descriptive id so it can't collide with other workers' ids.
     id: '2026-10-15-favicon',
     title: 'Browser tab icon',
