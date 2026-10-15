@@ -193,13 +193,19 @@ export class Crews {
     this.unreachable.clear();
     if (!sites.length) return;
     const dist = (a: number, b: number) => Math.abs((a % GRID_SIZE) - (b % GRID_SIZE)) + Math.abs(Math.floor(a / GRID_SIZE) - Math.floor(b / GRID_SIZE));
-    const nearestYard = (s: number) => yards.reduce((m, y) => Math.min(m, dist(s, y)), Infinity);
-    sites.sort((a, b) => nearestYard(a) - nearestYard(b));
+    // V1.6 T2: this used to recompute the nearest yard inside the sort
+    // comparator and re-filter the yards per site (O(sites × yards × log)),
+    // which grew quadratically with several towns. Same order, computed once.
+    const near = new Map<number, number>();
+    for (const s of sites) { let m = Infinity; for (const y of yards) m = Math.min(m, dist(s, y)); near.set(s, m); }
+    sites.sort((a, b) => near.get(a)! - near.get(b)!);
+    const roadYards = yards.filter((y) => roadNextTo(tiles, y) >= 0);
     for (const s of sites) {
       const to = roadNextTo(tiles, s);
-      const free = yards.filter((y) => this.out(y) < YARD_FLEET && roadNextTo(tiles, y) >= 0).sort((a, b) => dist(a, s) - dist(b, s));
       if (!yards.length || to < 0) { this.unreachable.add(s); continue; }
+      const free = roadYards.filter((y) => this.out(y) < YARD_FLEET);
       if (!free.length) continue; // all trucks busy: wait in the queue
+      free.sort((a, b) => dist(a, s) - dist(b, s));
       let sent = false;
       for (const y of free) {
         const from = roadNextTo(tiles, y);

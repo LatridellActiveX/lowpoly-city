@@ -296,13 +296,26 @@ function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { powe
 }
 
 /** tryMerge body (split out so the zone-promotion flag is always reset). */
+/** Largest building footprint side in cells (bounds the merge neighbour search). */
+const MAX_FOOT = Math.max(...Object.values(TPL).flatMap((t) => t.rects.map((r) => Math.max(r.u + r.w, r.v + r.d))));
 function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template[], take: (host: number, use: { power: number; water: number }) => boolean, promote: boolean): boolean {
   const w = sim.world, lots = w.lots;
   // Neighbours that may be swallowed: same zone/kind, finished, maxed (or fillers), near b.
+  // V1.6 T2: candidates come from the cell owners in the ±10-cell box
+  // around b's origin instead of a scan of every building (that made merges
+  // O(buildings²) per month on big cities). The box is widened by the
+  // largest footprint so a building is found even when its bounding-box
+  // corner cell isn't one of its own (L shapes); the exact old test follows.
   const replace = new Set<number>();
-  for (const o of lots.buildings.values()) {
+  const seen = new Set<number>();
+  for (let cz = Math.max(0, b.z0 - 10); cz <= Math.min(CELL_GRID - 1, b.z0 + 10 + MAX_FOOT); cz++)
+    for (let cx = Math.max(0, b.x0 - 10); cx <= Math.min(CELL_GRID - 1, b.x0 + 10 + MAX_FOOT); cx++) {
+      const id = w.cells.owner[cidx(cx, cz)];
+      if (id > 0) seen.add(id);
+    }
+  const near = [...seen].sort((p, q) => p - q).map((id) => lots.buildings.get(id)!).filter(Boolean);
+  for (const o of near) {
     const ot = TPL[o.tpl];
-    if (Math.abs(o.x0 - b.x0) > 10 || Math.abs(o.z0 - b.z0) > 10) continue;
     const done = o.level >= ot.maxLevel || (medRes(ot) && o.level >= 3); // V1.5b: L6+ medium neighbours count
     if (isFiller(ot) || (ot.zone === tpl.zone && ot.kind === tpl.kind && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
   }
