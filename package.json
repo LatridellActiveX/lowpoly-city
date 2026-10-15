@@ -33,6 +33,7 @@
     "test:junctions": "esbuild tools/junctions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/junctions-test.mjs --log-level=error && node /tmp/junctions-test.mjs",
     "test:nebula": "esbuild tools/nebula.test.ts --bundle --platform=node --format=esm --outfile=/tmp/nebula-test.mjs --log-level=error && node /tmp/nebula-test.mjs",
     "test:powerjunctions": "esbuild tools/powerjunctions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/powerjunctions-test.mjs --log-level=error && node /tmp/powerjunctions-test.mjs",
+    "test:zoneangles": "esbuild tools/zoneangles.test.ts --bundle --platform=node --format=esm --outfile=/tmp/zoneangles-test.mjs --log-level=error && node /tmp/zoneangles-test.mjs",
     "test:debugcode": "esbuild tools/debugcode.test.ts --bundle --platform=node --format=esm --outfile=/tmp/debugcode-test.mjs --log-level=error && node /tmp/debugcode-test.mjs",
     "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs"
   },

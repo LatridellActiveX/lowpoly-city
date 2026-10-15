@@ -29,6 +29,7 @@
  *
  * Units: the scene uses 1 tile = 1 unit = TILE_M metres.
  */
+import { Y_PREVIEW } from './previewHeights';
 import * as THREE from 'three';
 import { at, Cubic, tangent, tAtLength, V2, buildLut } from '../roads/bezier';
 import { GUTTER_M, KERB_M, LANE_M, RoadGraph, RoadType, ROAD_SPEC, SHOULDER_M, SIDEWALK_M, TILE_M, roadHalf } from '../roads/graph';
@@ -273,8 +274,15 @@ export class GraphRoadLayer {
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0.5);
-    this.preview = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), MAX_PREVIEW);
-    this.preview.count = 0; this.preview.frustumCulled = false; this.preview.renderOrder = 3;
+    // NEBULA zoning-angle fix: the zone highlight is drawn ON the ground (Y_PREVIEW), not
+    // floating above it, and without depth test so it still shows over kerbs / sidewalks /
+    // lot pads. The pointer is picked on the y=0 ground plane (ui/input.ts); a quad lifted
+    // by h is seen displaced by ~h/tan(pitch) along the view, so at low camera pitch the
+    // old lift (Y_ZONE+0.004 ≈ 2.2 m) moved the highlight about 0.7 of a cell away from
+    // the squares that the click actually zones. DoubleSide: some block sides map the
+    // unit quad mirrored (negative determinant), which flips its winding.
+    this.preview = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide }), MAX_PREVIEW);
+    this.preview.count = 0; this.preview.frustumCulled = false; this.preview.renderOrder = 10;
     this.group.add(this.preview);
   }
 
@@ -452,7 +460,7 @@ export class GraphRoadLayer {
       const q = c.quad;
       // Unit square → parallelogram from corners 0, 1 and 3 (cells are near-parallelograms).
       const ux = (q[2] - q[0]) * U, uz = (q[3] - q[1]) * U, wx = (q[6] - q[0]) * U, wz = (q[7] - q[1]) * U;
-      mat.set(ux * 0.94, 0, wx * 0.94, q[0] * U + (ux + wx) * 0.03, 0, 1, 0, Y_ZONE + 0.004, uz * 0.94, 0, wz * 0.94, q[1] * U + (uz + wz) * 0.03, 0, 0, 0, 1);
+      mat.set(ux * 0.94, 0, wx * 0.94, q[0] * U + (ux + wx) * 0.03, 0, 1, 0, Y_PREVIEW, uz * 0.94, 0, wz * 0.94, q[1] * U + (uz + wz) * 0.03, 0, 0, 0, 1);
       this.preview.setMatrixAt(k, mat);
       this.preview.setColorAt(k, col.set(!p.ok ? 0xe5484d : p.color ?? (c.state === 'new' ? 0x46c36b : 0xf0a830)));
       k++;

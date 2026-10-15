@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA zoning highlight fix (descriptive id: can't collide with letter ids).
+    id: '2026-10-15-zoneangles',
+    title: 'Zoning highlight matches what you zone',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'The zoning highlight now sits exactly on the squares under your cursor from every camera angle — it no longer slides off them when the camera is low.' },
+      { tag: 'fix', text: 'The highlight now also shows the thin strip by the kerb that gets zoned too, so the highlighted squares (and the count) are exactly what you get.' },
+    ],
+  },
+  {
     // NEBULA debug codes. A descriptive id (not a letter) so it can't collide
     // with letter ids other workers add on nebula at the same time.
     id: '2026-10-15-debugcode',
@@ -51,7 +61,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-i',
+    id: '2026-10-15-q',
     title: 'Power & water grid view',
     date: '2026-10-15',
     changes: [
@@ -59,7 +69,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-h',
+    id: '2026-10-15-p',
     title: 'Freeform road zoning, power and traffic fixes',
     date: '2026-10-15',
     changes: [
@@ -92,7 +102,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-g',
+    id: '2026-10-15-o',
     title: 'Freeform road polish and square zoning',
     date: '2026-10-15',
     changes: [

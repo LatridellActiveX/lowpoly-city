@@ -15,6 +15,7 @@
  * Things that move every frame (spinning turbine blades, bobbing warning
  * markers) are updated separately in `animate()`, touching only those pools.
  */
+import { TILE_PREVIEW_Y } from './previewHeights';
 import * as THREE from 'three';
 import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
@@ -1744,13 +1745,16 @@ export class PreviewRenderer {
     const edgeColor = outline === null ? 0xffffff : outline ? tint ?? 0x34c759 : 0xff3b30;
     for (const t of tiles) {
       const color = t.ok === null ? 0xffffff : t.ok ? tint ?? 0x34c759 : 0xff3b30;
-      this.m.makeTranslation(t.x + 0.5, 0.12, t.z + 0.5);
+      // NEBULA zoning-angle fix: draw at the y=0 pick plane (depthTest is off, so it still
+      // shows over roads). At 0.12 the tile highlight slid ~0.3 tile off the hovered tile at
+      // low pitch (offset = height / tan(pitch)).
+      this.m.makeTranslation(t.x + 0.5, TILE_PREVIEW_Y, t.z + 0.5);
       this.pool.add(this.m, this.c.setHex(color));
       // [dx, dz, bar centre offset x, z, rotation]: N, S, W, E edges.
       for (const [dx, dz, ox, oz, rot] of [[0, -1, 0.5, 0, 0], [0, 1, 0.5, 1, 0], [-1, 0, 0, 0.5, Math.PI / 2], [1, 0, 1, 0.5, Math.PI / 2]]) {
         if (inSel.has((t.z + dz) * GRID_SIZE + (t.x + dx)) && t.x + dx >= 0 && t.x + dx < GRID_SIZE) continue;
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rot);
-        this.m.compose(this.v.set(t.x + ox, 0.13, t.z + oz), this.q, this.one);
+        this.m.compose(this.v.set(t.x + ox, TILE_PREVIEW_Y + 0.001, t.z + oz), this.q, this.one);
         this.edges.add(this.m, this.c.setHex(edgeColor));
       }
     }

@@ -46,7 +46,7 @@ import { loadSlotIntoMain, saveToSlot } from './sim/slots';
 import { World } from './sim/grid';
 import { GraphRoadLayer } from './render/graphRoads';
 import { migrateToGraph } from './roads/persist';
-import { placeFreeRoad, paintBlocks, undo, redo } from './sim/freeroads';
+import { placeFreeRoad, paintBlocks, undo, redo, zoneDryRun } from './sim/freeroads';
 import { quadCubic, lineCubic } from './roads/bezier';
 import type { V2 } from './roads/bezier';
 import { FreeRoadTool, dragCells, paintDragged, toMetres } from './ui/freeRoadTool';
@@ -90,6 +90,7 @@ let dragFrom: [number, number] | null = null;
 /** Zoning on freeform-road blocks: metres where the drag began (null = ordinary tile zoning). */
 let blockDragFrom: V2 | null = null;
 let cellsShown = false;
+
 let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
 /** Last mouse position in screen pixels (for the cost tooltip). */
@@ -194,10 +195,13 @@ function updatePreview(): void {
     if (blockDragFrom || sim.world.blocks.cellAt(pm)) {
       const cells = dragCells(sim, a, pm, sim.zoneOpt.depth);
       const zc = codeForTool(sim, tool, idx(Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.x))), Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.z)))), sim.zoneOpt);
-      graphLayer.showCells(cells, cells.length ? zoneCodeColor(zc) : 0xe5484d);
+      // NEBULA: also draw the kerb-row fill squares mouse-up will zone (zoneDryRun),
+      // so the highlight is exactly what gets zoned; the tip counts those squares.
+      const dry = zoneDryRun(sim, cells, zc);
+      graphLayer.showCells(cells.length ? [...cells, ...dry.fill.map((quad) => ({ quad }))] : [], cells.length ? zoneCodeColor(zc) : 0xe5484d);
       cellsShown = true;
       preview.show([]);
-      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${cells.length} square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
+      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${dry.keys.length} square${dry.keys.length !== 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
       return;
     }
   }
