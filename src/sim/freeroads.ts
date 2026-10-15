@@ -94,6 +94,7 @@ export function placeFreeRoad(sim: Simulation, c0: Cubic, type: RoadType, opts: 
     pushUndo(sim, { kind: 'road', graph: cloneGraph(w.roads), tiles, cash: w.cash, graphTiles: new Set(w.graphTiles) });
     if (demolish.length) sim.apply('bulldoze', demolish.map((i) => [i % GRID_SIZE, Math.floor(i / GRID_SIZE)]));
     w.roads.placeRoad(c, type, opts);
+    w.graphRoads = true; // OASIS: a free road makes this a graph world (tile roads join the graph from now on)
     sim.apply(tool, tiles.map((i) => [i % GRID_SIZE, Math.floor(i / GRID_SIZE)]));
     for (const i of tiles) if (w.tiles[i].road) w.graphTiles.add(i);
     w.blocks.regenerate(w.roads);

@@ -44,6 +44,7 @@ import { buildBackdrop } from './ui/titleBackdrop';
 import { loadSlotIntoMain, saveToSlot } from './sim/slots';
 import { World } from './sim/grid';
 import { GraphRoadLayer } from './render/graphRoads';
+import { migrateToGraph } from './roads/persist';
 import { placeFreeRoad, paintBlocks, undo, redo } from './sim/freeroads';
 import { quadCubic, lineCubic } from './roads/bezier';
 import { FreeRoadTool, brushBlocks, toMetres } from './ui/freeRoadTool';
@@ -429,7 +430,7 @@ renderer.setAnimationLoop(() => {
   city.frame(sim, clock.elapsedTime);
   graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
   graphLayer.sync(sim.world.roads, sim.world.blocks);
-  graphLayer.updateCars(sim.world.roads, dt * (sim.speed || 0));
+  graphLayer.updateCars(sim.traffic.graph); // OASIS: live graph trips (moved by the sim)
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
@@ -464,6 +465,11 @@ function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'rive
     clearSave();
     setGridSize(opts.size ?? 64); // V1.6 A6: map size chosen on the title screen
     sim = new Simulation(new World(undefined, opts.seed, { dry: opts.map === 'dry' }));
+    // OASIS: new games are GRAPH WORLDS from the start — the generated roads
+    // (highway connection) are traced into the road graph, drawn by the graph
+    // renderer, and every road built afterwards (tile or free tool) joins it.
+    migrateToGraph(sim.world);
+    sim.version++;
     gameLog.event(`New city founded (seed ${sim.world.seed}${opts.map === 'dry' ? ', dry land' : ''})`);
   } else {
     const w = loadWorld();

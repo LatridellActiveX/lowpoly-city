@@ -21,6 +21,18 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-g',
+    title: 'Free roads carry the real city',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: "The cars and trucks on your roads are now the city's real trips: commuters, people moving in, deliveries, freight and garbage and service trucks all find their way along the road network's lanes, curves and junctions." },
+      { tag: 'new', text: 'Trips start and end at each building\'s own frontage, so homes on a curved road really drive along that curve.' },
+      { tag: 'improved', text: 'New cities use the new road network from the start: roads built with the Road, Avenue and Roundabout tools join it automatically, with traffic lights at junctions (right on red included) and roundabouts where cars yield to the ring.' },
+      { tag: 'improved', text: 'Power and water reach buildings along a curved road even where they only touch the road at a corner.' },
+      { tag: 'fix', text: 'Editing a road while cars are driving no longer loses their trips: anyone on the road when it changes finishes their journey.' },
+    ],
+  },
+  {
     id: '2026-10-15-f',
     title: 'Cleaner menus',
     date: '2026-10-15',

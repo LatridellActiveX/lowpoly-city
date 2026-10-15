@@ -25,7 +25,7 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
-import { syncGraphToTiles } from '../roads/persist';
+import { syncGraphToTiles, absorbTileRoads } from '../roads/persist';
 import { coords, World } from './grid';
 import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
@@ -571,7 +571,15 @@ export class Simulation {
   /** V1.6 B8: apply a tile tool, then drop graph roads whose tiles it removed (roads/persist.ts). */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
     const r = this.applyTiles(tool, tiles);
-    if (r.changed && this.world.graphTiles.size) syncGraphToTiles(this.world);
+    if (r.changed && (this.world.graphTiles.size || this.world.graphRoads)) {
+      syncGraphToTiles(this.world);
+      // OASIS: in a graph world the tile road tools feed the graph too, so the
+      // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
+      if (tool === 'road' || tool === 'avenue' || tool === 'roundabout') {
+        const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
+        if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
+      }
+    }
     return r;
   }
   private applyTiles(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {

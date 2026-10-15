@@ -28,7 +28,8 @@
     "test:gtraffic": "esbuild tools/gtraffic.test.ts --bundle --platform=node --format=esm --outfile=/tmp/gtraffic-test.mjs --log-level=error && node /tmp/gtraffic-test.mjs",
     "test:utilities": "esbuild tools/utilities.test.ts --bundle --platform=node --format=esm --outfile=/tmp/utilities-test.mjs --log-level=error && node /tmp/utilities-test.mjs",
     "test:migrate": "esbuild tools/migrate.test.ts --bundle --platform=node --format=esm --outfile=/tmp/migrate-test.mjs --log-level=error && node /tmp/migrate-test.mjs",
-    "test:freeroads": "esbuild tools/freeroads.test.ts --bundle --platform=node --format=esm --outfile=/tmp/freeroads-test.mjs --log-level=error && node /tmp/freeroads-test.mjs"
+    "test:freeroads": "esbuild tools/freeroads.test.ts --bundle --platform=node --format=esm --outfile=/tmp/freeroads-test.mjs --log-level=error && node /tmp/freeroads-test.mjs",
+    "test:oasis": "esbuild tools/oasis.test.ts --bundle --platform=node --format=esm --outfile=/tmp/oasis-test.mjs --log-level=error && node /tmp/oasis-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

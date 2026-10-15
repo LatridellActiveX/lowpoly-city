@@ -72,7 +72,23 @@ export interface Vehicle {
   id: number; path: number[]; /** nodes along the path, path[i] edge goes nodes[i] → nodes[i+1] */ nodes: number[];
   i: number; seg: Seg; s: number; v: number; lane: number;
   wait: number; stopped: number; done: boolean; length: number;
+  /**
+   * OASIS: a LIVE city trip riding this vehicle (sim/livegraph.ts). Decorative
+   * cars have none. `onArrive` fires exactly once when the vehicle reaches
+   * the end of its path (deliveries land, commuters reach work, garbage is
+   * burned...). A vehicle that GIVES UP (gridlock) is dropped without it,
+   * exactly like a tile car that gives up (sim/traffic.ts STUCK_SECONDS).
+   */
+  trip?: { kind: 'car' | 'truck'; color: number; purpose: string; onArrive?: () => void };
+  /**
+   * OASIS: where on its LAST lane the vehicle stops (lane distance s). Live
+   * trips start and end at a building's frontage in the middle of a road,
+   * not at a junction; undefined = drive to the end of the last lane.
+   */
+  endS?: number;
 }
+/** OASIS: seconds (graph time) a live vehicle may sit still before it gives up. */
+export const GIVE_UP = 90;
 
 /** Clearance (junction box radius) at node n. */
 export function nodeClear(g: RoadGraph, n: number): number {
@@ -89,7 +105,7 @@ export class GraphTraffic {
   private cacheVersion = -1;
   private nextId = 1;
   time = 0;
-  stats = { spawned: 0, arrived: 0, rightOnRed: 0, yields: 0, noRoute: 0 };
+  stats = { spawned: 0, arrived: 0, rightOnRed: 0, yields: 0, noRoute: 0, gaveUp: 0 };
   /** Lengths/points of lane segments are derived from the edge LUT on demand. */
   constructor(public g: RoadGraph) { this.build(); }
 
@@ -230,7 +246,7 @@ export class GraphTraffic {
   private segLen(seg: Seg): number { return seg.kind === 'lane' ? this.laneLen(seg.edge) : this.junctions.get(seg.node)!.conns[seg.idx].len; }
   private dirOf(e: number, from: number): 0 | 1 { return this.g.eA[e] === from ? 0 : 1; }
   /** Spawn a vehicle from node a to node b. */
-  spawn(a: number, b: number): Vehicle | null {
+  spawn(a: number, b: number, trip?: Vehicle['trip']): Vehicle | null {
     const r = this.route(a, b);
     if (!r || !r.edges.length) { this.stats.noRoute++; return null; }
     const e = r.edges[0], dir = this.dirOf(e, a);
@@ -239,8 +255,69 @@ export class GraphTraffic {
     const l = this.list(seg);
     // Lists are ordered by s ascending (rearmost first): a new car enters at the back.
     if (l.length && l[0].s < CAR_LEN + MIN_GAP) return null; // entry blocked
-    const v: Vehicle = { id: this.nextId++, path: r.edges, nodes: r.nodes, i: 0, seg, s: 0, v: 0, lane, wait: 0, stopped: 0, done: false, length: CAR_LEN };
+    const v: Vehicle = { id: this.nextId++, path: r.edges, nodes: r.nodes, i: 0, seg, s: 0, v: 0, lane, wait: 0, stopped: 0, done: false, length: CAR_LEN, trip };
     l.unshift(v); this.vehicles.push(v); this.stats.spawned++;
+    return v;
+  }
+  /**
+   * OASIS: lane distance s on (edge e, direction dir) of the point `arc`
+   * metres along the edge's a→b curve, clamped to the drivable lane.
+   */
+  laneS(e: number, dir: 0 | 1, arc: number): number {
+    const [s0, s1] = this.span(e);
+    return Math.max(0, Math.min(this.laneLen(e), dir === 0 ? arc - s0 : s1 - arc));
+  }
+  /**
+   * OASIS: spawn a vehicle MID-ROAD — from `arcA` metres along edge eA to
+   * `arcB` metres along edge eB (arc lengths measured a→b on each edge's
+   * curve), the way a trip from one building's frontage to another's runs.
+   *
+   * The car may set off in either direction and arrive from either end, so
+   * up to four candidate paths are compared (2 start directions × 2 arrival
+   * directions), each = rest of the start lane + A* between the junctions +
+   * the part of the last lane up to the stop. Candidates that would need a
+   * U-turn (the A* route doubling back over the start or end edge) are
+   * skipped; there are no U-turn connectors. Same edge, stop ahead: drive
+   * straight there. Returns null when no candidate exists (no connection)
+   * or the start spot is occupied — the caller then falls back.
+   */
+  spawnAt(eA: number, arcA: number, eB: number, arcB: number, trip?: Vehicle['trip']): Vehicle | null {
+    const g = this.g;
+    if (this.cacheVersion !== g.version) this.build();
+    let best: { path: number[]; nodes: number[]; dir: 0 | 1; cost: number; endS: number } | null = null;
+    const consider = (c: NonNullable<typeof best>) => { if (!best || c.cost < best.cost) best = c; };
+    for (const dir of [0, 1] as const) {
+      if (g.eType[eA] === 'oneway' && dir === 1) continue;
+      const startNode = dir === 0 ? g.eA[eA] : g.eB[eA], exitNode = dir === 0 ? g.eB[eA] : g.eA[eA];
+      const sStart = this.laneS(eA, dir, arcA), restA = this.laneLen(eA) - sStart;
+      if (eA === eB) {
+        // Same road: the stop is straight ahead in this direction?
+        const sEnd = this.laneS(eB, dir, arcB);
+        if (sEnd > sStart + 1) consider({ path: [eA], nodes: [startNode, exitNode], dir, cost: sEnd - sStart, endS: sEnd });
+      }
+      for (const dirB of [0, 1] as const) {
+        if (g.eType[eB] === 'oneway' && dirB === 1) continue;
+        const entryB = dirB === 0 ? g.eA[eB] : g.eB[eB], endNode = dirB === 0 ? g.eB[eB] : g.eA[eB];
+        const r = exitNode === entryB ? { edges: [] as number[], nodes: [exitNode] } : this.route(exitNode, entryB, 'length');
+        if (!r) continue;
+        if (r.edges.length && (r.edges[0] === eA || r.edges[r.edges.length - 1] === eB)) continue; // would need a U-turn
+        if (!r.edges.length && eA === eB) continue; // same edge, turning round at its own end: U-turn
+        if (!r.edges.length && this.connector(exitNode, eA, eB, -1) < 0) continue; // no turn allowed between them
+        const sEnd = this.laneS(eB, dirB, arcB);
+        consider({ path: [eA, ...r.edges, eB], nodes: [startNode, ...r.nodes, endNode], dir, cost: restA + this.routeLength(r) + sEnd, endS: sEnd });
+      }
+    }
+    if (!best) { this.stats.noRoute++; return null; }
+    const b: { path: number[]; nodes: number[]; dir: 0 | 1; cost: number; endS: number } = best;
+    const lane = this.laneFor(b.path, b.nodes, 0);
+    const seg: Seg = { kind: 'lane', edge: eA, dir: b.dir, lane };
+    const s0 = this.laneS(eA, b.dir, arcA), l = this.list(seg);
+    // Pull out only into a gap: nobody within a car length + gap either side.
+    for (const o of l) if (Math.abs(o.s - s0) < CAR_LEN + MIN_GAP) return null;
+    const v: Vehicle = { id: this.nextId++, path: b.path, nodes: b.nodes, i: 0, seg, s: s0, v: 0, lane, wait: 0, stopped: 0, done: false, length: CAR_LEN, trip, endS: b.endS };
+    // Keep the per-lane list ordered by s (rearmost first).
+    let k = 0; while (k < l.length && l[k].s < s0) k++;
+    l.splice(k, 0, v); this.vehicles.push(v); this.stats.spawned++;
     return v;
   }
   /** Lane to drive on along path edge i, chosen for the next turn. */
@@ -315,11 +392,39 @@ export class GraphTraffic {
     // apply segment transitions after moving (keeps per-segment order stable)
     for (const v of this.pending) this.transfer(v);
     this.pending.length = 0;
+    // OASIS: live trips that have been stuck too long give up (frees gridlock).
+    for (const v of this.vehicles) if (v.trip && !v.done && v.wait > GIVE_UP) this.drop(v);
     if (this.vehicles.some((v) => v.done)) this.vehicles = this.vehicles.filter((v) => !v.done);
   }
   private pending: Vehicle[] = [];
+  /**
+   * OASIS: take a vehicle off the road without arriving (give-up). It leaves
+   * its segment list and, if it was inside a junction box, frees that
+   * connector so the junction does not stay "occupied" for ever.
+   */
+  drop(v: Vehicle): void {
+    const l = this.list(v.seg), k = l.indexOf(v); if (k >= 0) l.splice(k, 1);
+    if (v.seg.kind === 'conn') { const J = this.junctions.get(v.seg.node); if (J) J.occupied[v.seg.idx]--; }
+    v.done = true; this.stats.gaveUp++;
+  }
+  /**
+   * OASIS: the graph is about to be replaced (an edit changed its version, so
+   * edge/node ids may be gone). Every live trip is COMPLETED on the spot
+   * (onArrive) rather than lost: a delivery or a commuter mid-way when the
+   * player edits a road still counts, as if the car finished its drive.
+   * Returns how many trips were completed.
+   */
+  finishAll(): number {
+    let n = 0;
+    for (const v of this.vehicles) if (!v.done) { v.done = true; if (v.trip) { n++; v.trip.onArrive?.(); } }
+    this.vehicles = []; this.onSeg.clear();
+    return n;
+  }
   private move(v: Vehicle, l: Vehicle[], k: number, dt: number): void {
-    const len = this.segLen(v.seg);
+    // OASIS: a mid-road destination shortens the last lane: the car stops at
+    // its building's frontage (endS) and arrives there.
+    const lastLane = v.seg.kind === 'lane' && v.endS !== undefined && v.i + 1 >= v.path.length;
+    const len = lastLane ? Math.min(this.segLen(v.seg), v.endS!) : this.segLen(v.seg);
     const vmax = v.seg.kind === 'lane' ? ROAD_SPEC[this.g.eType[v.seg.edge]].speed : 8;
     // Gap to the leader on this segment, or the segment end (a stop line) when we may not go on.
     let gap = Infinity;
@@ -339,6 +444,8 @@ export class GraphTraffic {
     if (k + 1 === l.length && gap !== Infinity && len - v.s - ds < 0.5 && len - v.s - ds > 0) { ds = len - v.s; }
     v.s += ds;
     if (v.v < 0.1) v.wait += dt; else v.wait = 0;
+    // OASIS: a car reaching its mid-road stop arrives even with cars ahead of it.
+    if (lastLane && v.s >= len - 1e-6) { this.pending.push(v); return; }
     if (v.s >= len - 1e-6 && k + 1 === l.length) {
       // At the line: the junction decides now (mayEnter), else wait there.
       if (v.seg.kind === 'conn' && !this.canLeave(v, dt, 0)) { v.s = len; v.v = 0; return; }
@@ -380,7 +487,7 @@ export class GraphTraffic {
     const from = this.list(v.seg);
     const idx = from.indexOf(v); if (idx >= 0) from.splice(idx, 1);
     if (v.seg.kind === 'lane') {
-      if (v.i + 1 >= v.path.length) { v.done = true; this.stats.arrived++; return; }
+      if (v.i + 1 >= v.path.length) { v.done = true; this.stats.arrived++; v.trip?.onArrive?.(); return; } // OASIS: live trip lands
       const n = v.nodes[v.i + 1];
       const ci = (v as Vehicle & { go?: number }).go ?? this.connector(n, v.path[v.i], v.path[v.i + 1], v.seg.lane);
       v.seg = { kind: 'conn', node: n, idx: ci }; v.s = 0; v.stopped = 0;

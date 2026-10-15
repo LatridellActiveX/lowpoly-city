@@ -164,8 +164,8 @@ export class GraphRoadLayer {
   private builtVersion = -1;
   private zoneKey = '';
   private mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide }); // double: kerb faces
+  /** (OASIS: unused — the live traffic is owned by the simulation, see updateCars.) */
   traffic: GraphTraffic | null = null;
-  private trafficVersion = -1;
   private seed = 1;
   showZones = false;
   constructor(scene: THREE.Scene) {
@@ -254,26 +254,27 @@ export class GraphRoadLayer {
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
   }
 
-  /** Decorative traffic on the freeform roads: keep it topped up and move it. */
-  updateCars(g: RoadGraph, dt: number): void {
-    if (!g.edgeCount()) { this.cars.count = 0; return; }
-    if (!this.traffic || this.trafficVersion !== g.version) { this.traffic = new GraphTraffic(g); this.trafficVersion = g.version; }
-    const tr = this.traffic, nodes = g.liveNodes();
-    const want = Math.min(300, g.edgeCount() * 14);
-    for (let tries = 0; tr.vehicles.length < want && tries < 12; tries++) {
-      const a = nodes[Math.floor(Math.random() * nodes.length)], b = nodes[Math.floor(Math.random() * nodes.length)];
-      if (a !== b) tr.spawn(a, b);
-    }
-    tr.update(Math.min(0.1, dt) * 3);
+  /**
+   * OASIS: draw the LIVE graph traffic (sim/livegraph.ts). These are the
+   * city's real trips — commuters, freight, garbage and service trucks —
+   * moved by the simulation; the renderer no longer spawns or moves
+   * decorative cars of its own. Trucks are drawn longer and in their cargo
+   * colour, like tile trucks.
+   */
+  updateCars(live: { gt: GraphTraffic | null }): void {
+    const tr = live.gt;
+    if (!tr || !tr.vehicles.length) { this.cars.count = 0; return; }
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
     let k = 0;
     for (const v of tr.vehicles) {
       if (k >= 400) break;
       const p = tr.position(v), p2 = tr.position({ ...v, s: v.s + 0.5 } as typeof v);
       q.setFromAxisAngle(up, -Math.atan2(p2.z - p.z, p2.x - p.x));
+      const truck = v.trip?.kind === 'truck';
+      s.set(truck ? 1.45 : 1, truck ? 1.5 : 1, truck ? 1.15 : 1); // trucks: longer, taller, a bit wider
       m.compose(new THREE.Vector3(p.x * U, 0, p.z * U), q, s);
       this.cars.setMatrixAt(k, m);
-      this.cars.setColorAt(k, col.setHex(CAR_COLORS[v.id % CAR_COLORS.length]));
+      this.cars.setColorAt(k, col.setHex(v.trip?.color ?? CAR_COLORS[v.id % CAR_COLORS.length]));
       k++;
     }
     this.cars.count = k;

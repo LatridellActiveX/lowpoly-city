@@ -101,6 +101,14 @@ export class World {
   roads = new RoadGraph();
   blocks = new ZoneBlocks();
   graphTiles = new Set<number>();
+  /**
+   * OASIS: a GRAPH WORLD — the road graph is the live network. Set for new
+   * games (main.ts migrates the generated roads), migrated/v10 saves with
+   * graph roads, and the first free road. Tile road tools then feed the
+   * graph (roads/persist.ts absorbTileRoads) and trips run on graph lanes
+   * (sim/livegraph.ts). Plain test worlds leave it false: pure tile game.
+   */
+  graphRoads = false;
   /** Simulation clock: number of ticks since the city was founded. */
   tick = 0;
   /** Per-city seed for terrain noise and building variety. */

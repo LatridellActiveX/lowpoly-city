@@ -130,6 +130,7 @@ export function serializeWorld(world: World): string {
     // regenerated on load (deterministic) and read their codes from cells.
     roadGraph: saveGraph(world.roads),
     graphTiles: [...world.graphTiles].sort((a, b) => a - b),
+    graphRoads: world.graphRoads, // OASIS (optional field: older v10 saves derive it from graphTiles)
   };
   return JSON.stringify(data);
 }
@@ -240,6 +241,7 @@ export function deserializeWorld(raw: string): World | null {
       w.roads = loadGraph(data.roadGraph);
       w.graphTiles = new Set<number>((data.graphTiles ?? []).filter((i: number) => w.tiles[i]?.road));
       rebuildBlocks(w);
+      w.graphRoads = data.graphRoads ?? w.graphTiles.size > 0; // OASIS
     }
     // ---- oasis merge (1.6 + models) ----
     // 1.6 (above) restores/migrates the road graph; the models branch adds
