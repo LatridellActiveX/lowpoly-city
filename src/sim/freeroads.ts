@@ -21,10 +21,11 @@
 import { Cubic, V2 } from '../roads/bezier';
 import { PlaceOptions, RoadGraph, RoadType, TILE_M } from '../roads/graph';
 import { ZoneBlocks, ZoneCell } from '../roads/blocks';
-import { gridCellOf, rasterizeRoads } from '../roads/bridge';
+import { gridCellOf, rasterizeRoads, syncKerbFill } from '../roads/bridge';
 import { canPlace } from './rules';
 import { placementCost } from './economy';
 import { tileHasCells } from './growth';
+import { refreshTileZone } from './lots';
 import { ownedAt } from './regions';
 import { GRID_SIZE } from './types';
 import type { Simulation } from './simulation';
@@ -131,8 +132,39 @@ export function paintBlocks(sim: Simulation, p: V2, code: number, brush = 1, dep
     const cx = k % (GRID_SIZE * 4), cz = Math.floor(k / (GRID_SIZE * 4));
     w.lots.markAround(Math.floor(cx / 4), Math.floor(cz / 4));
   }
-  if (n) { pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
+  if (n) { fillKerb(sim, old); pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
   return n;
+}
+
+/** Close the kerb-row gaps next to the cells just painted (roads/bridge.ts syncKerbFill); adds them to the undo list. */
+function fillKerb(sim: Simulation, old: Array<[number, number]>): void {
+  const tiles = new Set<number>();
+  const W = GRID_SIZE * 4;
+  for (const [k] of old) tiles.add(Math.floor(Math.floor(k / W) / 4) * GRID_SIZE + Math.floor((k % W) / 4));
+  const seen = new Set(old.map(([k]) => k));
+  for (const ch of syncKerbFill(sim.world, sim.world.blocks, tiles)) if (!seen.has(ch[0])) { seen.add(ch[0]); old.push(ch); }
+  retag(sim, old.map(([k]) => k));
+}
+
+/**
+ * A tile only joins the growth, power and water systems once tile.zone says
+ * it is zoned (the tile zoning tools set it; block painting writes only the
+ * cell grid). Without this, cells painted on a freeform road's blocks never
+ * grew buildings and never showed up as consumers on the power / water grids
+ * ("zoned but nothing happens", "not enough capacity"). Re-derive tile.zone
+ * from the cells for every tile the cells touch, wake the growth queue and
+ * re-solve the networks.
+ */
+export function retag(sim: Simulation, cells: number[]): void {
+  const w = sim.world, W = GRID_SIZE * 4, tiles = new Set<number>();
+  for (const k of cells) tiles.add(Math.floor(Math.floor(k / W) / 4) * GRID_SIZE + Math.floor((k % W) / 4));
+  for (const i of tiles) {
+    const t = w.tiles[i];
+    if (!t.road && !t.water && !w.lots.hostedOn(i).length) refreshTileZone(w, i);
+    w.chunks.touch(i);
+    w.lots.markAround(i % GRID_SIZE, Math.floor(i / GRID_SIZE));
+  }
+  if (tiles.size) { sim.net = sim.refreshNet(); sim.version++; }
 }
 
 /**
@@ -163,8 +195,9 @@ export function paintCells(sim: Simulation, cells: ZoneCell[], code: number): nu
     const cx = k % (GRID_SIZE * 4), cz = Math.floor(k / (GRID_SIZE * 4));
     w.lots.markAround(Math.floor(cx / 4), Math.floor(cz / 4));
   }
-  if (old.length) { pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
-  return old.length;
+  const painted = old.length;
+  if (painted) { fillKerb(sim, old); pushUndo(sim, { kind: 'zone', cells: old }); sim.version++; }
+  return painted;
 }
 
 /* ---------------- undo / redo ---------------- */
@@ -180,6 +213,7 @@ function swap(sim: Simulation, r: UndoRec): UndoRec {
   if (r.kind === 'zone') {
     const inv: Array<[number, number]> = r.cells.map(([k]) => [k, w.cells.zone[k]]);
     for (const [k, code] of r.cells) if (w.cells.owner[k] === 0) w.cells.zone[k] = code;
+    retag(sim, r.cells.map(([k]) => k));
     sim.version++;
     return { kind: 'zone', cells: inv };
   }

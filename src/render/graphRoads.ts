@@ -257,7 +257,6 @@ export class GraphRoadLayer {
   private ghost: THREE.Mesh | null = null;
   private outline: THREE.LineSegments | null = null;
   private preview: THREE.InstancedMesh;
-  private cars: THREE.InstancedMesh;
   private builtVersion = -1;
   private zoneKey = '';
   private mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide }); // double: kerb faces
@@ -273,11 +272,6 @@ export class GraphRoadLayer {
     this.preview = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), MAX_PREVIEW);
     this.preview.count = 0; this.preview.frustumCulled = false; this.preview.renderOrder = 3;
     this.group.add(this.preview);
-    // Cars: same proportions as the tile cars (render/vehicles.ts).
-    const body = new THREE.BoxGeometry(0.24, 0.06, 0.12).translate(0, 0.07, 0);
-    this.cars = new THREE.InstancedMesh(body, new THREE.MeshStandardMaterial({ roughness: 0.6 }), 400);
-    this.cars.count = 0; this.cars.frustumCulled = false;
-    this.group.add(this.cars);
   }
 
   /** Rebuild the static road mesh if the graph changed. */
@@ -400,36 +394,7 @@ export class GraphRoadLayer {
     this.preview.instanceMatrix.needsUpdate = true;
     if (this.preview.instanceColor) this.preview.instanceColor.needsUpdate = true;
   }
-
-  /**
-   * OASIS: draw the LIVE graph traffic (sim/livegraph.ts). These are the
-   * city's real trips — commuters, freight, garbage and service trucks —
-   * moved by the simulation; the renderer no longer spawns or moves
-   * decorative cars of its own. Trucks are drawn longer and in their cargo
-   * colour, like tile trucks.
-   */
-  updateCars(live: { gt: GraphTraffic | null }): void {
-    const tr = live.gt;
-    if (!tr || !tr.vehicles.length) { this.cars.count = 0; return; }
-    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), col = new THREE.Color(), up = new THREE.Vector3(0, 1, 0);
-    let k = 0;
-    for (const v of tr.vehicles) {
-      if (k >= 400) break;
-      const p = tr.position(v), p2 = tr.position({ ...v, s: v.s + 0.5 } as typeof v);
-      q.setFromAxisAngle(up, -Math.atan2(p2.z - p.z, p2.x - p.x));
-      const truck = v.trip?.kind === 'truck';
-      s.set(truck ? 1.45 : 1, truck ? 1.5 : 1, truck ? 1.15 : 1); // trucks: longer, taller, a bit wider
-      m.compose(new THREE.Vector3(p.x * U, 0, p.z * U), q, s);
-      this.cars.setMatrixAt(k, m);
-      this.cars.setColorAt(k, col.setHex(v.trip?.color ?? CAR_COLORS[v.id % CAR_COLORS.length]));
-      k++;
-    }
-    this.cars.count = k;
-    this.cars.instanceMatrix.needsUpdate = true;
-    if (this.cars.instanceColor) this.cars.instanceColor.needsUpdate = true;
-  }
 }
 
-const CAR_COLORS = [0xd94b3d, 0x3d7bd9, 0xf2f2f2, 0x2b2d31, 0xf2c14e, 0x4caf6a, 0x9aa1a8, 0x8e4fc1, 0xe0773a];
 /** Overlay colour per zone code (cells.ts ZONE_CODES order). */
 const ZONE_COLOR: Record<number, number> = { 0: 0x9aa0a6, 1: 0x6fcf6f, 2: 0x3fae4f, 3: 0x1f8a3a, 4: 0x5fa8ff, 5: 0x2f74d9, 6: 0xf2c94c, 7: 0xd99a2b, 8: 0xb5d36b, 9: 0xc98b4f, 10: 0x8f7ff2, 11: 0x4fd1d9 };

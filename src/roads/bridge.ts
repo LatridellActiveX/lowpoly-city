@@ -121,6 +121,60 @@ export function writeBlockCodes(world: World, zb: ZoneBlocks): void {
   for (let k = 0; k < keep.length; k++) if (!keep[k] && world.cells.owner[k] === 0) world.cells.zone[k] = 0;
 }
 
+/**
+ * KERB FILL. Buildings grow on the 1.5 cell grid: a building needs the cell
+ * row next to a road TILE zoned (its kerb row). Zone-block cells follow the
+ * true road, so on a road that isn't centred on the tile grid the block's
+ * first row can end a few cells short of the road tile, and the strip in
+ * between stays unzoned — nothing could ever be built there (zoned land that
+ * "doesn't populate"). This closes those gaps: in every non-road tile that
+ * touches a road tile, an unowned unzoned run between the road tile and the
+ * first zoned cell of a column takes that cell's code. Derived data: cells
+ * that are no longer under any block cell (and not built on) are cleared
+ * first, so erasing a zone removes its fill too.
+ * Works on the tiles given (and their 8 neighbours); returns [cell, old code].
+ */
+export function syncKerbFill(world: World, zb: ZoneBlocks, around: Iterable<number>): Array<[number, number]> {
+  const { zone, owner } = world.cells, changes: Array<[number, number]> = [];
+  const set = (k: number, code: number) => { if (zone[k] === code) return; changes.push([k, zone[k]]); zone[k] = code; };
+  const region = new Set<number>();
+  for (const i of around) {
+    const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (x + dx >= 0 && z + dz >= 0 && x + dx < GRID_SIZE && z + dz < GRID_SIZE) region.add((z + dz) * GRID_SIZE + x + dx);
+  }
+  const under = new Set<number>();
+  for (const c of zb.cells) { const k = gridCellOf(c); if (k >= 0) under.add(k); }
+  const N = CELLS_PER_TILE;
+  for (const i of region) {
+    const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
+    for (let cz = z * N; cz < z * N + N; cz++) for (let cx = x * N; cx < x * N + N; cx++) { const k = cidx(cx, cz); if (zone[k] && !owner[k] && !under.has(k)) set(k, 0); }
+  }
+  for (const i of region) {
+    const t = world.tiles[i];
+    if (t.road || t.water) continue;
+    const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
+    for (const [rx, rz] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+      const nx = x + rx, nz = z + rz;
+      if (nx < 0 || nz < 0 || nx >= GRID_SIZE || nz >= GRID_SIZE) continue;
+      const nt = world.tiles[nz * GRID_SIZE + nx];
+      if (!nt.road || nt.water) continue;
+      for (let line = 0; line < N; line++) {
+        const cellAt = (v: number) => {
+          const cx = rx === 1 ? x * N + N - 1 - v : rx === -1 ? x * N + v : x * N + line;
+          const cz = rz === 1 ? z * N + N - 1 - v : rz === -1 ? z * N + v : z * N + line;
+          return cidx(cx, cz);
+        };
+        let j = 0;
+        while (j < N && !zone[cellAt(j)] && !owner[cellAt(j)]) j++;
+        if (j === 0 || j >= N || !zone[cellAt(j)] || owner[cellAt(j)]) continue;
+        const code = zone[cellAt(j)];
+        for (let v = 0; v < j; v++) set(cellAt(v), code);
+      }
+    }
+  }
+  return changes;
+}
+
 /* ---------------- block-space lots (B3) ---------------- */
 
 /** Max heading change (radians) across a run wider than CURVE_W columns. */

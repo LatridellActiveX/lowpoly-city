@@ -48,6 +48,7 @@ import { owns, REGION, regionSide } from '../sim/regions';
 import { autoSkin, industrialMaterial, Skin } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
+import { TILE_M } from '../roads/graph';
 import { bigCoalModel, COAL_STACKS } from './coalModel';
 import { isBigCoal, isBigOil } from '../sim/networks';
 import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './roundaboutModel';
@@ -78,11 +79,21 @@ import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
+const CAR_PAINT = [0xd94b3d, 0x3d7bd9, 0xf2f2f2, 0x2b2d31, 0xf2c14e, 0x4caf6a, 0x9aa1a8, 0x8e4fc1, 0xe0773a];
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
   commercial: 0x69a8ec,
   industrial: 0xeac55c,
 };
+
+/** The colour a zone code is drawn in on the ground (density darkens it); used by the zoning drag preview too. */
+export function zoneCodeColor(code: number): number {
+  const info = ZONE_CODES[code];
+  if (!info || !info.zone) return 0xffffff;
+  const base = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 : code === ZoneCode.ComOffice ? 0x3fb6c9 : ZONE_COLORS[info.zone];
+  const tint = [0, 0, 0.82, 0.66, 0, 0.78, 0, 0.78, 0, 0][code] || 1;
+  return new THREE.Color(base).multiplyScalar(tint).getHex();
+}
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
@@ -393,14 +404,14 @@ export class CityRenderer {
       }
     }
     // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
-    add('car', VEHICLES.car(), solid, 256);
+    add('car', VEHICLES.car(), solid, 640);
     // PR 5 driving polish: spinning wheels, tail/brake lights, headlight glow.
-    add('wheel', VEHICLES.wheel(), solid, 1536, false);
-    add('carRoof', VEHICLES.carRoof(), solid, 320, false);
-    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 320, false);
-    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
-    add('truckCab', VEHICLES.truckCab(), solid, 64);
-    add('truckBox', VEHICLES.truckBox(), solid, 64);
+    add('wheel', VEHICLES.wheel(), solid, 3600, false);
+    add('carRoof', VEHICLES.carRoof(), solid, 800, false);
+    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 800, false);
+    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 800, false);
+    add('truckCab', VEHICLES.truckCab(), solid, 256);
+    add('truckBox', VEHICLES.truckBox(), solid, 256);
     add('tankerBody', VEHICLES.tankerBody(), solid, 64); // V1.5b stage B
     add('dumpBody', VEHICLES.dumpBody(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 512);
@@ -1331,8 +1342,8 @@ export class CityRenderer {
         if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
         // V1.6 B6: on freeform-road tiles the graph layer draws its own cars in
         // proper lanes; the tile car (driving the staircase) is hidden there.
-        const gt = sim.world.graphTiles;
-        if (gt.size && (gt.has(v.path[v.seg]) || gt.has(v.path[v.seg + 1]))) continue;
+        const gTiles = sim.world.graphTiles;
+        if (gTiles.size && (gTiles.has(v.path[v.seg]) || gTiles.has(v.path[v.seg + 1]))) continue;
         vehiclePose(v, tiles, pos, pose);
         e.set(pose.roll, pose.yaw, pose.pitch);
         this.q.setFromEuler(e);
@@ -1375,8 +1386,59 @@ export class CityRenderer {
           }
         }
       }
-      if (this.wheelSpin.size > 4 * sim.traffic.vehicles.length + 64) {
+      // NEBULA: the road graph's LIVE traffic (freeform roads) uses the very same
+      // detailed models as the tile cars — body, two-tone roof, spinning wheels,
+      // tail/brake lights, headlight glow, garbage / ambulance / tanker / dump /
+      // cargo trucks — instead of the placeholder boxes it used to draw.
+      const gt = sim.traffic.graph.gt;
+      const gUp = new THREE.Vector3(0, 1, 0), gP2 = { x: 0, z: 0 };
+      if (gt) for (const v of gt.vehicles) {
+        if (v.done) continue;
+        const gp = gt.position(v), gq = gt.position({ ...v, s: v.s + 0.5 } as typeof v);
+        gP2.x = gq.x - gp.x; gP2.z = gq.z - gp.z;
+        if (Math.hypot(gP2.x, gP2.z) < 1e-6) { const gb = gt.position({ ...v, s: Math.max(0, v.s - 0.5) } as typeof v); gP2.x = gp.x - gb.x; gP2.z = gp.z - gb.z; }
+        pos.set(gp.x / TILE_M, 0.041, gp.z / TILE_M); // 0.041 = graph asphalt surface
+        this.q.setFromAxisAngle(gUp, -Math.atan2(gP2.z, gP2.x));
+        const m = this.m.compose(pos, this.q, one);
+        const trip = v.trip, purpose = trip?.purpose ?? '', isTruck = trip?.kind === 'truck';
+        const body = trip?.color ?? CAR_PAINT[v.id % CAR_PAINT.length];
+        if (!isTruck) {
+          P.car.add(m, this.c.setHex(body));
+          P.carRoof.add(m, this.c.setHex(purpose.startsWith('police') ? 0x1d2a44 : roofColor(v.id, body)));
+          if (purpose.startsWith('police')) P.lightBar.add(m);
+        } else {
+          P.truckCab.add(m);
+          if (purpose.startsWith('garbage')) P.garbageBody.add(m);
+          else if (purpose.startsWith('ambulance')) { P.ambulanceBody.add(m); P.lightBar.add(m); }
+          else {
+            const tb = truckBody(purpose);
+            if (tb === 'tanker') P.tankerBody.add(m, this.c.setHex(/fuel/.test(purpose) ? 0xd6453a : /plastics/.test(purpose) ? 0xe8e8e8 : 0x8f969c));
+            else if (tb === 'dump') P.dumpBody.add(m, this.c.setHex(/coal/.test(purpose) ? 0x3a3a3e : 0xa9a49a));
+            else P.truckBox.add(m, this.c.setHex(body));
+          }
+          if (purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
+        }
+        const key = -1 - v.id; // negative: never clashes with tile-vehicle ids
+        const spin = ((this.wheelSpin.get(key) ?? 0) + ((v.v / TILE_M) * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
+        this.wheelSpin.set(key, spin);
+        tmpQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -spin);
+        for (const [wx, wz] of isTruck ? WHEELS.truck : WHEELS.car) {
+          wp.set(wx, WHEELS.radius, wz).applyQuaternion(this.q).add(pos);
+          wq.copy(this.q).multiply(tmpQ);
+          P.wheel.add(this.m.compose(wp, wq, one));
+        }
+        if (!isTruck) {
+          const braking = v.v < 0.5 && (v.wait > 0.2 || v.stopped > 0);
+          if (braking || night) P.tailLight.add(this.m.compose(pos, this.q, one), this.c.setRGB(braking ? 1 : 0.55, braking ? 0.08 : 0.02, braking ? 0.05 : 0.02));
+          if (night) {
+            wp.set(0.2, 0.03, 0).applyQuaternion(this.q).add(pos);
+            P.headGlow.add(this.m.compose(wp, this.cameraQuat, one), this.c.setRGB(1, 0.9, 0.65));
+          }
+        }
+      }
+      if (this.wheelSpin.size > 4 * (sim.traffic.vehicles.length + (gt?.vehicles.length ?? 0)) + 64) {
         const live = new Set(sim.traffic.vehicles.map((v) => v.id));
+        if (gt) for (const v of gt.vehicles) live.add(-1 - v.id);
         for (const k of this.wheelSpin.keys()) if (!live.has(k)) this.wheelSpin.delete(k);
       }
       // PR 5: every pole has two heads × three lamps. Only the active lamp
@@ -1649,13 +1711,13 @@ export class PreviewRenderer {
   }
 
   /** tiles: each with a validity flag; hover-only tiles are drawn white. `outline` colours the border. */
-  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>, outline: boolean | null = null): void {
+  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>, outline: boolean | null = null, tint?: number): void {
     this.pool.begin();
     this.edges.begin();
     const inSel = new Set(tiles.map((t) => t.z * GRID_SIZE + t.x));
-    const edgeColor = outline === null ? 0xffffff : outline ? 0x34c759 : 0xff3b30;
+    const edgeColor = outline === null ? 0xffffff : outline ? tint ?? 0x34c759 : 0xff3b30;
     for (const t of tiles) {
-      const color = t.ok === null ? 0xffffff : t.ok ? 0x34c759 : 0xff3b30;
+      const color = t.ok === null ? 0xffffff : t.ok ? tint ?? 0x34c759 : 0xff3b30;
       this.m.makeTranslation(t.x + 0.5, 0.12, t.z + 0.5);
       this.pool.add(this.m, this.c.setHex(color));
       // [dx, dz, bar centre offset x, z, rotation]: N, S, W, E edges.

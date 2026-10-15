@@ -19,6 +19,7 @@ import { migrateToGraph } from '../src/roads/persist';
 import { placeFreeRoad, paintBlocks } from '../src/sim/freeroads';
 import { isStraightCubic } from './oasis-helpers';
 import { at, tangent } from '../src/roads/bezier';
+import { gridCellOf } from '../src/roads/bridge';
 import { GRID_SIZE } from '../src/sim/types';
 
 let fails = 0;
@@ -88,6 +89,12 @@ for (let k = 1; k < 40; k++) {
   for (const sd of [-1, 1]) painted += paintBlocks(s, { x: p.x + sd * d.z * 20, z: p.z - sd * d.x * 20 }, 1, 2, 3);
 }
 ok(painted >= 0, 'block zoning brush runs along the curve', painted);
+// Regression: block painting must also tag the TILES as zoned (growth, power and water only see tile.zone).
+{
+  let cellsZoned = 0, tilesZoned = 0;
+  for (const bc of w.blocks.cells) { const k = gridCellOf(bc); if (k < 0 || !w.cells.zone[k]) continue; cellsZoned++; const ti = Math.floor(Math.floor(k / (GRID_SIZE * 4)) / 4) * GRID_SIZE + Math.floor((k % (GRID_SIZE * 4)) / 4); if (!w.tiles[ti].road && w.tiles[ti].zone) tilesZoned++; }
+  ok(painted === 0 || tilesZoned > 0, 'painted block cells make their tiles zoned', { cellsZoned, tilesZoned });
+}
 let onCurve = 0;
 const seenPurpose = new Set<string>();
 for (let i = 0; i < 900; i++) {

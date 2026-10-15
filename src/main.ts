@@ -25,7 +25,8 @@ import { GRID_SIZE, ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
 import { setGridSize } from './sim/mapsize';
 import { REGION, regionSide, startRegion } from './sim/regions';
-import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
+import { CityRenderer, OverlayMode, PreviewRenderer, zoneCodeColor } from './render/cityRenderer';
+import { ZONE_CODES } from './sim/cells';
 import { createScene, resizeScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
@@ -192,10 +193,11 @@ function updatePreview(): void {
     const pm = toMetres(pointer.x, pointer.z), a = blockDragFrom ?? pm;
     if (blockDragFrom || sim.world.blocks.cellAt(pm)) {
       const cells = dragCells(sim, a, pm, sim.zoneOpt.depth);
-      graphLayer.showCells(cells, cells.length ? 0x46c36b : 0xe5484d);
+      const zc = codeForTool(sim, tool, idx(Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.x))), Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.z)))), sim.zoneOpt);
+      graphLayer.showCells(cells, cells.length ? zoneCodeColor(zc) : 0xe5484d);
       cellsShown = true;
       preview.show([]);
-      hud.showTip(cells.length ? `${cells.length} zone square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
+      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${cells.length} square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
       return;
     }
   }
@@ -241,9 +243,13 @@ function updatePreview(): void {
   const valid = tiles.filter(([x, z]) => canPlace(tool, sim.world.at(x, z))).length;
   renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
   hud.showCost(tool, cost, affordable, sim.world.cash);
+  // Zoning shows WHAT is being zoned: the preview takes the zone's own ground colour
+  // (residential green, shops blue, industry yellow, darker for denser zones).
+  const zcode = zq ? codeForTool(sim, tool, idx(hoverTile[0], hoverTile[1]), sim.zoneOpt) : 0;
   preview.show(
     tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })),
     affordable && valid > 0,
+    zcode ? zoneCodeColor(zcode) : undefined,
   );
   if (tool === 'park' && hoverTile) {
     // PR 6: show the park's 10×10 desirability square (offsets −5..+4).
@@ -269,7 +275,8 @@ function updatePreview(): void {
     const refund = tiles.reduce((a, [x, z]) => a + (canPlace(tool, sim.world.at(x, z)) ? bulldozeRefund(sim.world.at(x, z)) : 0), 0);
     html = `${size}${valid} tile${valid > 1 ? 's' : ''} · <span class="ok">refund ${money(refund)}</span>${cost ? ` · clearing ${money(cost)}` : ''}`;
   } else if (zq) {
-    html = zq.cells ? `${size}${zq.tiles.length} tiles · <b>${zq.cells} cells</b> zoned · <b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>` : `<span class="muted">Already zoned</span>`;
+    const zl = ZONE_CODES[zcode]?.label ?? '';
+    html = zq.cells ? `<b style="color:#${zoneCodeColor(zcode).toString(16).padStart(6, '0')}">${zl}</b> · ${size}${zq.tiles.length} tiles · <b>${zq.cells} cells</b> zoned · <b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>` : `<span class="muted">Already zoned</span>`;
   } else {
     const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
     html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
@@ -456,7 +463,6 @@ renderer.setAnimationLoop(() => {
   city.frame(sim, clock.elapsedTime);
   graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
   graphLayer.sync(sim.world.roads, sim.world.blocks);
-  graphLayer.updateCars(sim.traffic.graph); // OASIS: live graph trips (moved by the sim)
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
