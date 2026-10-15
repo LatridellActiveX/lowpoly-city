@@ -407,11 +407,23 @@ export function findPath(tiles: Tile[], start: number, goal: number): number[] |
  * A tile's corner in its block is found from which neighbours are ring tiles.
  */
 export function ringStepOk(tiles: Tile[], i: number, n: number): boolean {
+  const corner = ringCorner(tiles, i);
+  const d = n - i;
+  return corner === 1 ? d === -1 : corner === 0 ? d === GRID_SIZE : corner === 2 ? d === 1 : d === -GRID_SIZE;
+}
+
+/**
+ * V1.6: which corner of its 2×2 roundabout ring tile i is: 0 = NW, 1 = NE, 2 = SW, 3 = SE.
+ * New roundabouts remember it in `tile.kind` (1 + corner, written by applyRoundabout), so two
+ * roundabouts side by side can't be confused. Old saves have kind 0 on their ring tiles; for those it
+ * is worked out from which neighbours are ring tiles (fine unless two rings touch).
+ */
+export function ringCorner(tiles: Tile[], i: number): 0 | 1 | 2 | 3 {
+  const k = tiles[i].kind;
+  if (tiles[i].roadType === 2 && k >= 1 && k <= 4) return (k - 1) as 0 | 1 | 2 | 3;
   const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
   const ring = (xx: number, zz: number) => xx >= 0 && zz >= 0 && xx < GRID_SIZE && zz < GRID_SIZE && tiles[zz * GRID_SIZE + xx].roadType === 2;
-  const east = ring(x + 1, z) && ring(x, z + 1) ? 'NW' : ring(x - 1, z) && ring(x, z + 1) ? 'NE' : ring(x + 1, z) && ring(x, z - 1) ? 'SW' : 'SE';
-  const d = n - i;
-  return east === 'NE' ? d === -1 : east === 'NW' ? d === GRID_SIZE : east === 'SW' ? d === 1 : d === -GRID_SIZE;
+  return ring(x + 1, z) && ring(x, z + 1) ? 0 : ring(x - 1, z) && ring(x, z + 1) ? 1 : ring(x + 1, z) && ring(x, z - 1) ? 2 : 3;
 }
 
 /** First road tile next to tile i (where a building's driveway meets the street), or -1. */

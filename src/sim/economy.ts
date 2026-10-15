@@ -70,7 +70,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   parkingLot: 480, // V1.5: whole tile (16 spaces) — was $120 for a 2×2-cell quarter
   parkingGarage: 1600,
   // V1.5b services (sim/services.ts SERVICE_DEFS has the same prices).
-  garbageDump: 6000,
+  garbageDump: 10000, // V1.6: 2×2 landfill (was a $6,000 1×1 dump)
   policeStation: 5000,
   clinic: 6000,
   hospital: 24000,
@@ -78,6 +78,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   shippingDepot: 15000, // V1.5b stage C
   highSchool: 9000,
   college: 30000,
+  recyclingCenter: 8000, // V1.6
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */

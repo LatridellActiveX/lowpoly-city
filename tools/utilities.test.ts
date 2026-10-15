@@ -45,8 +45,15 @@ for (const kind of ['power', 'water'] as const) {
   T.forEach((t, i) => {
     if (!(t.zone || t.structure === 'service' || t.structure === 'building')) return;
     total++;
-    const gnet = kind === 'power' ? svc[i].powerNet : svc[i].waterNet;
-    const comp = net.componentOf({ pts: [tileCentre(i)] });
+    // oasis merge (1.6 + models): the models branch made schools, police and
+    // landfills 2x2. A 2x2 building is ONE consumer: its non-anchor "part"
+    // tiles (t.part = anchor + 1) are never flood-filled by the grid solver
+    // on their own, while the graph check would test each tile centre and
+    // find the back row near some other road. Compare such tiles through
+    // their anchor on BOTH sides so the test still checks real agreement.
+    const k = t.part ? t.part - 1 : i;
+    const gnet = kind === 'power' ? svc[k].powerNet : svc[k].waterNet;
+    const comp = net.componentOf({ pts: [tileCentre(k)] });
     if ((gnet >= 0) === (comp >= 0)) agree++;
     if (gnet >= 0 && comp >= 0) {
       if ((map.get(gnet) ?? comp) !== comp || (back.get(comp) ?? gnet) !== gnet) partitionOk = false;

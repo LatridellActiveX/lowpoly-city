@@ -17,13 +17,13 @@ import { StructureType, Tile, ToolId, ZoneType } from './types';
  * Sizing each source so its rated population runs at ~85% load:
  *   wind turbine  800 at FULL wind (wind = 1) → 400 at average wind 0.5
  *                 → ~400 people at average wind, ~800 in a full gale, 0 when calm
- *   coal/oil      2,000 → ~2,000 people
+ *   coal 5,000 → ~5,000 people; oil 8,000
  *   nuclear       8,000 → ~8,000 people (2×2, no fuel, no pollution)
  */
 /**
  * V1.5 POWER TIERS (Parker): "coal and oil power plants are in a tier below
  * nuclear, oil can power what nuclear could power and nuclear 4× that".
- *   coal (powerPlant, kind 0)  2,000  — from the start
+ *   coal (powerPlant, kind 0)  5,000  — from the start (V1.6; was 2,000)
  *   oil  (powerPlant, kind 1)  8,000  — Town tier (2,000 people)
  *   nuclear (2×2)             32,000  — City tier (10,000 people)
  * Coal and oil share the 'powerPlant' structure; Tile.kind tells them apart.
@@ -35,8 +35,8 @@ export const OIL_PLANT_OUTPUT = 8000;
 export const OIL_PLANT_UPKEEP = 1000; // charged instead of the coal plant's 250
 
 export const POWER_OUTPUT: Partial<Record<StructureType, number>> = {
-  powerPlant: 2000, // V1.5: this is the COAL plant (the backbone of the grid; was 120)
-  windTurbine: 800, // at full wind; output = 800 × wind (was 15)
+  powerPlant: 5000, // V1.6: the COAL plant powers about 5,000 people (V1.5 had 2,000; was 120)
+  windTurbine: 1000, // at full wind; output = 1,000 × wind (V1.6; was 800, originally 15)
   nuclearPlant: 32000, // V1.5: 4× the oil plant (PR 5 had 8,000; PR 4 600)
 };
 
@@ -224,6 +224,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
     case 'highSchool':
     case 'college':
     case 'shippingDepot':
+    case 'recyclingCenter':
       return isBare(t);
     case 'parkingLot':
     case 'parkingGarage':
@@ -310,6 +311,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'highSchool':
     case 'college':
     case 'shippingDepot':
+    case 'recyclingCenter':
       // V1.5b: one 'service' structure; kind says which (services.ts Svc).
       t.structure = 'service';
       t.kind = SERVICE_BY_TOOL[tool]!.svc;
@@ -327,7 +329,7 @@ export function applyTool(tool: ToolId, t: Tile): void {
     case 'oilPlant':
       // V1.5: an oil-fired plant is the same 'powerPlant' structure (so fuel
       // trucks, pollution, smoke and upkeep all keep working) with kind = OIL,
-      // which networks.output() turns into 8,000 power instead of 2,000.
+      // which networks.output() turns into 8,000 power instead of coal's 5,000.
       t.structure = 'powerPlant';
       t.kind = PLANT_OIL;
       t.farm = 0;

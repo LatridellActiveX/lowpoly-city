@@ -27,10 +27,11 @@ import { World, emptyTile } from './grid';
 import { defaultTaxRates, emptyLedger, Ledger, STARTING_CASH } from './economy';
 import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
-import { FUEL_MAX } from './rules';
+import { FUEL_MAX, PLANT_OIL } from './rules';
 import { GRID_SIZE, Tile } from './types';
 import { b64ToBytes, bytesToB64, CellRole, cidx, zoneCode } from './cells';
 import { TPL } from './footprints';
+import { GREW_FROM_1X1 } from './services';
 import { localToCell } from './lots';
 import { MAP_SIZES, setGridSize } from './mapsize';
 import { allRegions } from './regions';
@@ -240,6 +241,14 @@ export function deserializeWorld(raw: string): World | null {
       w.graphTiles = new Set<number>((data.graphTiles ?? []).filter((i: number) => w.tiles[i]?.road));
       rebuildBlocks(w);
     }
+    // ---- oasis merge (1.6 + models) ----
+    // 1.6 (above) restores/migrates the road graph; the models branch adds
+    // two idempotent footprint migrations (1x1 dumps/schools -> 2x2 landfill/
+    // school, 1x1 oil plants -> 2x2). They only claim empty, non-road tiles,
+    // so they never invalidate the road graph and run safely after it. They
+    // need no save-version bump because re-running them is a no-op.
+    migrateLandfills(w); // V1.6: idempotent (only touches 1×1 dumps / schools), so no version bump is needed
+    migrateOil(w); // V1.6: idempotent too (only touches 1×1 oil plants)
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
     w.tiles.forEach((t, i) => t.zone && w.lots.markDirty(i));
     w.lots.aggregate(w);
@@ -397,6 +406,73 @@ export function migrateCoal(w: World): number {
     });
     if (!free) return;
     for (const j of others) { const o = w.tiles[j]; o.structure = 'powerPlant'; o.kind = 0; o.part = i + 1; o.deco = 0; o.stock = 0; }
+    n++;
+  });
+  return n;
+}
+
+/**
+ * V1.6: the OIL plant became a 2×2 building too. Every old 1×1 oil plant grows
+ * into 2×2 (right and down) when those three tiles are empty land, otherwise
+ * it stays a legacy 1×1 plant (drawn with the old model). Already-2×2 plants
+ * are skipped, so this is safe to run on every load.
+ */
+export function migrateOil(w: World): number {
+  const N = GRID_SIZE;
+  let n = 0;
+  w.tiles.forEach((t, i) => {
+    if (t.structure !== 'powerPlant' || t.kind !== PLANT_OIL || t.part) return;
+    const x = i % N, z = Math.floor(i / N);
+    if (x >= N - 1 || z >= N - 1) return;
+    const r = w.tiles[i + 1];
+    if (r.structure === 'powerPlant' && r.part === i + 1) return; // already 2×2
+    const others = [i + 1, i + N, i + N + 1];
+    const free = others.every((j) => {
+      const o = w.tiles[j];
+      if (o.road || o.water || o.edge || o.structure !== 'none' || o.zone || o.powerLine || o.waterPipe) return false;
+      const ox = j % N, oz = Math.floor(j / N);
+      for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) { const c = cidx(ox * 4 + dx, oz * 4 + dz); if (w.cells.zone[c] || w.cells.owner[c]) return false; }
+      return true;
+    });
+    if (!free) return;
+    for (const j of others) { const o = w.tiles[j]; o.structure = 'powerPlant'; o.kind = PLANT_OIL; o.part = i + 1; o.deco = 0; o.stock = 0; }
+    n++;
+  });
+  return n;
+}
+
+/**
+ * V1.6: the garbage dump became a 2×2 LANDFILL. Every old 1×1 dump grows into a
+ * 2×2 one (expanding right and down) when those three tiles are empty land —
+ * same test as migrateCoal. Otherwise it stays a legacy 1×1 dump (it still
+ * works, drawn with the old small model; services.ts serviceSize tells the
+ * two apart). Already-2×2 landfills are skipped, so this is safe to run on
+ * every load. Returns how many dumps grew.
+ */
+export function migrateLandfills(w: World): number {
+  return migrateGrownServices(w);
+}
+
+/** Grow legacy 1×1 landfills and elementary schools into 2×2 where there is room (idempotent). */
+export function migrateGrownServices(w: World): number {
+  const N = GRID_SIZE;
+  let n = 0;
+  w.tiles.forEach((t, i) => {
+    if (t.structure !== 'service' || !GREW_FROM_1X1.includes(t.kind) || t.part) return;
+    const x = i % N, z = Math.floor(i / N);
+    if (x >= N - 1 || z >= N - 1) return;
+    const r = w.tiles[i + 1];
+    if (r.structure === 'service' && r.kind === t.kind && r.part === i + 1) return; // already 2×2
+    const others = [i + 1, i + N, i + N + 1];
+    const free = others.every((j) => {
+      const o = w.tiles[j];
+      if (o.road || o.water || o.edge || o.structure !== 'none' || o.zone || o.powerLine || o.waterPipe) return false;
+      const ox = j % N, oz = Math.floor(j / N);
+      for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) { const c = cidx(ox * 4 + dx, oz * 4 + dz); if (w.cells.zone[c] || w.cells.owner[c]) return false; }
+      return true;
+    });
+    if (!free) return;
+    for (const j of others) { const o = w.tiles[j]; o.structure = 'service'; o.kind = t.kind; o.part = i + 1; o.deco = 0; o.stock = 0; }
     n++;
   });
   return n;

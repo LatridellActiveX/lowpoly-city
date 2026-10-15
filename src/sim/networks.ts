@@ -34,12 +34,16 @@ import { GRID_SIZE } from './types';
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
 import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
+import { Svc } from './services';
 
 type Kind = 'power' | 'water';
 
+/** V1.6: a recycling center burns garbage for power, so it is a power source like a plant. */
+const isRecycler = (t: Tile) => t.structure === 'service' && t.kind === Svc.Recycling;
+
 function isSource(t: Tile, kind: Kind): boolean {
   return kind === 'power'
-    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant'
+    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant' || isRecycler(t)
     : t.structure === 'waterTower' || t.structure === 'pumpStation';
 }
 
@@ -51,7 +55,7 @@ function isConduit(t: Tile, kind: Kind): boolean {
 
 /**
  * What one source tile produces. Wind turbines scale with the wind (PR 3):
- * POWER_OUTPUT.windTurbine (15) is the output in a full gale (wind = 1).
+ * POWER_OUTPUT.windTurbine (1,000) is the output in a full gale (wind = 1).
  */
 /**
  * V1.5b (Parker): the COAL plant is a 2×2 building. Like the nuclear plant
@@ -60,8 +64,16 @@ function isConduit(t: Tile, kind: Kind): boolean {
  * stay 1×1 ("legacy"); `isBigCoal` tells the two apart.
  */
 export function isBigCoal(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
+  return tiles[i]?.kind === 0 && isBigPlant(tiles, i, N);
+}
+/** V1.6: the OIL plant is 2×2 as well (same anchor + 3 parts layout as coal). */
+export function isBigOil(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
+  return tiles[i]?.kind === PLANT_OIL && isBigPlant(tiles, i, N);
+}
+/** Anchor tile of a 2×2 coal or oil plant. */
+export function isBigPlant(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
   const t = tiles[i];
-  if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return false;
+  if (!t || t.structure !== 'powerPlant' || t.part) return false;
   const r = tiles[i + 1];
   return i % N < N - 1 && !!r && r.structure === 'powerPlant' && r.part === i + 1;
 }
@@ -69,6 +81,7 @@ export function isBigCoal(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
 export function output(t: Tile, kind: Kind, wind: number): number {
   if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : t.kind === 1 ? BIG_TOWER_OUTPUT : WATER_OUTPUT; // V1.5b big tower
   if (t.part) return 0; // non-anchor tile of a 2×2 plant: the anchor counts the output
+  if (isRecycler(t)) return POWER_OUTPUT.powerPlant ?? 0; // V1.6: same as a coal plant
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
   // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
   if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;

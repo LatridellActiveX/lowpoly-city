@@ -16,7 +16,7 @@ npm run build    # type-check + production build into dist/
 
 ## How to play
 1. Lay a **Road**. Every building needs a road on one of its four sides.
-2. Build a **Power Plant** (120 power) or **Wind Turbine** (15, varies with the wind) and drag **Power Lines** past where you'll build.
+2. Build a **Coal Plant** (5,000 power) or **Wind Turbine** (up to 1,000, varies with the wind) and drag **Power Lines** past where you'll build.
 3. Build a **Water Tower** (80 water, needs power to pump) and drag **Pipes** past the same blocks.
 4. Paint **Homes / Shops / Industry** zones beside the road. Lots grow into buildings over time once they have road + power + water.
 5. Watch your 💵 cash. Everything costs money, bulldozing refunds 25%, and each month operating buildings pay taxes while plants, turbines and towers cost upkeep. Open **💰 Budget** to see the books and set tax rates (0–20%; higher taxes slow growth).
@@ -81,13 +81,15 @@ Version 1.5b is on the same branch (`version-1.5`):
   * Under sustained high demand, homes densify and the zoning upgrades to match.
   * Empty residential zoning cools R demand.
 * **Services:**
-  * Garbage dump and trucks.
-  * Police and crime.
+  * A 2×2 landfill (unlocks at 1,000 people) with garbage trucks. It has a finite capacity: its model grows through six stages as it fills, a compactor and gulls work on it, and once it is full it stops taking garbage until you build a new one.
+  * Recycling center (unlocks at 2,500 people): buildings around it make up to 45% less garbage. It runs 12 garbage trucks (double a landfill) and burns the garbage for 5,000 power, like a coal plant. Landfill trucks haul stored garbage to it to be burned, freeing landfill space.
+  * Police and crime: a detailed 2×2 police station; police, the high school and crime all start at 2,500 people.
+  * In-game change log ("What's new"): add an entry to `src/changelog.ts` for each update; it opens automatically after an update and from the title screen / ☰ menu.
   * Clinic, hospital and ambulances.
   * Schools: elementary is available from the start. Workforce education matters.
 * **Offices:** Commercial ▸ Office zoning, with law firms, cable and internet companies, data centres, cell towers and radio stations.
 * **Industry:**
-  * A detailed 2×2 coal plant.
+  * A detailed 2×2 coal plant (5,000 power) and a detailed 2×2 oil plant (8,000), plus a 2×2 elementary school; crime starts when police unlock at 2,500 people.
   * Procedurally textured industrial models.
   * Factories reach L5, and industry merges and redevelops more often.
   * Six new industry types: warehouse, chemical plant, steel mill, textile mill, bottling plant and assembly plant.

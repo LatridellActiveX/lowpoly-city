@@ -24,11 +24,11 @@ for (const z of [13, 27]) { s.apply('residential', rect(11, z, 29, z)); s.apply(
 s.zoneOpt = { density: 1, depth: 3 };
 s.apply('commercial', rect(11, 20, 29, 20)); s.apply('commercial', rect(31, 20, 49, 20)); s.apply('commercial', rect(31, 25, 49, 25));
 s.zoneOpt = { density: 0, depth: 2 }; s.apply('industrial', rect(31, 34, 49, 34)); s.apply('industrial', rect(11, 34, 29, 34));
-s.apply('elementarySchool', [[20, 17]]);
+s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
 const later: Array<[number, () => void]> = [
-  [1000, () => { s.apply('garbageDump', [[31, 17]]); s.apply('policeStation', [[40, 17]]); s.apply('highSchool', [[20, 30]]); }],
+  [1000, () => { s.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); }], // V1.6: 2×2 landfill
   [2000, () => { s.apply('shippingDepot', [[24, 38], [25, 38], [24, 39], [25, 39]]); }],
-  [2500, () => { s.apply('clinic', [[40, 30]]); }],
+  [2500, () => { s.apply('clinic', [[40, 30]]); s.apply('policeStation', [[40, 17], [41, 17], [40, 18], [41, 18]]); s.apply('highSchool', [[20, 30]]); s.apply('recyclingCenter', [[24, 17]]); }], // V1.6: police + high school + recycling unlock at 2,500
 ];
 let lastCash = s.world.cash;
 console.log('tick   pop   cash/1k-ticks   R      C      I     jobs  workers health garbage crime  exports');

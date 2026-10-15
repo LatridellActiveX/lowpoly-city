@@ -75,11 +75,23 @@ export function bigCoalModel(detail = true): { solid: THREE.BufferGeometry; ligh
   P.push(part(box(0.46, 0.02, 0.02), STEEL, [0.72, 0.39, -0.3]));
   if (detail) for (const [x, z, w, d] of [[0.72, 0.09, 0.5, 0.005], [0.72, -0.33, 0.5, 0.005], [0.47, -0.12, 0.005, 0.42], [0.97, -0.12, 0.005, 0.42]] as const) P.push(part(box(w, 0.06, d), 0x9aa0a0, [x, 0.04, z]));
   // ---- SE: cooling towers -----------------------------------------------
-  const lathe = (r: number, h: number) => new THREE.LatheGeometry([
+  // Materials are single-sided, so a lathe with only an outer wall is see-through
+  // from above (you look straight through the open top at whatever is behind
+  // the tower). Each tower is therefore a hollow SHELL: the outer wall up, a
+  // flat lip across the top, and an inner wall back down (a closed profile),
+  // plus a dark basin floor, so the opening shows the inside of the tower.
+  const WALL = 0.025;
+  const profile = (r: number, h: number) => [
     new THREE.Vector2(r, 0), new THREE.Vector2(r * 0.8, h * 0.35), new THREE.Vector2(r * 0.66, h * 0.7),
-    new THREE.Vector2(r * 0.68, h * 0.88), new THREE.Vector2(r * 0.74, h)], 18);
+    new THREE.Vector2(r * 0.68, h * 0.88), new THREE.Vector2(r * 0.74, h)];
+  const shell = (r: number, h: number) => {
+    const outer = profile(r, h);
+    const inner = outer.map((v) => new THREE.Vector2(v.x - WALL, v.y)).reverse(); // top → bottom: faces point inward
+    return new THREE.LatheGeometry([...outer, ...inner], 18);
+  };
   for (const [x, z, r, h] of [[0.32, 0.6, 0.3, 0.9], [0.74, 0.22, 0.24, 0.75]] as const) {
-    P.push(part(lathe(r, h), 0xc9c6bd, [x, 0.04, z]));
+    P.push(part(shell(r, h), 0xc9c6bd, [x, 0.04, z]));
+    P.push(part(new THREE.CircleGeometry(r - WALL, 18).rotateX(-Math.PI / 2), 0x3f5a6b, [x, 0.04 + 0.032, z])); // basin water, seen through the opening
     P.push(part(new THREE.TorusGeometry(r * 0.74, 0.012, 4, 18).rotateX(Math.PI / 2), 0x9c988e, [x, 0.04 + h, z]));
     P.push(part(new THREE.CylinderGeometry(r * 1.02, r * 1.02, 0.03, 18), 0x8f8b82, [x, 0.04, z])); // basin
     if (detail) P.push(part(box(0.006, h * 0.85, 0.01), 0x8a8478, [x + r * 0.78, 0.04, z])); // stain streak

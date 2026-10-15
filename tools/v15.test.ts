@@ -33,7 +33,7 @@ const fresh = () => { const s = new Simulation(new World(undefined, 4242)); s.wo
   s.apply('nuclearPlant', [[14, 10], [15, 10], [14, 11], [15, 11]]);
   const w = s.world;
   const out = (x: number, z: number) => output(w.tiles[idx(x, z)], 'power', w.wind);
-  check('coal plant = 2,000', out(10, 10) === 2000, out(10, 10));
+  check('coal plant = 5,000', out(10, 10) === 5000, out(10, 10));
   check('oil plant = 8,000', out(12, 10) === 8000, out(12, 10));
   check('nuclear = 32,000 (4× oil)', out(14, 10) === 32000, out(14, 10));
   saveWorld(w);
@@ -43,7 +43,7 @@ const fresh = () => { const s = new Simulation(new World(undefined, 4242)); s.wo
   const old = JSON.parse(store.get('lowpoly-city-save')!);
   old.tiles[idx(12, 10)].kind = 0;
   store.set('lowpoly-city-save', JSON.stringify(old));
-  check('old-save plant loads as coal', output(loadWorld()!.tiles[idx(12, 10)], 'power', 0.5) === 2000);
+  check('old-save plant loads as coal', output(loadWorld()!.tiles[idx(12, 10)], 'power', 0.5) === 5000);
 }
 
 // ---------------------------------------------------------------- stage 4: parking

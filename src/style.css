@@ -213,3 +213,26 @@ body.title-mode .rci, body.title-mode .hint, body.title-mode .toast, body.title-
 .region.owned { background: rgba(80, 180, 90, 0.35); }
 .region.buyable { background: rgba(255, 210, 60, 0.25); }
 .region.locked { opacity: 0.7; }
+
+/* V1.6: What's new (change log) screen */
+.changelog { position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center; background: rgba(8, 12, 20, 0.55); }
+.changelog.hidden { display: none; }
+.changelog-card { position: relative; width: min(560px, 92vw); max-height: 82vh; display: flex; flex-direction: column; padding: 18px 20px; background: rgba(22, 30, 44, 0.97); color: #eef; border-radius: 12px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); }
+.changelog-card h2 { margin: 0 0 10px; font-size: 20px; }
+.changelog-card .close { position: absolute; top: 8px; right: 12px; background: none; border: 0; color: inherit; font-size: 22px; opacity: 0.7; cursor: pointer; }
+.changelog-list { overflow-y: auto; padding-right: 6px; flex: 1; }
+.cl-entry { border-top: 1px solid rgba(255, 255, 255, 0.12); padding: 10px 0 4px; opacity: 0.8; }
+.cl-entry.fresh { opacity: 1; }
+.cl-entry h3 { margin: 0 0 6px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.cl-date { margin-left: auto; font-size: 11px; font-weight: normal; opacity: 0.6; }
+.cl-badge { background: #e0663d; color: #fff; border-radius: 8px; padding: 0 7px; font-size: 10px; letter-spacing: 0.5px; }
+.cl-entry ul { margin: 0; padding: 0; list-style: none; }
+.cl-entry li { font-size: 13px; line-height: 1.4; margin: 5px 0; }
+.cl-tag { display: inline-block; min-width: 64px; text-align: center; border-radius: 6px; padding: 0 6px; margin-right: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; color: #fff; }
+.cl-tag.cl-new { background: #3d9a5a; }
+.cl-tag.cl-improved { background: #3d7fc4; }
+.cl-tag.cl-balance { background: #b8862a; }
+.cl-tag.cl-fix { background: #a64a8f; }
+.changelog-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+.changelog-foot .btn { width: auto; padding: 6px 18px; }
+body.title-mode .changelog { z-index: 70; }

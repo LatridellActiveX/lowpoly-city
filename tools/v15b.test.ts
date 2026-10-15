@@ -7,7 +7,7 @@ const store = new Map<string, string>();
 
 import { Simulation } from '../src/sim/simulation';
 import { World } from '../src/sim/grid';
-import { loadWorld, saveWorld } from '../src/sim/save';
+import { loadWorld, migrateLandfills, saveWorld } from '../src/sim/save';
 import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
@@ -44,18 +44,18 @@ function town(opts: { comDepth?: number; seed?: number } = {}): Simulation {
 }
 const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) { s.step(); s.traffic.update(s.world, 1); s.world.clock += 1; } };
 
-import { SERVICE_DEFS, Svc } from '../src/sim/services';
-import { G_WARN, GARBAGE_START } from '../src/sim/garbage';
+import { SERVICE_DEFS, serviceSize, Svc } from '../src/sim/services';
+import { G_WARN, GARBAGE_START, LANDFILL_MAX, landfillStage } from '../src/sim/garbage';
 import { isUnlocked } from '../src/sim/progression';
 
 // ---------------------------------------------------------------- stage E: garbage
 {
-  check('garbage dump locked < 1,000 people, unlocked at 1,000', !isUnlocked('garbageDump', 0, 999) && isUnlocked('garbageDump', 0, 1000));
+  check('landfill (garbage dump) locked < 1,000 people, unlocked at 1,000', !isUnlocked('garbageDump', 0, 999) && isUnlocked('garbageDump', 0, 1000));
   const res: Record<string, any> = {};
   for (const dump of [false, true]) {
     const s = town({ seed: 21 });
     s.world.peakPop = 1000;
-    if (dump) s.apply('garbageDump', [[31, 17]]);
+    if (dump) s.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); // V1.6: the dump is a 2×2 landfill
     run(s, 2200); // longer since the halved GARBAGE_RATE / higher G_WARN tune
     let g = 0, n = 0, piles = 0, lv = 0;
     s.world.tiles.forEach((t, i) => { if (t.zone && t.level > 0) { g += t.garbage; n++; lv += s.env.landValue[i]; if (t.garbage >= G_WARN) piles++; } });
@@ -76,15 +76,58 @@ import { isUnlocked } from '../src/sim/progression';
   check(`no garbage before ${GARBAGE_START} people`, s2.world.tiles.every((t) => t.garbage === 0));
 }
 
+// ---------------------------------------------------------------- V1.6: landfill capacity, recycling center, unlocks
+{
+  const big = (x: number, z: number): Array<[number, number]> => [[x, z], [x + 1, z], [x, z + 1], [x + 1, z + 1]];
+  check('recycling center unlocks at 2,500 people with police and the high school', !isUnlocked('recyclingCenter', 0, 2499) && isUnlocked('recyclingCenter', 0, 2500));
+
+  const s = town({ seed: 21 });
+  s.world.peakPop = 2500;
+  s.apply('garbageDump', big(31, 17));
+  const a = idx(31, 17), t = s.world.tiles[a];
+  check('the landfill is a 2×2 building (three part tiles link to the anchor)', t.structure === 'service' && t.kind === Svc.Dump && t.part === 0 && s.world.tiles[a + 1].part === a + 1 && s.world.tiles[a + 64].part === a + 1 && s.world.tiles[a + 65].part === a + 1 && serviceSize(s.world.tiles, a) === 2);
+  check('a new landfill is empty (stage 0)', t.stock === 0 && landfillStage(t) === 0);
+  const stages = [0, 0.19, 0.21, 0.51, 0.79, 0.81, 0.999, 1].map((f) => { t.stock = f * LANDFILL_MAX; return landfillStage(t); });
+  check('landfill model stage follows the fill; the last stage is only for a FULL one', JSON.stringify(stages) === '[0,0,1,2,3,4,4,5]', stages);
+  t.stock = 0;
+  run(s, 2200);
+  check('trucks unload into the landfill, so it fills up', t.stock > 0 && t.stock <= LANDFILL_MAX, t.stock);
+  // A full landfill sends no more trucks.
+  t.stock = LANDFILL_MAX;
+  const trips = s.garbage.stats.trips;
+  run(s, 500);
+  check('a full landfill sends no more trucks and stays full', s.garbage.stats.trips === trips && t.stock === LANDFILL_MAX, { trips: s.garbage.stats.trips - trips, stock: t.stock });
+  // Bulldozing the landfill clears the fill, so a new one starts empty.
+  s.apply('bulldoze', big(31, 17));
+  check('bulldozing a landfill removes all four tiles and its fill', [a, a + 1, a + 64, a + 65].every((i) => s.world.tiles[i].structure === 'none' && s.world.tiles[i].stock === 0));
+
+  // Recycling centers cut garbage build-up where they cover (no landfill, so nothing is collected).
+  const near = (sim: Simulation) => { let g = 0; sim.world.tiles.forEach((q, i) => { if (q.zone && q.level > 0 && Math.abs((i % 64) - 31) <= 5 && Math.abs(Math.floor(i / 64) - 17) <= 5) g += q.garbage; }); return g; };
+  const base = town({ seed: 24 }), rec = town({ seed: 24 });
+  base.world.peakPop = rec.world.peakPop = 2500;
+  rec.apply('recyclingCenter', [[31, 17]]);
+  run(base, 1500); run(rec, 1500);
+  const gBase = near(base), gRec = near(rec);
+  check('a recycling center cuts garbage build-up nearby by a lot', gBase > 0 && gRec < gBase * 0.75, { gBase: +gBase.toFixed(1), gRec: +gRec.toFixed(1) });
+
+  // Old saves: a 1×1 dump grows into a 2×2 landfill when the three tiles are free, and the migration is idempotent.
+  const old = town({ seed: 25 });
+  const o = old.world.tiles[a];
+  o.structure = 'service'; o.kind = Svc.Dump; o.part = 0;
+  check('a legacy 1×1 dump reports size 1', serviceSize(old.world.tiles, a) === 1);
+  check('the migration grows a legacy dump to 2×2', migrateLandfills(old.world) === 1 && serviceSize(old.world.tiles, a) === 2 && old.world.tiles[a + 65].part === a + 1);
+  check('the landfill migration is idempotent', migrateLandfills(old.world) === 0);
+}
+
 // ---------------------------------------------------------------- stage F: police + health care
 import { CRIME_START } from '../src/sim/safety';
 {
-  check('police locked < 1,000, clinic/hospital locked < 2,500', !isUnlocked('policeStation', 0, 999) && isUnlocked('policeStation', 0, 1000) && !isUnlocked('clinic', 0, 2499) && isUnlocked('hospital', 0, 2500));
+  check('police locked < 2,500 (V1.6), clinic/hospital locked < 2,500', !isUnlocked('policeStation', 0, 2499) && isUnlocked('policeStation', 0, 2500) && !isUnlocked('clinic', 0, 2499) && isUnlocked('hospital', 0, 2500));
   const res: Record<string, any> = {};
   for (const mode of ['none', 'police', 'clinic']) {
     const s = town({ seed: 23 });
     s.world.peakPop = 3000;
-    if (mode === 'police') s.apply('policeStation', [[31, 17]]);
+    if (mode === 'police') s.apply('policeStation', [[31, 17], [32, 17], [31, 18], [32, 18]]);
     if (mode === 'clinic') s.apply('clinic', [[31, 17]]);
     run(s, 700);
     let cr = 0, n = 0, lv = 0, h = 0, hn = 0;
@@ -105,7 +148,7 @@ import { CRIME_START } from '../src/sim/safety';
 import { computeDemand, EDU_BASELINE } from '../src/sim/demand';
 import { eduSlow, EDU_SLOW_ELEM } from '../src/sim/growth';
 {
-  check('elementary unlocked from the start; high school 1,000; college 2,500', isUnlocked('elementarySchool', 0, 0) && !isUnlocked('highSchool', 0, 999) && isUnlocked('highSchool', 0, 1000) && !isUnlocked('college', 0, 2499) && isUnlocked('college', 0, 2500));
+  check('elementary unlocked from the start; high school 2,500 (V1.6); college 2,500', isUnlocked('elementarySchool', 0, 0) && !isUnlocked('highSchool', 0, 2499) && isUnlocked('highSchool', 0, 2500) && !isUnlocked('college', 0, 2499) && isUnlocked('college', 0, 2500));
   // Workforce: shops with no educated workers lose commercial demand; school coverage restores it.
   const w = fresh().world;
   for (let k = 0; k < 20; k++) { const t = w.tiles[idx(5 + k, 5)]; t.zone = 'residential'; t.level = 3; t.res = 20; }
@@ -123,7 +166,7 @@ import { eduSlow, EDU_SLOW_ELEM } from '../src/sim/growth';
   check('L4 grows slower without elementary coverage', eduSlow(s, fake) === EDU_SLOW_ELEM);
   s.cov.edu.fill(1);
   check('L4 normal speed with elementary coverage', eduSlow(s, fake) === 1);
-  const sc = town({ seed: 32 }); sc.apply('elementarySchool', [[31, 17]]); run(sc, 3);
+  const sc = town({ seed: 32 }); sc.apply('elementarySchool', [[31, 17], [32, 17], [31, 18], [32, 18]]); run(sc, 3);
   check('an elementary school covers nearby homes (edu ≥ 1)', sc.world.at(31, 17).structure === 'service' && sc.cov.edu[idx(31, 13)] >= 1, sc.cov.edu[idx(31, 13)]);
 }
 
@@ -135,7 +178,7 @@ import { ZoneCode, zoneCode } from '../src/sim/cells';
   check('six office building types exist (kind 4)', ids.every((id) => TPL[id] && TPL[id].kind === 4 && TPL[id].zone === 'commercial'));
   const s = town({ seed: 41 });
   s.zoneOpt = { density: 3, depth: 2 }; s.apply('commercial', rect(11, 25, 29, 25));
-  s.apply('elementarySchool', [[20, 17]]);
+  s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
   run(s, 1200);
   const offices = [...s.world.lots.buildings.values()].filter((b) => TPL[b.tpl].kind === 4 && TPL[b.tpl].zone === 'commercial');
   let officeJobs = 0; s.world.tiles.forEach((t) => { if (t.zone === 'commercial' && t.kind === 4) officeJobs += t.jobs; });
@@ -213,7 +256,7 @@ import * as THREE from 'three';
   // 2×2 coal via the 4-tile tool; single-tile keeps the legacy 1×1.
   const s = fresh(); s.apply('powerPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('powerPlant', [[30, 30]]);
   const w = s.world;
-  check('2×2 coal plant: anchor + 3 parts, output on the anchor only', isBigCoal(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 2000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
+  check('2×2 coal plant: anchor + 3 parts, output on the anchor only', isBigCoal(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 5000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
   check('single-tile coal stays a legacy 1×1 plant', w.at(30, 30).structure === 'powerPlant' && !isBigCoal(w.tiles, idx(30, 30)) && w.at(31, 30).structure !== 'powerPlant');
   s.apply('bulldoze', [[21, 21]]);
   check('bulldozing one tile removes the whole 2×2 coal plant', [[20, 20], [21, 20], [20, 21], [21, 21]].every(([x, z]) => w.at(x, z).structure !== 'powerPlant'));
@@ -244,6 +287,59 @@ import { depotOf, DEPOT_BONUS } from '../src/sim/goods';
   check('no depot → no depot shipping', a.depotExports === 0 && a.depotImports === 0);
   check('depot loads counted per depot (Inspect)', (b.s.shipping.depotLoads.get(idx(24, 38)) ?? 0) === b.depotExports + b.depotImports);
   check('catchment: near tiles in, far tiles out', depotOf([idx(30, 36)], idx(40, 40)) === idx(30, 36) && depotOf([idx(30, 36)], idx(5, 5)) === -1 && DEPOT_BONUS > 0);
+}
+
+// ---------------------------------------------------------------- V1.6: 2×2 oil plant + elementary school, output bumps, crime start
+import { isBigOil } from '../src/sim/networks';
+import { migrateOil, migrateLandfills as migrateGrown } from '../src/sim/save';
+import { POWER_OUTPUT, PLANT_OIL } from '../src/sim/rules';
+import { POLICE_UNLOCK_POP } from '../src/sim/services';
+{
+  check('coal plant powers 5,000 and a wind turbine up to 1,000', POWER_OUTPUT.powerPlant === 5000 && POWER_OUTPUT.windTurbine === 1000);
+  check('crime starts exactly when police unlock', CRIME_START === POLICE_UNLOCK_POP && isUnlocked('policeStation', 0, CRIME_START));
+  const s = fresh();
+  s.apply('oilPlant', [[20, 20], [21, 20], [20, 21], [21, 21]]); s.apply('oilPlant', [[30, 30]]);
+  const w = s.world;
+  check('2×2 oil plant: anchor + 3 parts, 8,000 on the anchor only', isBigOil(w.tiles, idx(20, 20)) && w.at(21, 21).part === idx(20, 20) + 1 && output(w.tiles[idx(20, 20)], 'power', 1) === 8000 && output(w.tiles[idx(21, 21)], 'power', 1) === 0);
+  check('single-tile oil stays a legacy 1×1 plant', w.at(30, 30).kind === PLANT_OIL && !isBigOil(w.tiles, idx(30, 30)) && w.at(31, 30).structure !== 'powerPlant');
+  s.apply('bulldoze', [[21, 21]]);
+  check('bulldozing one tile removes the whole 2×2 oil plant', [[20, 20], [21, 20], [20, 21], [21, 21]].every(([x, z]) => w.at(x, z).structure !== 'powerPlant'));
+  const m = fresh(); m.world.at(10, 10).structure = 'powerPlant'; m.world.at(10, 10).kind = PLANT_OIL;
+  check('a legacy 1×1 oil plant grows to 2×2 (and only once)', migrateOil(m.world) === 1 && isBigOil(m.world.tiles, idx(10, 10)) && migrateOil(m.world) === 0);
+  const e = fresh(); e.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
+  check('elementary school is 2×2', serviceSize(e.world.tiles, idx(20, 17)) === 2 && e.world.at(21, 18).part === idx(20, 17) + 1);
+  const o = fresh(); const oa = idx(12, 12); o.world.tiles[oa].structure = 'service'; o.world.tiles[oa].kind = Svc.Elementary;
+  check('a legacy 1×1 school grows to 2×2', serviceSize(o.world.tiles, oa) === 1 && migrateGrown(o.world) === 1 && serviceSize(o.world.tiles, oa) === 2);
+}
+
+// ---------------------------------------------------------------- V1.6: 2×2 police, recycling center power + trucks + landfill hauling
+{
+  const s = town({ seed: 26 }); s.world.peakPop = 3000;
+  s.apply('policeStation', [[31, 17], [32, 17], [31, 18], [32, 18]]);
+  check('police station is 2×2', serviceSize(s.world.tiles, idx(31, 17)) === 2 && s.world.at(32, 18).part === idx(31, 17) + 1);
+  const o = fresh(); const pa = idx(12, 12); o.world.tiles[pa].structure = 'service'; o.world.tiles[pa].kind = Svc.Police;
+  check('a legacy 1×1 police station grows to 2×2', serviceSize(o.world.tiles, pa) === 1 && migrateGrown(o.world) === 1 && serviceSize(o.world.tiles, pa) === 2);
+  check('a recycling center owns 12 garbage trucks, double the landfill', SERVICE_DEFS[Svc.Recycling].fleet === 12 && SERVICE_DEFS[Svc.Recycling].fleet === 2 * SERVICE_DEFS[Svc.Dump].fleet);
+  // Power: a recycling center on a road is a 5,000 source like coal.
+  const p = town({ seed: 27 }); p.world.peakPop = 3000;
+  p.apply('recyclingCenter', [[31, 17]]); run(p, 3);
+  check('a recycling center produces coal-plant power', output(p.world.at(31, 17), 'power', 0.5) === POWER_OUTPUT.powerPlant && p.net.power.some((n) => n.capacity >= (POWER_OUTPUT.powerPlant ?? 0)));
+  // Landfill trucks haul stored garbage to the recycling center to be burned.
+  const h = town({ seed: 28 }); h.world.peakPop = 3000;
+  h.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); h.apply('recyclingCenter', [[24, 17]]);
+  const la = idx(31, 17); h.world.tiles[la].stock = 6000;
+  run(h, 1500);
+  check('landfill trucks haul garbage to the recycling center and it is burned', h.garbage.stats.hauled > 0 && h.garbage.burnedBy(idx(24, 17)) > 0 && h.world.tiles[la].stock < 6000, { hauled: h.garbage.stats.hauled, burned: h.garbage.burnedBy(idx(24, 17)), stock: h.world.tiles[la].stock });
+}
+
+// ---------------------------------------------------------------- V1.6: roundabout direction stays counter-clockwise even for touching rings
+{
+  const s = fresh();
+  s.apply('roundabout', [[30, 18], [31, 18], [30, 19], [31, 19]]); s.apply('roundabout', [[32, 18], [33, 18], [32, 19], [33, 19]]);
+  const t = s.world.tiles, ccw = (x: number, z: number, dx: number, dz: number) => ringStepOk(t, idx(x, z), idx(x + dx, z + dz));
+  // Ring A: NE(31,18)→NW(30,18) west, NW→SW(30,19) south, SW→SE(31,19) east, SE→NE north. Ring B the same, shifted by 2.
+  check('touching roundabouts both circulate counter-clockwise', [0, 2].every((o) => ccw(31 + o, 18, -1, 0) && ccw(30 + o, 18, 0, 1) && ccw(30 + o, 19, 1, 0) && ccw(31 + o, 19, 0, -1)));
+  check('and never the other way round', [0, 2].every((o) => !ccw(30 + o, 18, 1, 0) && !ccw(30 + o, 19, 0, -1) && !ccw(31 + o, 19, -1, 0) && !ccw(31 + o, 18, 0, 1)));
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');
