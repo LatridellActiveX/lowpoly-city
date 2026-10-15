@@ -182,7 +182,12 @@ function solve(
 }
 
 /** Recompute both utilities for the whole map. Called every simulation tick. */
-export function computeNetworks(world: World): NetworkResult {
+/**
+ * The original from-scratch solver (V1.5b). Kept as the REFERENCE: the A3
+ * equivalence tests compare the incremental computeNetworks() below with it
+ * after random edit sequences.
+ */
+export function computeNetworksFull(world: World): NetworkResult {
   const n = world.tiles.length;
   const powerNet = new Int32Array(n).fill(-1);
   const waterNet = new Int32Array(n).fill(-1);
@@ -210,4 +215,134 @@ export function computeNetworks(world: World): NetworkResult {
     };
   });
   return { service, power, water };
+}
+
+/* ------------------------------------------------------------------------ *
+ * V1.6 A3: INCREMENTAL NETWORKS
+ *
+ * The expensive part of solve() is the flood fill (which tiles belong to
+ * which network, which consumers each network reaches and in what order).
+ * That only depends on the TOPOLOGY: structures, roads, lines, pipes, zones —
+ * exactly the fields chunks.ts folds into `topoRev`. The cheap part, adding
+ * up capacity (wind changes it every tick, coal stock, pumps losing power)
+ * and handing it out to consumers in order, depends on levels and wind.
+ *
+ * So computeNetworks():
+ *   1. If topoRev moved since last time → flood fill again (buildTopology)
+ *      and remember, per network, its sources and its ordered consumer list.
+ *   2. Every tick → re-run only the allocation over those lists.
+ * The result is identical to computeNetworksFull (tested), but a stable city
+ * pays for a few hundred list entries instead of a flood over the map.
+ *
+ * `service` objects are created once per topology and UPDATED IN PLACE, so
+ * a tick allocates no per-tile objects (V1.6 target T4).
+ * ------------------------------------------------------------------------ */
+interface NetTopo { sources: number[]; consumers: number[] }
+interface Topo {
+  rev: number;
+  power: NetTopo[];
+  water: NetTopo[];
+  powerNet: Int32Array;
+  waterNet: Int32Array;
+  /** 1 for conduits/sources reached by a network: always "served". */
+  conduitP: Uint8Array;
+  conduitW: Uint8Array;
+  service: TileService[];
+  /** Persistent served flags: conduits fixed at 1, consumer entries rewritten every allocation. */
+  servedP: Uint8Array;
+  servedW: Uint8Array;
+  /** Tiles whose powered/watered can change tick to tick (consumers). */
+  watch: number[];
+}
+const topoCache = new WeakMap<World, Topo>();
+/** Bumps whenever any tile's powered/watered flag flips (environment.ts keys land value on it). */
+export const servedRev = new WeakMap<World, number>();
+
+function floodTopology(world: World, kind: Kind, netOf: Int32Array, conduit: Uint8Array): NetTopo[] {
+  const tiles = world.tiles, visited = new Uint8Array(tiles.length), out: NetTopo[] = [];
+  for (const start of world.chunks.activeTilesSorted()) {
+    if (visited[start] || !isSource(tiles[start], kind)) continue;
+    const id = out.length, queue = [start], sources: number[] = [], consumers: number[] = [], seen = new Set<number>();
+    visited[start] = 1;
+    for (let head = 0; head < queue.length; head++) {
+      const i = queue[head], t = tiles[i];
+      netOf[i] = id; conduit[i] = 1;
+      if (isSource(t, kind)) sources.push(i);
+      const x = i % GRID_SIZE, z = (i / GRID_SIZE) | 0;
+      for (const [dx, dz] of NEIGHBOURS) {
+        const nx = x + dx, nz = z + dz;
+        if (!inBounds(nx, nz)) continue;
+        const n = idx(nx, nz), nt = tiles[n];
+        if (isConduit(nt, kind)) { if (!visited[n]) { visited[n] = 1; queue.push(n); } }
+        else if (isConsumer(nt, kind) && !seen.has(n)) { seen.add(n); consumers.push(n); netOf[n] = id; }
+      }
+    }
+    // Same stable sort as solve(): pumps first on power networks.
+    if (kind === 'power') consumers.sort((a, b) => +(tiles[b].structure === 'waterTower' || tiles[b].structure === 'pumpStation') - +(tiles[a].structure === 'waterTower' || tiles[a].structure === 'pumpStation'));
+    out.push({ sources, consumers });
+  }
+  return out;
+}
+
+function buildTopology(world: World): Topo {
+  const n = world.tiles.length, tiles = world.tiles;
+  const powerNet = new Int32Array(n).fill(-1), waterNet = new Int32Array(n).fill(-1);
+  const conduitP = new Uint8Array(n), conduitW = new Uint8Array(n);
+  const power = floodTopology(world, 'power', powerNet, conduitP);
+  const water = floodTopology(world, 'water', waterNet, conduitW);
+  const watch = new Set<number>();
+  for (const nt of power) for (const c of nt.consumers) watch.add(c);
+  for (const nt of water) { for (const c of nt.consumers) watch.add(c); for (const s of nt.sources) watch.add(s); }
+  const service: TileService[] = new Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = i % GRID_SIZE, z = (i / GRID_SIZE) | 0;
+    const roadAccess = (x > 0 && tiles[i - 1].road) || (x < GRID_SIZE - 1 && tiles[i + 1].road) || (z > 0 && tiles[i - GRID_SIZE].road) || (z < GRID_SIZE - 1 && tiles[i + GRID_SIZE].road);
+    const t = tiles[i];
+    service[i] = {
+      powerNet: powerNet[i], waterNet: waterNet[i],
+      powered: conduitP[i] === 1 || (powerNet[i] >= 0 && isSource(t, 'power')),
+      watered: conduitW[i] === 1 || (waterNet[i] >= 0 && isSource(t, 'water')),
+      roadAccess,
+    };
+  }
+  return { rev: world.chunks.topoRev, power, water, powerNet, waterNet, conduitP, conduitW, service, servedP: conduitP.slice(), servedW: conduitW.slice(), watch: [...watch].sort((a, b) => a - b) };
+}
+
+/** Hand capacity to consumers in order (the cheap half of solve()). */
+function allocate(world: World, kind: Kind, nets: NetTopo[], served: Uint8Array, pumpsOn?: Uint8Array): Network[] {
+  const tiles = world.tiles, out: Network[] = [];
+  for (let id = 0; id < nets.length; id++) {
+    const { sources, consumers } = nets[id];
+    const net: Network = { id, capacity: 0, demand: 0, supplied: 0, outages: 0 };
+    for (const s of sources) if (!pumpsOn || pumpsOn[s]) net.capacity += output(tiles[s], kind, world.wind);
+    let remaining = net.capacity;
+    for (const c of consumers) {
+      const t = tiles[c];
+      const want = kind === 'power' && t.structure === 'waterTower' ? TOWER_PUMP_POWER : kind === 'power' && t.structure === 'pumpStation' ? TOWER_PUMP_POWER * 5 : demandOf(t, kind);
+      net.demand += want;
+      if (want <= remaining) { remaining -= want; served[c] = 1; } else { served[c] = 0; net.outages++; }
+    }
+    net.supplied = net.capacity - remaining;
+    out.push(net);
+  }
+  return out;
+}
+
+/** Incremental solver (see block comment above). Same answer as computeNetworksFull. */
+export function computeNetworks(world: World): NetworkResult {
+  let topo = topoCache.get(world);
+  if (!topo || topo.rev !== world.chunks.topoRev) { topo = buildTopology(world); topoCache.set(world, topo); servedRev.set(world, (servedRev.get(world) ?? 0) + 1); }
+  const servedP = topo.servedP, servedW = topo.servedW; // no per-tick allocation
+  const power = allocate(world, 'power', topo.power, servedP);
+  const water = allocate(world, 'water', topo.water, servedW, servedP);
+  const tiles = world.tiles;
+  let flipped = false;
+  for (const i of topo.watch) {
+    const s = topo.service[i], t = tiles[i];
+    const p = servedP[i] === 1 || (topo.powerNet[i] >= 0 && isSource(t, 'power'));
+    const w = servedW[i] === 1 || (topo.waterNet[i] >= 0 && isSource(t, 'water'));
+    if (p !== s.powered || w !== s.watered) { s.powered = p; s.watered = w; flipped = true; }
+  }
+  if (flipped) servedRev.set(world, (servedRev.get(world) ?? 0) + 1);
+  return { service: topo.service, power, water };
 }

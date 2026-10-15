@@ -77,7 +77,14 @@ export const LV_COMMERCE = 0.02, LV_COMMERCE_MAX = 0.9, LV_POLLUTION = 0.3, LV_N
 /** Noise sources: (strength, radius). */
 const NOISE_AVENUE: [number, number] = [0.35, 1], NOISE_PLANT: [number, number] = [1.2, 3], NOISE_IND_PER_LEVEL: [number, number] = [0.25, 2];
 
-export function computeLandValue(world: World, env: { pollution: Float32Array; parks: Float32Array }, service?: TileService[]): { noise: Float32Array; landValue: Float32Array } {
+/**
+ * `pre` (V1.6 A3, optional): receives each tile's land value BEFORE the
+ * garbage penalty and the clamp (NaN on roads/water). Garbage changes almost
+ * every tick, so the incremental path (lvGarbagePatch) re-applies just that
+ * last step to the tiles whose garbage moved, instead of redoing the
+ * road-distance flood and every spread.
+ */
+export function computeLandValue(world: World, env: { pollution: Float32Array; parks: Float32Array }, service?: TileService[], pre?: Float64Array): { noise: Float32Array; landValue: Float32Array } {
   const N = GRID_SIZE, n = world.tiles.length, tiles = world.tiles;
   const noise = new Float32Array(n), commerce = new Float32Array(n), dist = new Int8Array(n).fill(99), out = new Float32Array(n);
   const queue: number[] = [];
@@ -102,12 +109,13 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
   const nearAvenue = (i: number) => { const x = i % N, z = Math.floor(i / N); return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => { const a = x + dx, b = z + dz; return a >= 0 && b >= 0 && a < N && b < N && tiles[b * N + a].road && tiles[b * N + a].roadType >= 1; }); };
   for (let i = 0; i < n; i++) {
     const t = tiles[i];
-    if (t.water || t.road) continue; // no land value on roads/water
+    if (t.water || t.road) { if (pre) pre[i] = NaN; continue; } // no land value on roads/water
     let v = dist[i] <= 4 ? Math.max(0, LV_ACCESS - LV_ACCESS_FADE * (dist[i] - 1)) : 0;
     if (dist[i] === 1 && nearAvenue(i)) v += LV_AVENUE;
     if (service) v += (service[i].powered ? LV_SERVICE : 0) + (service[i].watered ? LV_SERVICE : 0);
     v += LV_PARK * env.parks[i] + Math.min(LV_COMMERCE_MAX, LV_COMMERCE * commerce[i]);
     v -= LV_POLLUTION * env.pollution[i] + LV_NOISE * noise[i];
+    if (pre) pre[i] = v;
     v -= LV_GARBAGE * Math.min(1, t.garbage / 60) * (world.peakPop < 1000 ? 0.3 : 1); // V1.5b stage E (mild before the dump unlocks)
     out[i] = Math.max(0, Math.min(LV_MAX, v));
   }
@@ -144,7 +152,14 @@ function spreadSquare(field: Float32Array, cx: number, cz: number, strength: num
 }
 
 /** `service` (simulation net.service) lets land value count power/water. */
-export function computeEnvironment(world: World, service?: TileService[]): Environment {
+/** V1.6 A3: one tile's final step of computeLandValue (garbage + clamp), bit-identical. */
+export function lvFinish(world: World, pre: number, garbage: number): number {
+  if (Number.isNaN(pre)) return 0;
+  const v = pre - LV_GARBAGE * Math.min(1, garbage / 60) * (world.peakPop < 1000 ? 0.3 : 1);
+  return Math.max(0, Math.min(LV_MAX, v));
+}
+
+export function computeEnvironment(world: World, service?: TileService[], pre?: Float64Array): Environment {
   const n = world.tiles.length;
   const pollution = new Float32Array(n);
   const parks = new Float32Array(n);
@@ -159,5 +174,5 @@ export function computeEnvironment(world: World, service?: TileService[]): Envir
     parks[i] = Math.min(PARK_BONUS_MAX, parks[i]);
     desirability[i] = DESIRE_BASE - POLLUTION_WEIGHT * pollution[i] + parks[i];
   }
-  return { pollution, parks, desirability, ...computeLandValue(world, { pollution, parks }, service) };
+  return { pollution, parks, desirability, ...computeLandValue(world, { pollution, parks }, service, pre) };
 }

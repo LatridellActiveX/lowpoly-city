@@ -27,7 +27,7 @@
  */
 import { coords, World } from './grid';
 import { prof } from './prof';
-import { computeNetworks, NetworkResult, isBigCoal } from './networks';
+import { computeNetworks, NetworkResult, isBigCoal, servedRev } from './networks';
 import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND, BIG_TOWER_UPKEEP } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
@@ -41,14 +41,14 @@ import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
 import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS } from './services';
 import { Garbage } from './garbage';
-import { applyServiceEffects, computeSafety, Responders, Safety } from './safety';
+import { applyServiceEffects, computeSafety, Responders, Safety, serviceEffectOne } from './safety';
 import { LV_MAX } from './environment';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
-import { computeEnvironment, Environment } from './environment';
+import { computeEnvironment, Environment, lvFinish } from './environment';
 import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
@@ -164,6 +164,7 @@ export class Simulation {
     this.world = world;
     this.net = computeNetworks(world);
     this.cov = computeCoverage(world);
+    this.inc.cov = world.chunks.topoRev;
     this.env = this.envWithServices(world);
     this.demand = this.computeDemand();
   }
@@ -198,10 +199,50 @@ export class Simulation {
    * that used to call computeEnvironment directly gets them.
    */
   private envWithServices(w: World): ReturnType<typeof computeEnvironment> {
-    const env = computeEnvironment(w, this.net.service);
-    this.safety = computeSafety(w, this.cov);
-    applyServiceEffects(env.landValue, this.safety, LV_MAX);
+    // V1.6 A3: INCREMENTAL. Each stage is keyed on the revisions it reads
+    // (chunks.ts topo/bldg/garbage revs, networks.ts servedRev, peakPop) and
+    // is skipped when none moved. tools/incremental.test.ts checks the
+    // result against a from-scratch computation after random edits.
+    const ch = w.chunks, inc = this.inc;
+    // Coverage: anchors (services + their road links) are pure topology.
+    if (inc.cov !== ch.topoRev || !this.cov) { this.cov = computeCoverage(w); inc.cov = ch.topoRev; }
+    // Safety: coverage + residents/jobs + the city-size factor (peakPop).
+    const safeKey = `${ch.topoRev}|${ch.bldgRev}|${w.peakPop}`;
+    if (inc.safety !== safeKey) { this.safety = computeSafety(w, this.cov); inc.safety = safeKey; }
+    // Land value also reads powered/watered and the "small town" garbage factor.
+    const lvKey = `${safeKey}|${servedRev.get(w) ?? 0}|${w.peakPop < 1000}`;
+    if (inc.lv !== lvKey || !inc.env) {
+      if (inc.pre.length !== w.tiles.length) inc.pre = new Float64Array(w.tiles.length);
+      const env = computeEnvironment(w, this.net.service, inc.pre);
+      applyServiceEffects(env.landValue, this.safety, LV_MAX);
+      ch.takeGarbageDirty(); // a full recompute already used every pile
+      inc.env = env; inc.lv = lvKey;
+      return env;
+    }
+    // Only garbage moved: redo the last step of land value for those tiles.
+    const env = inc.env, lvArr = env.landValue, sf = this.safety;
+    for (const i of ch.takeGarbageDirty()) {
+      const base = Math.fround(lvFinish(w, inc.pre[i], w.tiles[i].garbage));
+      lvArr[i] = serviceEffectOne(base, sf.crime[i], sf.care[i], LV_MAX);
+    }
     return env;
+  }
+  /** V1.6 A3: what each cached stage was computed from (see envWithServices). */
+  private inc: { cov: number; safety: string; lv: string; env: Environment | null; pre: Float64Array } = { cov: 0, safety: '', lv: '', env: null, pre: new Float64Array(0) };
+
+  /** V1.6 A3: the start-of-tick refresh on its own (sync + networks + coverage/safety/environment). Tests use it. */
+  recompute(): void {
+    const w = this.world;
+    w.chunks.sync(w.tiles);
+    this.net = computeNetworks(w);
+    this.env = this.envWithServices(w);
+  }
+
+  /** V1.6 A3: throw away every cache and rescan (tests, debugging). */
+  invalidate(): void {
+    this.inc = { cov: 0, safety: '', lv: '', env: null, pre: new Float64Array(0) };
+    this.world.chunks.touchAll(); this.world.chunks.sync(this.world.tiles);
+    this.net = computeNetworks(this.world); this.env = this.envWithServices(this.world);
   }
 
   private computeDemand(): Demand {
@@ -242,8 +283,7 @@ export class Simulation {
     w.chunks.sync(w.tiles); // V1.6 A2: find what changed since last tick (chunks.ts)
     prof.begin('wind'); stepWind(w); prof.end(); // weather first, so this tick's turbine output uses the new wind
     prof.begin('networks'); this.net = computeNetworks(w); prof.end();
-    prof.begin('coverage'); this.cov = computeCoverage(w); prof.end();
-    prof.begin('environment'); this.env = this.envWithServices(w); prof.end();
+    prof.begin('environment'); this.env = this.envWithServices(w); prof.end(); // V1.6 A3: includes coverage + safety (cached)
     prof.begin('demand'); this.demand = this.computeDemand(); prof.end();
 
     // Spare capacity per network, decremented as lots grow this tick so that
@@ -568,7 +608,6 @@ export class Simulation {
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
       this.net = this.refreshNet();
-      this.cov = computeCoverage(this.world);
       this.env = this.envWithServices(this.world);
       this.version++;
     }

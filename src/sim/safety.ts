@@ -55,6 +55,12 @@ export function computeSafety(world: World, cov: Coverage): Safety {
 }
 
 /** Fold crime and care into the land value field (in place). */
+/** V1.6 A3: applyServiceEffects for ONE tile (same formula), used by the garbage patch. */
+export function serviceEffectOne(lv: number, crime: number, care: number, max: number): number {
+  if (lv <= 0 && care === 0) return lv;
+  return Math.max(0, Math.min(max, lv - LV_CRIME * crime + (lv > 0 ? LV_CARE * care : 0)));
+}
+
 export function applyServiceEffects(landValue: Float32Array, s: Safety, max: number): void {
   for (let i = 0; i < landValue.length; i++) {
     if (landValue[i] <= 0 && s.care[i] === 0) continue;

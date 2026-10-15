@@ -79,7 +79,7 @@ export class ChunkIndex {
   topoRev = 1;
   bldgRev = 1;
   garbageRev = 1;
-  /** Tiles whose garbage changed in the last sync (A3 patches land value for just these). */
+  /** Tiles whose garbage changed since the last takeGarbageDirty() (A3 patches land value for just these). */
   garbageDirty: number[] = [];
   /** Tiles whose topo or bldg signature changed in the last sync. */
   changed: number[] = [];
@@ -115,6 +115,9 @@ export class ChunkIndex {
     const x = i % this.n, z = (i / this.n) | 0;
     return ((z / CHUNK) | 0) * this.side + ((x / CHUNK) | 0);
   }
+
+  /** Hand over (and clear) the garbage-changed tile list. */
+  takeGarbageDirty(): number[] { const d = this.garbageDirty; this.garbageDirty = []; return d; }
 
   /** Announce that tile i was (or may have been) changed. Cheap; read at the next sync. */
   touch(i: number): void { this.touched.add(this.chunkOf(i)); }
@@ -162,8 +165,7 @@ export class ChunkIndex {
 
   /** Re-read the watch set and bump revisions. Call once per tick before the systems run. */
   sync(tiles: Tile[]): void {
-    this.garbageDirty.length = 0;
-    this.changed.length = 0;
+    this.changed.length = 0; // garbageDirty is NOT cleared here: its consumer calls takeGarbageDirty()
     const total = this.count.length;
     if (total <= 16) {
       for (let c = 0; c < total; c++) this.scanChunk(tiles, c, false);
