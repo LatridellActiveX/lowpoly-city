@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-n',
+    title: 'Faster update checks',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'The game now checks for a new version every minute instead of every 5 minutes.' },
+    ],
+  },
+  {
     id: '2026-10-15-m',
     title: 'Fix: roads cut off at a junction after editing it',
     date: '2026-10-15',
