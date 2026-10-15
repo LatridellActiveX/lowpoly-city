@@ -8,7 +8,7 @@
  *
  * While you play we fetch /version.json with `cache: 'no-store'` (and a
  * cache-busting query; vercel.json also serves it with no-cache headers):
- *   - every 5 minutes, and
+ *   - every minute, and
  *   - whenever the window regains focus / the tab becomes visible again
  *     (rate-limited to once per 30 s so alt-tabbing doesn't spam requests).
  *
@@ -40,7 +40,7 @@ export interface RemoteVersion {
 /** sessionStorage flag: after an update reload, skip the title screen. */
 export const RESUME_KEY = 'lowpoly-city-resume';
 
-const POLL_MS = 5 * 60 * 1000;
+const POLL_MS = 60 * 1000;
 const FOCUS_MIN_GAP_MS = 30 * 1000;
 
 export interface UpdateHooks {
