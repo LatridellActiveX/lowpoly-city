@@ -21,6 +21,18 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-o',
+    title: 'More homes, shops and industry',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Five new homes: hacienda, terraced townhouses, modern house, garden towers and the sky residence.' },
+      { tag: 'new', text: 'New shops and offices: supermarket, petrol station, pharmacy & clinic, hotel, multiplex cinema, department store, outlet mall, office tower and business park.' },
+      { tag: 'new', text: 'New industry: brewery, pharmaceutical lab, clothing factory, cold storage, industrial park and mega-factory, each with its own model.' },
+      { tag: 'new', text: 'Three new goods - clothing, medicine and beverages - with new factory types that make them (clothing factory from plastics, pharmaceutical lab from crude oil, brewery from food). Shops now sell clothing and medicine, and grocers take beverages.' },
+      { tag: 'improved', text: 'Commercial buildings of every kind (shops, mixed-use, offices) and factories with food plants now merge together into the bigger footprints: a row of corner shops and a law firm can become a mall or business park, and small factories become industrial parks and mega-factories.' },
+    ],
+  },
+  {
     id: '2026-10-15-n',
     title: 'Faster update checks',
     date: '2026-10-15',
