@@ -104,3 +104,14 @@ Version 1.5b is on the same branch (`version-1.5`):
 - ✅ **Environment:** day/night cycle, variable wind, pollution & desirability, parks.
 - ✅ **Economy:** industrial goods shipped by truck, construction system, progression.
 - **Next:** see the wiki's upcoming-features page for proposed designs.
+
+## Version 1.6
+
+* **Big maps + regions:** 64 / 128 / 192 tile maps, a starting region, buyable regions.
+* **Faster sim:** 16×16 chunks, incremental networks/coverage/land value, time-sliced periodic jobs, render chunk culling.
+* **Freeform roads (tool `C`):** straight or curved Bézier streets and avenues that snap to junctions, roads, 15° angles and an 8 m grid (Shift = free). Live preview of the zone cells a road will create, cost tip, Ctrl+Z / Ctrl+Y undo/redo.
+* **Detailed roads:** 6 m lanes (cars sit inside their lane), shoulders, gutters, raised kerbs, sidewalks, crosswalks and stop lines, manholes and drains, subtle asphalt texture, thin lane dashes.
+* **Road-generated zoning:** zone blocks along every road side (curved blocks included); zone tools paint them.
+* **Saves v10:** older saves load and their roads become graph roads; population, jobs and buildings are unchanged.
+* Tests: `test:roadgraph`, `test:blocks`, `test:blockbridge`, `test:gtraffic`, `test:utilities`, `test:freeroads`, `test:migrate`, `lint:tiles`; benches `bench:check`.
+* Wiki pages: [Road graph](docs/wiki/Road-graph.md), [Zone blocks](docs/wiki/Zone-blocks.md), [Performance](docs/wiki/Performance.md), [Release notes 1.6](docs/RELEASE-1.6.md).
