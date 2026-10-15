@@ -1,3 +1,4 @@
+import { GRID_SIZE } from '../sim/types';
 /**
  * ui/tools.ts — toolbar metadata and the "shape" each tool paints when dragged.
  *
@@ -99,7 +100,7 @@ export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: n
   // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
   // V1.5: the roundabout is 2×2 too (hovered tile = top-left).
   // V1.5b: the hospital and the college are 2×2 as well.
-  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < 64 && z < 64) as Array<[number, number]>;
+  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < GRID_SIZE && z < GRID_SIZE) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

@@ -37,7 +37,7 @@ function grassTexture(size = 256): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.repeat.set(24, 24); // ~2.7 units per tile on the 64-unit map
+  tex.repeat.set(24 * GRID_SIZE / 64, 24 * GRID_SIZE / 64); // V1.6 A1: ~2.7 units per tile at any map size
   return tex;
 }
 

@@ -33,7 +33,9 @@ import { GRID_SIZE, ZoneType } from './types';
 /** Cells along one side of a tile. */
 export const CELLS_PER_TILE = 4;
 /** Cells along one side of the map (256 on the 64-tile map). */
-export const CELL_GRID = GRID_SIZE * CELLS_PER_TILE;
+export let CELL_GRID = GRID_SIZE * CELLS_PER_TILE; // V1.6 A1: live binding, see sim/mapsize.ts
+/** Internal (sim/mapsize.ts). */
+export function _setCellGrid(n: number): void { CELL_GRID = n * CELLS_PER_TILE; }
 /** World size of one cell in tile units (the renderer uses 1 tile = 1 unit). */
 export const CELL = 1 / CELLS_PER_TILE;
 

@@ -1,3 +1,4 @@
+import { CELL_GRID } from '../sim/cells';
 import { DEPOT_BONUS, depotOf } from '../sim/goods';
 /**
  * ui/hud.ts — all the HTML user interface: toolbar, top stats bar, time
@@ -563,11 +564,11 @@ export class Hud {
     // PR 6: which building / lot / field is under the cursor cell?
     const [pcx, pcz] = this.pickCell ?? [x * 4 + 1, z * 4 + 1];
     const inTile = Math.floor(pcx / 4) === x && Math.floor(pcz / 4) === z;
-    const cellOwner = inTile ? sim.world.cells.owner[pcz * 256 + pcx] : 0;
+    const cellOwner = inTile ? sim.world.cells.owner[pcz * CELL_GRID + pcx] : 0;
     let bld = cellOwner > 0 ? sim.world.lots.buildings.get(cellOwner) : undefined;
-    const fieldOf = bld && inTile && sim.world.cells.role[pcz * 256 + pcx] === 5 ? bld : undefined;
+    const fieldOf = bld && inTile && sim.world.cells.role[pcz * CELL_GRID + pcx] === 5 ? bld : undefined;
     if (fieldOf) bld = undefined;
-    if (!bld && !fieldOf) bld = sim.world.lots.hostedOn(i).find((q) => TPL[q.tpl].capacity[0] > 0) ?? sim.world.lots.onTile(sim.world, x, z).find((q) => sim.world.cells.role[pcz * 256 + pcx] !== 5 && TPL[q.tpl].capacity[0] > 0);
+    if (!bld && !fieldOf) bld = sim.world.lots.hostedOn(i).find((q) => TPL[q.tpl].capacity[0] > 0) ?? sim.world.lots.onTile(sim.world, x, z).find((q) => sim.world.cells.role[pcz * CELL_GRID + pcx] !== 5 && TPL[q.tpl].capacity[0] > 0);
     const pubLot = cellOwner < 0 ? sim.world.parking.lots.get(-cellOwner) : [...sim.world.parking.lots.values()].find((l) => Math.floor(l.cx / 4) === x && Math.floor(l.cz / 4) === z);
     if (bld) {
       const tpl = TPL[bld.tpl];
@@ -734,6 +735,6 @@ export class Hud {
 /** PR 6: zoned cells on tile (x, z) (Inspect). */
 function zonedCells(sim: Simulation, x: number, z: number): number {
   let n = 0;
-  for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (sim.world.cells.zone[(z * 4 + dz) * 256 + x * 4 + dx]) n++;
+  for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (sim.world.cells.zone[(z * 4 + dz) * CELL_GRID + x * 4 + dx]) n++;
   return n;
 }

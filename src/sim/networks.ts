@@ -1,3 +1,4 @@
+import { GRID_SIZE } from './types';
 /**
  * sim/networks.ts — how power and water get from sources to buildings.
  *
@@ -58,7 +59,7 @@ function isConduit(t: Tile, kind: Kind): boolean {
  * (part = anchor + 1). Pre-V1.5b 1×1 coal plants that had no room to grow
  * stay 1×1 ("legacy"); `isBigCoal` tells the two apart.
  */
-export function isBigCoal(tiles: Tile[], i: number, N = 64): boolean {
+export function isBigCoal(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
   const t = tiles[i];
   if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return false;
   const r = tiles[i + 1];

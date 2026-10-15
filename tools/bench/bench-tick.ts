@@ -19,11 +19,11 @@ const store = new Map<string, string>();
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
 import { buildTown, tick, Simulation, World } from './town';
 import { prof } from '../../src/sim/prof';
-import * as grid from '../../src/sim/types';
+import { setGridSize } from '../../src/sim/mapsize';
 
 const GROW = Number(process.env.GROW ?? 2500), WARM = 200, RUN = Number(process.env.RUN ?? 1500);
 const SIZES = (process.env.SIZES ?? '64,192').split(',').map(Number);
-const setSize: ((n: number) => void) | undefined = (grid as any).setGridSize;
+const setSize: ((n: number) => void) | undefined = setGridSize;
 
 function makeWorld(n: number): World | null {
   if (n !== 64) { if (!setSize) return null; setSize(n); } else setSize?.(64);

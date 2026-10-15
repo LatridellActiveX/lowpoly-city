@@ -15,7 +15,8 @@
     "test:v15b-res": "esbuild tools/v15b-res.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-res-test.mjs --log-level=error && node /tmp/v15b-res-test.mjs",
     "balance": "esbuild tools/balance.ts --bundle --platform=node --format=esm --outfile=/tmp/balance.mjs --log-level=error && node /tmp/balance.mjs",
     "bench": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs",
-    "bench:check": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs --check"
+    "bench:check": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs --check",
+    "test:mapsize": "esbuild tools/mapsize.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mapsize-test.mjs --log-level=error && node /tmp/mapsize-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"

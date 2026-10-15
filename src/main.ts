@@ -213,7 +213,7 @@ function updatePreview(): void {
     const area: Array<{ x: number; z: number; ok: boolean | null }> = [];
     for (let dz = -5; dz <= 4; dz++) for (let dx = -5; dx <= 4; dx++) {
       const x = hoverTile[0] + dx, z = hoverTile[1] + dz;
-      if (x >= 0 && z >= 0 && x < 64 && z < 64) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
+      if (x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
     }
     preview.show(area, affordable && valid > 0);
   }
@@ -293,7 +293,7 @@ attachInput(renderer.domElement, cam, ground, {
     const end = t ?? hoverTile;
     if (dragFrom && end) {
       sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
-      hud.pickCell = [Math.max(0, Math.min(255, Math.floor(pointer.x * 4))), Math.max(0, Math.min(255, Math.floor(pointer.z * 4)))];
+      hud.pickCell = [Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.x * 4))), Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.z * 4)))];
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
       else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));

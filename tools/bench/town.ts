@@ -1,3 +1,4 @@
+import { GRID_SIZE } from '../../src/sim/types';
 /**
  * tools/bench/town.ts — V1.6 A0: the deterministic BENCH TOWN.
  * The same grid town as tools/balance.ts (roads every 7 tiles, utilities,
@@ -23,7 +24,7 @@ export function buildTown(s: Simulation, ox = 0, oz = 0): void {
   for (const z of [12, 19, 26, 33, 40]) s.apply('road', R(10, z, 50, z));
   for (const x of [10, 30, 50]) s.apply('road', R(x, 12, x, 40));
   // Highway link: from the town's east road to the map's edge connection.
-  const N = s.world.size ?? 64, e = s.world.edgeIndex, ex = e % N, ez = Math.floor(e / N);
+  const N = GRID_SIZE, e = s.world.edgeIndex, ex = e % N, ez = Math.floor(e / N);
   s.apply('road', rect(50 + ox, Math.min(26 + oz, ez), 50 + ox, Math.max(26 + oz, ez)));
   s.apply('road', rect(Math.min(50 + ox, ex), ez, Math.max(50 + ox, ex), ez));
   s.apply('powerPlant', P(9, 12)); s.apply('powerPlant', P(51, 12));

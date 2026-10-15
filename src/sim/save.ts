@@ -286,7 +286,7 @@ export function downloadSave(name = 'lowpoly-city-save'): boolean {
  * plant (still works; drawn with the old model). Oil plants stay 1×1.
  */
 export function migrateCoal(w: World): number {
-  const N = 64;
+  const N = GRID_SIZE;
   let n = 0;
   w.tiles.forEach((t, i) => {
     if (t.structure !== 'powerPlant' || t.kind !== 0 || t.part) return;
