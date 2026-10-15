@@ -3,7 +3,7 @@
  *
  * In 1.5 the zone cells were a fixed 8 m grid (4×4 per tile). With freeform
  * roads the cells follow the road instead: every side of every edge gets a
- * ZONE BLOCK, a strip of columns along the road, up to 4 rows deep.
+ * ZONE BLOCK, a strip of columns along the road, up to MAX_ROWS deep.
  *
  * GENERATION (per edge side, generateCandidates):
  *   - Walk the edge's arc length in CELL_M (8 m) steps between the
@@ -42,8 +42,13 @@
 import { at, Cubic, tangent, tAtLength, V2 } from './bezier';
 import { CELL_M, isStraight, RoadGraph, RoadType, ROAD_SPEC, TYPE_RANK } from './graph';
 
-/** Rows per column (as the 1.5 grid's 4 cells per tile side). */
-export const MAX_ROWS = 4;
+/**
+ * Rows per column. The plan sketched 4 (one tile), but 1.5 zoning reaches
+ * up to 4 TILES deep and templates are up to 8 cells deep, so a block
+ * reaches 16 rows (128 m) like the deepest 1.5 zoning drag. Conflicts
+ * trim it wherever another road is nearer.
+ */
+export const MAX_ROWS = 16;
 /** Default setback from the centreline to the first row (half a 32 m tile). */
 export const SETBACK = 16;
 /** Mask resolution (m). */

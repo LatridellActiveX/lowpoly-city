@@ -1,6 +1,6 @@
 /**
  * tools/blocks.test.ts — V1.6 B2: zone blocks off the road graph.
- * Golden: straight road → 4×n exact squares; T and + junctions; S-curve;
+ * Golden: straight road → MAX_ROWS×n exact squares; T and + junctions; S-curve;
  * parallel roads 48/64/80 m apart (nearer road wins, no overlap);
  * roundabout. Properties after every case (ZoneBlocks.check): no two cells
  * share a 2 m mask square, no cell on a road, columns contiguous. Zoning
@@ -19,7 +19,7 @@ const make = (f: (g: RoadGraph) => void) => { const g = new RoadGraph(); f(g); c
 {
   const { zb, err } = make((g) => g.placeLine(P(16, 400), P(336, 400)));
   ok(!err, 'straight: invariants', err || undefined);
-  ok(zb.cells.length === 2 * 4 * 40, 'straight: 2 sides × 4 rows × 40 columns', zb.cells.length);
+  ok(zb.cells.length === 2 * MAX_ROWS * 40, 'straight: 2 sides × MAX_ROWS rows × 40 columns', zb.cells.length);
   const exact = zb.cells.every((c) => { const q = c.quad; const xs = [q[0], q[2], q[4], q[6]], zs = [q[1], q[3], q[5], q[7]]; return Math.abs(Math.max(...xs) - Math.min(...xs) - 8) < 1e-6 && Math.abs(Math.max(...zs) - Math.min(...zs) - 8) < 1e-6 && xs.every((x) => Math.abs(x / 8 - Math.round(x / 8)) < 1e-6) && zs.every((z) => Math.abs(z / 8 - Math.round(z / 8)) < 1e-6); });
   ok(exact, 'straight: every cell an axis-aligned 8×8 m square on the 1.5 cell grid');
   const near = zb.cells.filter((c) => c.row === 0).every((c) => Math.abs(Math.abs(c.cz - 400) - 20) < 1e-6);
@@ -53,7 +53,7 @@ for (const [gap, want] of [[48, 1], [64, 2], [80, 3]] as const) {
   const dA = Math.max(...fromA.map((c) => c.row)) + 1, dB = Math.max(...fromB.map((c) => c.row)) + 1;
   ok(dA === want && dB === want, `parallel ${gap} m: each road keeps ${want} row(s) between them (nearer road wins)`, [dA, dB]);
   const outside = r.zb.cells.filter((c) => c.cz < 400).every((c) => c.row < MAX_ROWS);
-  ok(outside && r.zb.cells.filter((c) => c.cz < 400).length === 4 * 40, `parallel ${gap} m: outer sides keep full depth`);
+  ok(outside && r.zb.cells.filter((c) => c.cz < 400).length === MAX_ROWS * 40, `parallel ${gap} m: outer sides keep full depth`);
 }
 // Roundabout: 4 arcs of radius 48 m with 4 spokes
 {
