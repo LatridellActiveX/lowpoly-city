@@ -314,6 +314,78 @@ const pine = (x: number, z: number, s = 1): THREE.BufferGeometry[] => [
   part(new THREE.ConeGeometry(0.08 * s, 0.22 * s, 7).translate(0, 0.2 * s, 0), 0x2f7a3a, [x, 0, z]),
 ];
 
+/**
+ * A straight bar between two points (a box oriented along the segment). Used
+ * for lattice work: because every strut starts and ends exactly on the
+ * points it connects, joints always meet instead of drifting apart.
+ */
+function strut(p: THREE.BufferGeometry[], a: [number, number, number], b: [number, number, number], t: number, color: number): void {
+  const dir = new THREE.Vector3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+  const len = dir.length();
+  const g = new THREE.BoxGeometry(t, len, t).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize()));
+  p.push(part(g, color, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]));
+}
+
+/**
+ * Oil rig: a four-legged lattice derrick, a pumpjack and two storage tanks.
+ * The derrick legs lean INWARD toward the crown; every ring, work platform
+ * and X-brace is computed from the leg positions at its height so nothing
+ * hovers. The pumpjack sits on a skid with an A-frame post, a walking beam
+ * pivoting on top of it, a horsehead with its cable down to the wellhead, and
+ * a counterweight / gearbox / motor at the other end.
+ */
+export function oilRigModel(): THREE.BufferGeometry {
+  const RED = 0xb0362f, DARK = 0x2c2c2c;
+  const p: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0x8b8478)];
+
+  // ---- Lattice derrick -------------------------------------------------------
+  const cx = -0.18, cz = -0.12, y0 = 0.012, yTop = 0.75, hBase = 0.09, hTop = 0.025;
+  const half = (y: number) => hBase + (hTop - hBase) * ((y - y0) / (yTop - y0));
+  const levels = [y0, 0.2, 0.4, 0.6, yTop];
+  const corners: [number, number][] = [[-1, -1], [1, -1], [1, 1], [-1, 1]]; // in loop order
+  const at = (lv: number, k: number): [number, number, number] => {
+    const h = half(levels[lv]), [a, c] = corners[k];
+    return [cx + a * h, levels[lv], cz + c * h];
+  };
+  p.push(part(box(0.24, 0.02, 0.24), CONCRETE, [cx, y0 - 0.002, cz])); // footing pad (legs start inside it)
+  for (let k = 0; k < 4; k++) strut(p, at(0, k), at(levels.length - 1, k), 0.02, RED); // legs
+  for (let lv = 0; lv < levels.length; lv++) for (let k = 0; k < 4; k++) strut(p, at(lv, k), at(lv, (k + 1) % 4), 0.014, RED); // rings
+  for (let lv = 0; lv < levels.length - 1; lv++) for (let k = 0; k < 4; k++) {
+    const n = (k + 1) % 4; // X brace on each face of each section
+    strut(p, at(lv, k), at(lv + 1, n), 0.01, 0xd04a3c);
+    strut(p, at(lv, n), at(lv + 1, k), 0.01, 0xd04a3c);
+  }
+  for (const lv of [1, 3]) { // work platforms spanning the leg spacing at their height
+    const w = half(levels[lv]) * 2 + 0.02;
+    p.push(part(box(w, 0.01, w), STEEL_D, [cx, levels[lv] - 0.01, cz]));
+  }
+  p.push(part(cyl(0.007, yTop - y0 + 0.02, 6), 0x8d949c, [cx, y0, cz])); // drill pipe up the middle
+  p.push(part(box(0.075, 0.04, 0.075), DARK, [cx, yTop - 0.01, cz])); // crown block, overlapping the leg tops
+  p.push(part(box(0.03, 0.025, 0.03), 0xf2b134, [cx, yTop + 0.03, cz])); // beacon
+
+  // ---- Pumpjack --------------------------------------------------------------
+  const X = 0.2, Z = 0.15;
+  p.push(part(box(0.44, 0.02, 0.16), 0x4a4f55, [X, y0, Z])); // skid (top at y = 0.032)
+  for (const s of [-1, 1]) { // A-frame samson post, two struts per side
+    strut(p, [X - 0.075, 0.032, Z + s * 0.035], [X, 0.17, Z + s * 0.035], 0.014, 0x5d6468);
+    strut(p, [X + 0.075, 0.032, Z + s * 0.035], [X, 0.17, Z + s * 0.035], 0.014, 0x5d6468);
+  }
+  p.push(part(box(0.05, 0.03, 0.1), 0x3a3a3a, [X, 0.155, Z])); // pivot bearing (top at 0.185)
+  const tilt = 0.2; // walking beam rocks about its centre
+  p.push(part(box(0.34, 0.03, 0.04), DARK, [X, 0.185, Z], [0, 0, tilt]));
+  const endY = 0.185 + Math.sin(tilt) * 0.17 + 0.015, endX = X + Math.cos(tilt) * 0.17;
+  p.push(part(box(0.05, 0.075, 0.03), 0x3a3a3a, [endX - 0.025, endY - 0.04, Z], [0, 0, tilt])); // horsehead on the front end
+  strut(p, [endX - 0.01, endY - 0.01, Z], [endX - 0.01, 0.06, Z], 0.006, 0x9aa3ab); // bridle cable
+  p.push(part(cyl(0.016, 0.06), STEEL_D, [endX - 0.01, 0.032, Z])); // wellhead (cable ends inside it)
+  p.push(part(box(0.045, 0.055, 0.07), 0x8a3b2a, [X - 0.15, 0.11, Z])); // counterweight hanging off the rear end
+  p.push(part(box(0.07, 0.09, 0.05), 0x5d6468, [X - 0.12, 0.032, Z])); // gearbox (reaches the counterweight)
+  p.push(part(box(0.08, 0.05, 0.05), 0x3f8f3a, [X - 0.19, 0.032, Z])); // motor
+
+  // ---- Tanks -----------------------------------------------------------------
+  p.push(part(cyl(0.1, 0.18), STEEL, [0.28, 0.012, -0.25]), part(cyl(0.1, 0.18), STEEL, [0.06, 0.012, -0.3]));
+  return merge(p);
+}
+
 /** Every role model by name (keys match sim/chains.ts Role). */
 export function roleModels(): Record<string, THREE.BufferGeometry> {
   return {
@@ -327,16 +399,7 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
       part(box(0.12, 0.06, 0.08), 0xf2b134, [-0.02, 0.012, 0.36]), // log loader
     ]),
     // Oil rig: lattice derrick, pumpjack, two tanks.
-    oilRig: merge([
-      part(box(0.96, 0.012, 0.96), 0x8b8478),
-      ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([a, c]) => part(box(0.018, 0.75, 0.018), 0xb0362f, [-0.18 + a * 0.08, 0.012, -0.12 + c * 0.08], [c * 0.09, 0, -a * 0.09])),
-      ...[0.2, 0.4, 0.6].map((y) => part(box(0.16 - y * 0.12, 0.012, 0.16 - y * 0.12), 0xb0362f, [-0.18, y, -0.12])),
-      part(box(0.05, 0.05, 0.05), 0x3a3a3a, [-0.18, 0.75, -0.12]),
-      part(box(0.04, 0.16, 0.04), 0x5d6468, [0.2, 0.012, 0.15]),
-      part(box(0.32, 0.04, 0.04), 0x2c2c2c, [0.2, 0.19, 0.15], [0, 0, 0.25]),
-      part(box(0.06, 0.12, 0.05), 0x2c2c2c, [0.05, 0.1, 0.15]),
-      part(cyl(0.1, 0.18), STEEL, [0.28, 0.012, -0.25]), part(cyl(0.1, 0.18), STEEL, [0.06, 0.012, -0.3]),
-    ]),
+    oilRig: oilRigModel(),
     // Quarry: stepped pit, rock piles, conveyor and excavator.
     quarry: merge([
       part(box(0.96, 0.012, 0.96), 0xa39e93),

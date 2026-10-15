@@ -70,6 +70,21 @@ export function gable(w: number, h: number, d: number, ridge = 0.5): THREE.Buffe
   return g;
 }
 
+/**
+ * Closed tube/ring (outer wall, flat top, inner wall) spun from a profile with
+ * LatheGeometry. Materials are single-sided, so an open-ended cylinder is
+ * see-through from the inside; this ring has a proper inner wall facing the
+ * opening instead. Base sits at y = 0.
+ */
+export function solidRing(rOut: number, rIn: number, h: number, seg = 8): THREE.BufferGeometry {
+  return new THREE.LatheGeometry(
+    [new THREE.Vector2(rOut, 0), new THREE.Vector2(rOut, h), new THREE.Vector2(rIn, h), new THREE.Vector2(rIn, 0)],
+    seg,
+  );
+}
+/** Flat disc facing up (a recessed floor seen through an opening). */
+export const floorDisc = (r: number, seg = 8) => new THREE.CircleGeometry(r, seg).rotateX(-Math.PI / 2);
+
 export const MODELS = {
   /** Road surface (instance colour is white; the slab is asphalt grey). */
   road: () => merge([part(box(1, 0.04, 1), 0x50555e)]),
@@ -104,14 +119,19 @@ export const MODELS = {
     merge([
       part(box(0.94, 0.12, 0.94), 0x9aa0a6),
       part(box(0.42, 0.42, 0.5), 0xb5543c, [-0.2, 0.12, 0.15]),
-      part(new THREE.CylinderGeometry(0.15, 0.21, 0.6, 8).translate(0, 0.3, 0), 0xe1e4e8, [0.22, 0.12, -0.2]),
-      part(new THREE.CylinderGeometry(0.12, 0.17, 0.5, 8).translate(0, 0.25, 0), 0xe1e4e8, [0.25, 0.12, 0.25]),
+      part(new THREE.CylinderGeometry(0.15, 0.21, 0.56, 8).translate(0, 0.28, 0), 0xe1e4e8, [0.22, 0.12, -0.2]),
+      part(new THREE.CylinderGeometry(0.12, 0.17, 0.46, 8).translate(0, 0.23, 0), 0xe1e4e8, [0.25, 0.12, 0.25]),
       part(new THREE.CylinderGeometry(0.04, 0.05, 0.9, 6).translate(0, 0.45, 0), 0x55595e, [-0.32, 0.12, -0.3]),
       part(box(0.06, 0.05, 0.06), 0xffcc33, [-0.2, 0.54, 0.15]),
       // PR 5 detail: cooling-tower rims, boiler-house windows, a coal pile,
       // a conveyor up to the boiler house, pipe racks and a perimeter fence.
-      part(new THREE.CylinderGeometry(0.155, 0.155, 0.03, 12, 1, true).translate(0, 0.72, 0), 0xc23b2f, [0.22, 0, -0.2]),
-      part(new THREE.CylinderGeometry(0.125, 0.125, 0.03, 12, 1, true).translate(0, 0.6, 0), 0xc23b2f, [0.25, 0, 0.25]),
+      // Cooling-tower openings: a closed red rim (inner wall faces the opening)
+      // around a dark recessed floor, so the top reads as a solid hollow tower
+      // instead of a see-through tube.
+      part(solidRing(0.152, 0.12, 0.05), 0xc23b2f, [0.22, 0.68, -0.2]),
+      part(floorDisc(0.12), 0x4a5057, [0.22, 0.684, -0.2]),
+      part(solidRing(0.122, 0.092, 0.05), 0xc23b2f, [0.25, 0.58, 0.25]),
+      part(floorDisc(0.092), 0x4a5057, [0.25, 0.584, 0.25]),
       ...[-0.32, -0.2, -0.08].flatMap((x) => [part(box(0.06, 0.07, 0.01), 0x3e5f7a, [x, 0.3, 0.405]), part(box(0.07, 0.01, 0.02), 0xf4f1ea, [x, 0.29, 0.41])]),
       part(new THREE.ConeGeometry(0.13, 0.1, 9).translate(0, 0.05, 0), 0x2b2724, [-0.3, 0.12, -0.05]),
       part(box(0.05, 0.02, 0.36), 0x55595e, [-0.3, 0.3, 0.02], [0.55, 0, 0]),
