@@ -256,3 +256,38 @@ export function texturedHome(parts: { walls: THREE.BufferGeometry; accent: THREE
   skinProjected(parts.accent, flatRoof ? Skin.Roof : Skin.Shingle);
   autoSkin(parts.fixed);
 }
+
+/**
+ * V1.6: like autoSkin, but a table of exact vertex colours (0xRRGGBB) can force
+ * a surface (stucco walls, glass towers, roof slabs...); every other colour
+ * falls back to the colour guess. Keeps each face's own 0..1 UVs.
+ */
+export function autoSkinMap(g: THREE.BufferGeometry, table: Record<number, Skin>): THREE.BufferGeometry {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  const col = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!uv || g.index) return g;
+  const c = new THREE.Color();
+  for (let t = 0; t + 2 < uv.count; t += 3) {
+    let s: Skin = Skin.Plain;
+    if (col) { c.setRGB(col.getX(t), col.getY(t), col.getZ(t)); s = table[c.getHex()] ?? skinForColor(c); }
+    const cx = s % COLS, row = Math.floor(s / COLS);
+    for (let k = t; k < t + 3; k++) {
+      const u = Math.min(1, Math.max(0, uv.getX(k))), v = Math.min(1, Math.max(0, uv.getY(k)));
+      uv.setXY(k, (cx + INSET + u * (1 - 2 * INSET)) / COLS, (ROWS - 1 - row + INSET + v * (1 - 2 * INSET)) / ROWS);
+    }
+  }
+  uv.needsUpdate = true;
+  return g;
+}
+
+/**
+ * Surfaces for the generic SHOP designs (commercial 0–4, levels 1–3): brick /
+ * siding / concrete / stucco walls by design, flat roof membrane on the
+ * accent parapets and awnings; trim and glass stay colour-picked.
+ */
+const SHOP_WALL: Skin[] = [Skin.Brick, Skin.Siding, Skin.Concrete, Skin.Stucco, Skin.Brick];
+export function texturedShop(parts: { walls: THREE.BufferGeometry; accent: THREE.BufferGeometry; fixed: THREE.BufferGeometry }, k: number): void {
+  skinProjected(parts.walls, SHOP_WALL[k % SHOP_WALL.length]);
+  skinProjected(parts.accent, k === 2 ? Skin.Glass : Skin.Roof);
+  autoSkin(parts.fixed);
+}

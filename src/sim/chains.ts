@@ -39,12 +39,13 @@ import { hash2 } from './random';
 import { isFarmLot, isFoodPlant } from './industry';
 import type { GoodType } from './goods';
 
-export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery';
+export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery' | 'printer' | 'toymaker';
 
 export const ROLE_NAMES: Record<Role, string> = {
   factory: 'Factory', farm: 'Farm', foodPlant: 'Food processing plant', logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry',
   lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
   tailor: 'Clothing factory', pharma: 'Pharmaceutical lab', brewery: 'Brewery & bottler',
+  printer: 'Print works', toymaker: 'Toy factory',
 };
 
 /** Processor recipes (1 unit in → 1 unit out). outputs[0] is the "main" product. */
@@ -58,9 +59,11 @@ export const RECIPES: Partial<Record<Role, { inputs: GoodType[]; outputs: GoodTy
   tailor: { inputs: ['plastics'], outputs: ['apparel'] },
   pharma: { inputs: ['oil'], outputs: ['medicine'] },
   brewery: { inputs: ['food'], outputs: ['beverages'] },
+  printer: { inputs: ['lumber'], outputs: ['books'] },
+  toymaker: { inputs: ['plastics'], outputs: ['toys'] },
 };
 /** Recipes a plain factory may adopt (the food plant comes from its own zone kind). */
-const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery'];
+const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery', 'printer', 'toymaker'];
 /** Extractor role and product per resource patch. */
 const EXTRACT: Partial<Record<Resource, [Role, GoodType]>> = {
   [Resource.Logging]: ['logging', 'wood'],

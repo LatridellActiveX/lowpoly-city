@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-r',
+    title: 'Textured shops and new businesses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'All shops are now textured (brick, siding, stucco, concrete, roof membrane and glass) with much more street-level detail: striped awnings, cornices, window mullions, double doors, sign letters, planters, sandwich boards, bike racks, crates and rooftop water tanks.' },
+      { tag: 'new', text: 'Ten new, fully textured businesses: bakery, bookstore, toy store, garden centre, restaurant, bank, car dealership, gym & pool, laundromat and vet clinic.' },
+      { tag: 'new', text: 'Two new factories - a print works (lumber into books) and a toy factory (plastics into toys) - and two new goods, books and toys, which shops now sell.' },
+      { tag: 'improved', text: 'The supermarket, petrol station, pharmacy, hotel, cinema, department store, outlet mall, office tower and business park are textured too.' },
+    ],
+  },
+  {
     id: '2026-10-15-q',
     title: 'Better-looking houses',
     date: '2026-10-15',

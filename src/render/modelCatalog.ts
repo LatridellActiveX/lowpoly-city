@@ -17,9 +17,9 @@ import { bigCoalModel } from './coalModel';
 import { bigOilModel } from './oilPlantModel';
 import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
-import { commerceModels, homeModels, industryExtra } from './cityModels';
+import { commerceModels, homeModels, industryExtra, PRESKINNED } from './cityModels';
 import { ringIslandModel } from './roundaboutModel';
-import { autoSkin, industrialMaterial, texturedHome } from './textures';
+import { autoSkin, industrialMaterial, texturedHome, texturedShop } from './textures';
 import { SERVICE_DEFS } from '../sim/services';
 
 export interface CatalogItem {
@@ -47,6 +47,7 @@ const LABEL: Record<string, string> = {
   supermarket: 'Supermarket', petrol: 'Petrol station', pharmacy: 'Pharmacy & clinic', hotel: 'Hotel', cinema: 'Multiplex cinema', department: 'Department store',
   outlet: 'Outlet mall', officetower: 'Office tower', bizpark: 'Business park',
   brewery: 'Brewery', pharma: 'Pharmaceutical lab', clothing: 'Clothing factory', coldstore: 'Cold storage', indpark: 'Industrial park', megafactory: 'Mega-factory',
+  bakery: 'Bakery', bookstore: 'Bookstore', toystore: 'Toy store', gardencentre: 'Garden centre', restaurant: 'Restaurant', bank: 'Bank', cardealer: 'Car dealership', gym: 'Gym & pool', laundromat: 'Laundromat', vetclinic: 'Vet clinic', printworks: 'Print works', toyfactory: 'Toy factory',
   logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry', lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
 };
 
@@ -61,6 +62,10 @@ export function buildCatalog(): CatalogItem[] {
     const g = new THREE.Group();
     if (zone === 'industrial') {
       for (const w of ['walls', 'accent', 'fixed'] as const) g.add(textured(p[w].clone()));
+    } else if (zone === 'commercial') {
+      const q = { walls: p.walls.clone(), accent: p.accent.clone(), fixed: p.fixed.clone() };
+      texturedShop(q, k);
+      for (const w of ['walls', 'accent', 'fixed'] as const) g.add(mesh(q[w], w === 'fixed' ? industrialMaterial() : new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: industrialMaterial().map, color: WALLS[k % WALLS.length] })));
     } else if (zone === 'residential' && lv < 3) {
       const q = { walls: p.walls.clone(), accent: p.accent.clone(), fixed: p.fixed.clone() };
       texturedHome(q, k);
@@ -78,11 +83,11 @@ export function buildCatalog(): CatalogItem[] {
   for (let k = 0; k < RES_DESIGNS; k++) for (const lv of [3, 4, 5, 6]) add('Apartments & towers', `Block ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('residential', k, lv));
   for (const key of ['gardentowers', 'skyresidence']) add('Apartments & towers', LABEL[key], () => plain(homes[key]));
   for (let k = 0; k < designs.commercial.length; k++) for (const lv of [0, 1, 2]) add('Shops & offices', `Shop ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('commercial', k, lv));
-  for (const [key, g] of Object.entries(commerceModels())) add('Shops & offices', LABEL[key] ?? pretty(key), () => plain(g));
+  for (const [key, g] of Object.entries(commerceModels())) add('Shops & offices', LABEL[key] ?? pretty(key), () => mesh(g, industrialMaterial()));
   for (const [key, g] of Object.entries(officeModels())) add('Shops & offices', LABEL[key] ?? pretty(key), () => plain(g));
   for (let k = 0; k < designs.industrial.length; k++) for (const lv of [0, 1, 2, 3, 4]) add('Industry', `Factory ${String.fromCharCode(65 + k)} · level ${lv + 1}`, stack('industrial', k, lv));
   for (const [key, g] of Object.entries(newIndustryModels())) add('Industry', LABEL[key] ?? pretty(key), () => textured(g));
-  for (const [key, g] of Object.entries(industryExtra())) add('Industry', LABEL[key] ?? pretty(key), () => textured(g));
+  for (const [key, g] of Object.entries(industryExtra())) add('Industry', LABEL[key] ?? pretty(key), () => (PRESKINNED.has(key) ? mesh(g, industrialMaterial()) : textured(g)));
 
   // ---- Resources, farms, processors ----
   add('Resources & farms', 'Farm', () => textured(farmModel()));

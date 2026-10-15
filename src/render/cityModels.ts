@@ -12,7 +12,8 @@
  */
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
-import { remapUV, Skin, skinProjected } from './textures';
+import { autoSkinMap, remapUV, Skin, skinProjected } from './textures';
+import { newFactoryModels, newShopModels } from './shopModels';
 
 type G = THREE.BufferGeometry;
 const cyl = (r: number, h: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
@@ -151,6 +152,18 @@ export function homeModels(): Record<string, G> {
 }
 
 // ------------------------------------------------------------- commerce
+/** Model keys whose UVs are already set (do NOT autoSkin them; draw with industrialMaterial). */
+export const PRESKINNED = new Set(['terrace', 'bakery', 'bookstore', 'toystore', 'gardencentre', 'restaurant', 'bank', 'cardealer', 'gym', 'laundromat', 'vetclinic', 'printworks', 'toyfactory',
+  'supermarket', 'petrol', 'pharmacy', 'hotel', 'cinema', 'department', 'outlet', 'officetower', 'bizpark']);
+/** Surfaces for the older commerce models, picked by exact vertex colour. */
+const SHOP_SKINS: Record<number, Skin> = {
+  0xe9e3d4: Skin.Stucco, 0xf0ece2: Skin.Stucco, 0xf4f6f4: Skin.Stucco, 0xd9c9ad: Skin.Stucco, 0xefe6d2: Skin.Stucco, 0xd9d2c0: Skin.Concrete,
+  0x4a525a: Skin.Roof, 0x7b8790: Skin.Roof, 0x5a4a40: Skin.Roof, 0x7c6a58: Skin.Roof, 0x7a6f66: Skin.Roof, 0x585f66: Skin.Roof,
+  0x3f9e4a: Skin.Siding, 0xd8cdb6: Skin.Concrete, 0xcbbfa5: Skin.Concrete, 0x6b3f5e: Skin.Concrete, 0x4e2c44: Skin.Concrete, 0xdfe5e8: Skin.Concrete,
+  0x6fa8c8: Skin.Glass, 0x5c93b3: Skin.Glass, 0x4f84a3: Skin.Glass, 0x7fb3a8: Skin.Glass,
+  0x8d9194: Skin.Concrete, 0x8b8e90: Skin.Concrete, 0xc4c0b6: Skin.Concrete, 0xb5b0a4: Skin.Concrete, 0xb2aea6: Skin.Concrete, 0xb9b4aa: Skin.Concrete, 0xcfc7b5: Skin.Concrete, 0xaeb3b3: Skin.Concrete,
+  0xdedede: Skin.Metal, 0xf4f4f0: Skin.Metal, 0xd23b2e: Skin.Plain,
+};
 export function commerceModels(): Record<string, G> {
   const out: Record<string, G> = {};
   { // SUPERMARKET: wide low shop, green sign, trolley bay, big front lot, rooftop units.
@@ -256,6 +269,8 @@ export function commerceModels(): Record<string, G> {
     p.push(...tree(-0.42, 0.0), ...tree(0.42, 0.05), ...tree(-0.4, -0.42));
     out.bizpark = merge(p);
   }
+  for (const k of Object.keys(out)) autoSkinMap(out[k], SHOP_SKINS);
+  Object.assign(out, newShopModels());
   return out;
 }
 
@@ -346,5 +361,6 @@ export function industryExtra(): Record<string, G> {
     p.push(part(box(0.34, 0.07, 0.012), 0xd23b2e, [-0.1, 0.3, 0.17]));
     out.megafactory = merge(p);
   }
+  Object.assign(out, newFactoryModels());
   return out;
 }

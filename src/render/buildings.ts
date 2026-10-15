@@ -342,7 +342,7 @@ function commercial(k: number, level: number, hi = true): DesignParts {
       b.fix(box(w * 0.4, 0.07, 0.02), 0xff6b6b, [0, h * 0.6 - 0.1, d / 2 + 0.01]);
       break;
   }
-  if (hi) comDetails(b, k, level, w, h, d, floors);
+  if (hi) { comDetails(b, k, level, w, h, d, floors); comExtras(b, k, level, w, h, d, floors); }
   return b.done();
 }
 
@@ -922,6 +922,56 @@ function resExtras(b: Builder, k: number, level: number, w: number, h: number, d
     b.wall(box(0.14, 0.1, 0.1), [w * 0.2, h + 0.07, d * 0.1]);
     b.acc(gable(0.18, 0.07, 0.14), [w * 0.2, h + 0.17, d * 0.1]);
     b.fix(box(0.07, 0.06, 0.012), GLASS, [w * 0.2, h + 0.09, d * 0.1 + 0.052]);
+  }
+}
+
+/**
+ * V1.6: extra street-level detail for every shop design (high LOD only):
+ * striped awning, cornice, window mullions, double doors with handles and a
+ * step, sign letters, planters, a sandwich board, a bike rack, crates, roof
+ * parapet courses and (on the taller shops) a rooftop water tank.
+ */
+function comExtras(b: Builder, k: number, level: number, w: number, h: number, d: number, floors: number): void {
+  const fz = k === 1 ? d * 0.425 : k === 3 ? 0 : d / 2;
+  const rw = k === 2 ? w * 0.9 : w;
+  const topY = k === 1 ? Math.max(0.3, h * 0.8) : k === 2 ? h + FLOOR * (level - 1) * 0.5 : h;
+  if (k !== 3) {
+    // cornice + string course
+    b.fix(box(rw + 0.05, 0.03, 0.04), TRIM, [0, topY - 0.015, fz + 0.012]);
+    b.fix(box(rw + 0.01, 0.014, 0.014), TRIM, [0, FLOOR + 0.02, fz + 0.008]);
+    // awning over the ground floor (not on the glass office)
+    if (k !== 2) {
+      const n = 8, aw = rw * 0.88;
+      for (let i = 0; i < n; i++) b.fix(box(aw / n, 0.012, 0.11), i % 2 ? 0xf4f1ea : [0xd23b2e, 0x2f6fb0, 0x3f9e4a, 0xe0a020, 0x7a2a2a][k % 5], [-aw / 2 + (aw * (i + 0.5)) / n, 0.2, fz + 0.06], [0.42, 0, 0]);
+      b.fix(box(aw, 0.025, 0.008), 0x4a4a4a, [0, 0.165, fz + 0.108]);
+    }
+    // window mullions across the shop glass + double doors with handles
+    for (let i = -2; i <= 2; i++) b.fix(box(0.008, 0.14, 0.012), TRIM, [i * rw * 0.15, 0.05, fz + 0.016]);
+    b.fix(box(0.14, 0.15, 0.014), 0x3a2f28, [rw * 0.3, 0.02, fz + 0.012]);
+    b.fix(box(0.006, 0.15, 0.016), TRIM, [rw * 0.3, 0.02, fz + 0.014]);
+    b.fix(box(0.01, 0.04, 0.012), 0xc9a646, [rw * 0.3 - 0.02, 0.09, fz + 0.026]);
+    b.fix(box(0.01, 0.04, 0.012), 0xc9a646, [rw * 0.3 + 0.02, 0.09, fz + 0.026]);
+    b.fix(box(0.2, 0.02, 0.08), 0xcfc8bb, [rw * 0.3, 0, fz + 0.04]);
+    // sign letters on a board above the awning
+    const letters = 5 + (k % 3);
+    b.fix(box(rw * 0.5, 0.06, 0.016), 0x2a2a30, [-rw * 0.1, topY - 0.1, fz + 0.012]);
+    for (let i = 0; i < letters; i++) b.fix(box(rw * 0.5 / (letters * 1.8), 0.032, 0.01), [0xffd166, 0xffffff, 0xff9a8a][k % 3], [-rw * 0.1 - rw * 0.25 + (rw * 0.5 * (i + 0.5)) / letters, topY - 0.1, fz + 0.022]);
+  }
+  // planters, sandwich board, bike rack, crates on the pavement
+  const px = rw / 2 - 0.05;
+  for (const sg of [-1, 1]) { b.fix(box(0.07, 0.04, 0.05), 0x8a6a48, [sg * px, 0, fz + 0.22]); b.fix(new THREE.IcosahedronGeometry(0.03, 1).translate(0, 0.06, 0), 0x4f8a45, [sg * px, 0, fz + 0.22]); }
+  b.fix(box(0.06, 0.1, 0.012), 0x2a2a30, [-rw * 0.2, 0, fz + 0.24], [0.2, 0, 0]);
+  b.fix(box(0.06, 0.1, 0.012), 0x2a2a30, [-rw * 0.2, 0, fz + 0.27], [-0.2, 0, 0]);
+  for (let i = 0; i < 3; i++) b.fix(new THREE.TorusGeometry(0.025, 0.004, 5, 10), METAL, [rw * 0.05 + i * 0.045, 0.03, fz + 0.25]);
+  b.fix(box(0.07, 0.045, 0.05), 0xb8854a, [rw * 0.12, 0, fz + 0.2]);
+  b.fix(box(0.07, 0.045, 0.05), 0xa4753a, [rw * 0.12 + 0.075, 0, fz + 0.2]);
+  // roof parapet courses and a tank on the taller shops
+  b.fix(box(rw + 0.02, 0.012, 0.012), 0x4a4a4a, [0, topY + 0.03, fz]);
+  b.fix(box(rw + 0.02, 0.012, 0.012), 0x4a4a4a, [0, topY + 0.03, -d / 2]);
+  if (floors >= 3 || k === 2 || k === 4) {
+    b.fix(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 12).translate(0, 0.05, 0), 0x8a6a48, [rw * 0.25, topY + 0.07, -d * 0.2]);
+    b.fix(new THREE.ConeGeometry(0.055, 0.04, 12).translate(0, 0.02, 0), 0x6a4a32, [rw * 0.25, topY + 0.17, -d * 0.2]);
+    for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) b.fix(box(0.008, 0.07, 0.008), METAL, [rw * 0.25 + dx * 0.035, topY, -d * 0.2 + dz * 0.035]);
   }
 }
 
