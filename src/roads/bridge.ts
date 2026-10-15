@@ -81,17 +81,21 @@ export function traceTiles(world: World, on: (t: World['tiles'][number]) => bool
  * inside of the turn). Returns tile index → road type (0 street, 1 avenue).
  */
 export function rasterizeRoads(g: RoadGraph): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const e of g.liveEdges()) for (const [i, type] of edgeTiles(g, e)) out.set(i, Math.max(out.get(i) ?? 0, type));
+  return out;
+}
+/** B8: the tiles one edge rasterises onto (tile index → 0 street / 1 avenue). */
+export function edgeTiles(g: RoadGraph, e: number): Map<number, number> {
   const N = GRID_SIZE, out = new Map<number, number>();
   const put = (tx: number, tz: number, type: number) => { if (tx >= 0 && tz >= 0 && tx < N && tz < N) { const i = tz * N + tx; out.set(i, Math.max(out.get(i) ?? 0, type)); } };
-  for (const e of g.liveEdges()) {
-    const type = g.eType[e] === 'avenue' || g.eType[e] === 'highway' ? 1 : 0, c = g.eCurve[e], lut = g.eLut[e], len = g.eLen[e];
-    let px = -1, pz = -1;
-    for (let s = 0; s <= len + 4; s += 4) {
-      const p = isStraight(c) ? { x: c[0] + (c[6] - c[0]) * Math.min(1, s / len), z: c[1] + (c[7] - c[1]) * Math.min(1, s / len) } : at(c, tAtLength(lut, Math.min(s, len)));
-      const tx = Math.floor(p.x / TILE_M), tz = Math.floor(p.z / TILE_M);
-      if (px >= 0 && tx !== px && tz !== pz) put(tx, pz, type); // keep 4-connectivity
-      put(tx, tz, type); px = tx; pz = tz;
-    }
+  const type = g.eType[e] === 'avenue' || g.eType[e] === 'highway' ? 1 : 0, c = g.eCurve[e], lut = g.eLut[e], len = g.eLen[e];
+  let px = -1, pz = -1;
+  for (let s = 0; s <= len + 4; s += 4) {
+    const p = isStraight(c) ? { x: c[0] + (c[6] - c[0]) * Math.min(1, s / len), z: c[1] + (c[7] - c[1]) * Math.min(1, s / len) } : at(c, tAtLength(lut, Math.min(s, len)));
+    const tx = Math.floor(p.x / TILE_M), tz = Math.floor(p.z / TILE_M);
+    if (px >= 0 && tx !== px && tz !== pz) put(tx, pz, type); // keep 4-connectivity
+    put(tx, tz, type); px = tx; pz = tz;
   }
   return out;
 }

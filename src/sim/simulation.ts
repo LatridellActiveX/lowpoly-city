@@ -25,6 +25,7 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
+import { syncGraphToTiles } from '../roads/persist';
 import { coords, World } from './grid';
 import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigCoal, servedRev } from './networks';
@@ -565,7 +566,13 @@ export class Simulation {
    * Tiles are built in drag order until the money runs out, so a road you
    * can only half afford gets built halfway rather than not at all.
    */
+  /** V1.6 B8: apply a tile tool, then drop graph roads whose tiles it removed (roads/persist.ts). */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
+    const r = this.applyTiles(tool, tiles);
+    if (r.changed && this.world.graphTiles.size) syncGraphToTiles(this.world);
+    return r;
+  }
+  private applyTiles(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
     // (tiles is reassigned for bulldozing 2×2 footprints)
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };

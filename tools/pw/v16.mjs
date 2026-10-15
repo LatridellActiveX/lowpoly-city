@@ -113,5 +113,21 @@ if (stage === "roads") {
   await shot("roads-detail", 47, 52, 5, async () => page.waitForTimeout(4000));
   out.cars = await page.evaluate(() => window.city.graphLayer.traffic?.vehicles.length ?? 0);
 }
+if (stage === "migrate") {
+  // B8: a v9 (1.5b-format) fixture loaded through the normal Continue path
+  // is migrated to v10: its tile roads become graph roads.
+  const { readFileSync } = await import("node:fs");
+  const raw = readFileSync("/workspace/lowpoly-city/tools/fixtures/small.json", "utf8");
+  out.migrated = await page.evaluate((raw) => {
+    localStorage.setItem("lowpoly-city-save", raw);
+    window.city.startGame("continue");
+    const w = window.city.sim.world;
+    return { version: JSON.parse(raw).version, edges: w.roads.edgeCount(), graphTiles: w.graphTiles.size, pop: window.city.sim.stats().population };
+  }, raw);
+  await page.waitForFunction(() => window.city && window.city.graphLayer);
+  await page.evaluate(() => { const c = window.city; c.setTimeOfDay(0.45); c.setOverlay("none"); c.cam.zoomBy(1.8 / c.cam.zoom); c.cam.target.set(30, 0, 24); c.sim.version++; });
+  await page.waitForTimeout(5000);
+  await page.screenshot({ path: "/workspace/city-v16-migrated-save.png", timeout: 240000 });
+}
 console.log(JSON.stringify({ stage, ...out, errs }));
 await browser.close();

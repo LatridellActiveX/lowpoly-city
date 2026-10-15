@@ -34,6 +34,7 @@ import { TPL } from './footprints';
 import { localToCell } from './lots';
 import { MAP_SIZES, setGridSize } from './mapsize';
 import { allRegions } from './regions';
+import { loadGraph, migrateToGraph, rebuildBlocks, saveGraph } from '../roads/persist';
 
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
@@ -53,7 +54,7 @@ const KEY = 'lowpoly-city-save';
  * v1–v8 saves are always 64 maps; they load unchanged as 64 maps with every
  * region owned.
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10; // V1.6 B8: freeform road graph + graph tiles
 
 /* ---- V1.6 A6: run-length encoding ---- */
 /** [value, count, value, count, …] — consecutive equal values collapse. */
@@ -124,6 +125,10 @@ export function serializeWorld(world: World): string {
     nextBuilding: world.lots.nextId,
     lots: [...world.parking.lots.values()],
     nextLot: world.parking.nextId,
+    // v10 (B8): the freeform road graph and the tiles it owns. Blocks are
+    // regenerated on load (deterministic) and read their codes from cells.
+    roadGraph: saveGraph(world.roads),
+    graphTiles: [...world.graphTiles].sort((a, b) => a - b),
   };
   return JSON.stringify(data);
 }
@@ -228,6 +233,13 @@ export function deserializeWorld(raw: string): World | null {
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
     if (version < 8) migrateCoal(w);
+    // ---- v10 (B8): road graph. Older saves trace their tile roads. ----
+    if (version < 10) migrateToGraph(w);
+    else {
+      w.roads = loadGraph(data.roadGraph);
+      w.graphTiles = new Set<number>((data.graphTiles ?? []).filter((i: number) => w.tiles[i]?.road));
+      rebuildBlocks(w);
+    }
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.
     w.tiles.forEach((t, i) => t.zone && w.lots.markDirty(i));
     w.lots.aggregate(w);
