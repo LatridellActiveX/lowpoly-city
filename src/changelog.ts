@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-j',
+    title: 'Clean intersections and real roundabouts',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Intersections are rebuilt as proper junctions: roads stop at the junction edge, a single smooth plate fills the middle and kerbs and sidewalks wrap round rounded corners. No more overlapping sidewalks, flicker or lane dashes through the middle.' },
+      { tag: 'improved', text: 'Crosswalks and stop lines sit just outside every junction, including Y, curved, five-way and avenue-to-road junctions.' },
+      { tag: 'new', text: 'Roundabouts are drawn as a round road around a planted island, with sidewalks broken where each road enters.' },
+    ],
+  },
+  {
     id: '2026-10-15-g',
     title: 'Freeform road polish and square zoning',
     date: '2026-10-15',

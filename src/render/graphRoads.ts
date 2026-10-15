@@ -34,9 +34,10 @@ import { at, Cubic, tangent, tAtLength, V2, buildLut } from '../roads/bezier';
 import { GUTTER_M, KERB_M, LANE_M, RoadGraph, RoadType, ROAD_SPEC, SHOULDER_M, SIDEWALK_M, TILE_M, roadHalf } from '../roads/graph';
 import { ZoneBlocks } from '../roads/blocks';
 import { GraphTraffic } from '../roads/gtraffic';
+import { CROSSWALK_ROOM, edgeTrims, JunctionPlan, planAll, Ring, rings } from '../roads/junctions';
 
 const U = 1 / TILE_M;
-const Y_ASPHALT = 0.041, Y_MARK = 0.0425, Y_KERB = 0.06, Y_WALK = 0.056, Y_DISC = 0.0415, Y_ZONE = 0.064;
+const Y_ASPHALT = 0.041, Y_MARK = 0.0425, Y_KERB = 0.06, Y_WALK = 0.056, Y_ZONE = 0.064;
 const C = {
   asphalt: new THREE.Color(0x4d525a), gutter: new THREE.Color(0x3c4047), kerb: new THREE.Color(0xd6d3cc), walk: new THREE.Color(0xb9b6ae),
   white: new THREE.Color(0xf2f2f2), yellow: new THREE.Color(0xf2d16b), manhole: new THREE.Color(0x34373c), drain: new THREE.Color(0x2a2c30),
@@ -59,6 +60,20 @@ class Mesher {
     const ny = (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z);
     if (ny <= 0) this.idx.push(n, n + 2, n + 1, n, n + 3, n + 2);
     else this.idx.push(n, n + 1, n + 2, n, n + 2, n + 3);
+  }
+  /** NEBULA: one flat triangle (double-sided material, so winding is irrelevant). */
+  tri(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, col: THREE.Color): void {
+    const n = this.pos.length / 3;
+    for (const p of [a, b, c]) { this.pos.push(p.x, p.y, p.z); this.col.push(col.r, col.g, col.b); }
+    this.idx.push(n, n + 1, n + 2);
+  }
+  /** NEBULA: flat ring (annulus) r0..r1 at height y — dead-end kerb / sidewalk caps. */
+  ring(x: number, z: number, r0: number, r1: number, y: number, col: THREE.Color, seg = 24): void {
+    for (let k = 0; k < seg; k++) {
+      const a0 = (k / seg) * Math.PI * 2, a1 = ((k + 1) / seg) * Math.PI * 2;
+      const P = (a: number, r: number) => new THREE.Vector3(x + Math.cos(a) * r, y, z + Math.sin(a) * r);
+      this.quad(P(a0, r0), P(a0, r1), P(a1, r1), P(a1, r0), col);
+    }
   }
   disc(x: number, z: number, r: number, y: number, col: THREE.Color, seg = 24): void {
     const n = this.pos.length / 3;
@@ -83,10 +98,18 @@ function frame(c: Cubic, lut: Float32Array, s: number): { p: V2; n: V2; d: V2 } 
 const v3 = (p: V2, n: V2, off: number, y: number) => new THREE.Vector3((p.x + n.x * off) * U, y, (p.z + n.z * off) * U);
 
 /** Extrude one road (edge or ghost) into the mesher. trimA/trimB: where sidewalks etc. stop at junctions (m). */
-export function extrude(m: Mesher, c: Cubic, lut: Float32Array, len: number, type: RoadType, seed: number, trimA: number, trimB: number, ghost = false): void {
+/**
+ * NEBULA: trimA/trimB now trim EVERYTHING, asphalt included — inside the trim
+ * the junction plate (drawJunction) is the only surface, so nothing overlaps
+ * or z-fights there. markA/markB: extra distance beyond the trim where lane
+ * markings start (junction arms keep room for the crosswalk + stop line, so
+ * no dash or edge line runs through them).
+ */
+export function extrude(m: Mesher, c: Cubic, lut: Float32Array, len: number, type: RoadType, seed: number, trimA: number, trimB: number, ghost = false, markA = 0, markB = 0): void {
   const sp = ROAD_SPEC[type], half = sp.width / 2, med = sp.median / 2;
-  const n = Math.max(2, Math.ceil(len / 2));
-  const S = (k: number) => (k / n) * len;
+  const aLen = Math.max(0.01, len - trimA - trimB);
+  const n = Math.max(2, Math.ceil(aLen / 2));
+  const S = (k: number) => trimA + (k / n) * aLen; // asphalt only between the trims
   const tmp = new THREE.Color();
   // Asphalt across the full width in 6 lateral columns, with seeded brightness.
   const cols = 6;
@@ -110,17 +133,18 @@ export function extrude(m: Mesher, c: Cubic, lut: Float32Array, len: number, typ
       if (face) m.quad(v3(a.p, a.n, A, Y_ASPHALT), v3(a.p, a.n, A, y), v3(b.p, b.n, A, y), v3(b.p, b.n, A, Y_ASPHALT), C.gutter); // kerb face
     }
   };
+  const mA = trimA + markA, mB = len - trimB - markB; // painted span
   const dashed = (o: number, col: THREE.Color, mirror: boolean) => {
-    for (let s = trimA + 2; s + DASH < len - trimB - 2; s += DASH + GAP) strip(o - PAINT_W / 2, o + PAINT_W / 2, Y_MARK, col, s, s + DASH, mirror);
+    for (let s = mA + 2; s + DASH < mB - 2; s += DASH + GAP) strip(o - PAINT_W / 2, o + PAINT_W / 2, Y_MARK, col, s, s + DASH, mirror);
   };
   // gutter, kerb (raised with a face), sidewalk
   strip(half, half + GUTTER_M, Y_ASPHALT + 0.0005, C.gutter);
   strip(half + GUTTER_M, half + GUTTER_M + KERB_M, Y_KERB, C.kerb, trimA, len - trimB, true, true);
   strip(half + GUTTER_M + KERB_M, half + GUTTER_M + KERB_M + SIDEWALK_M, Y_WALK, C.walk);
   // edge lines (solid, thin) at the shoulder
-  strip(half - SHOULDER_M - PAINT_W, half - SHOULDER_M, Y_MARK, C.white);
+  strip(half - SHOULDER_M - PAINT_W, half - SHOULDER_M, Y_MARK, C.white, mA, mB);
   // centre: avenue median double yellow; street a thin dashed yellow line
-  if (med > 0) { strip(med - PAINT_W, med, Y_MARK, C.yellow); strip(med - 3 * PAINT_W, med - 2 * PAINT_W, Y_MARK, C.yellow); }
+  if (med > 0) { strip(med - PAINT_W, med, Y_MARK, C.yellow, mA, mB); strip(med - 3 * PAINT_W, med - 2 * PAINT_W, Y_MARK, C.yellow, mA, mB); }
   else if (type !== 'oneway') dashed(0, C.yellow, false);
   // lane separators between same-direction lanes: thin white dashes
   for (let l = 1; l < sp.lanes; l++) dashed(med + l * LANE_M, C.white, true);
@@ -137,7 +161,10 @@ function crossing(m: Mesher, g: RoadGraph, e: number, n: number, box: number): v
   const c = g.eCurve[e], lut = g.eLut[e], len = g.eLen[e], sp = ROAD_SPEC[g.eType[e]], half = sp.width / 2;
   const atA = g.eA[e] === n;
   const sAt = (d: number) => (atA ? d : len - d);
-  const sw0 = box + 1, sw1 = box + 4; // 3 m deep crosswalk
+  // NEBULA: `box` is the arm's TRIM (where the junction plate ends): the
+  // crosswalk starts 0.5 m beyond it, the stop line follows; both lie
+  // inside CROSSWALK_ROOM, where no lane paint is drawn.
+  const sw0 = box + 0.5, sw1 = box + 3.5; // 3 m deep crosswalk
   if (sw1 + 2 > len / 2) return;
   for (let o = -half + 0.6; o < half - 0.6; o += 1.2) {
     const a = frame(c, lut, sAt(sw0)), b = frame(c, lut, sAt(sw1));
@@ -146,13 +173,82 @@ function crossing(m: Mesher, g: RoadGraph, e: number, n: number, box: number): v
   // Stop line across the INBOUND half: traffic arriving at n drives on the
   // right of its travel direction; arriving at A means travel b→a, whose
   // right is the +normal side of the a→b frame.
-  const f0 = frame(c, lut, sAt(sw1 + 1)), f1 = frame(c, lut, sAt(sw1 + 1.5));
+  const f0 = frame(c, lut, sAt(sw1 + 0.8)), f1 = frame(c, lut, sAt(sw1 + 1.3));
   const [o0, o1] = atA ? [sp.median / 2, half - SHOULDER_M] : [-(half - SHOULDER_M), -sp.median / 2];
   m.quad(v3(f0.p, f0.n, o0, Y_MARK), v3(f0.p, f0.n, o1, Y_MARK), v3(f1.p, f1.n, o1, Y_MARK), v3(f1.p, f1.n, o0, Y_MARK), C.white);
 }
 
-/** Junction box radius at node n (m). */
-const boxR = (g: RoadGraph, n: number) => { let r = 0; for (const e of g.nEdges[n]) r = Math.max(r, ROAD_SPEC[g.eType[e]].width / 2 + GUTTER_M); return r; };
+const ISLAND = new THREE.Color(0x6fa04a), ISLAND_EDGE = new THREE.Color(0x5b8a3c);
+/**
+ * NEBULA: a ROUNDABOUT drawn round: an asphalt disc out to the ring's outer
+ * radius, a raised kerb + planted island in the middle (with a lighter
+ * inner lawn), and outside the rim a kerb + sidewalk ring broken where each
+ * approach road comes in (its angular window = its kerb half-width at the
+ * rim), so no sidewalk runs across an entry. Approach roads are trimmed to
+ * the rim by planAll, and their crosswalks are skipped (yield entries).
+ */
+function drawRing(m: Mesher, g: RoadGraph, r: Ring, plans: Map<number, JunctionPlan>): void {
+  const x = r.cx * U, z = r.cz * U, Ro = r.outer, Ri = r.island;
+  m.disc(x, z, Ro * U, Y_ASPHALT, C.asphalt, 40);
+  m.ring(x, z, Ri * U, (Ri + KERB_M) * U, Y_KERB, C.kerb, 32);
+  m.disc(x, z, Ri * U, Y_KERB + 0.0005, ISLAND_EDGE, 32);
+  m.disc(x, z, (Ri - 0.8) * U, Y_KERB + 0.001, ISLAND, 32);
+  // Entry windows (angle ranges) where approaches cross the rim.
+  const wins: Array<[number, number]> = [];
+  for (const n of r.nodes) for (const a of plans.get(n)?.arms ?? []) {
+    if (g.nKind[g.other(a.edge, n)] === 'roundabout' && g.nKind[n] === 'roundabout' && r.edges.includes(a.edge)) continue;
+    const t = tAtLength(g.eLut[a.edge], a.atA ? a.trim : g.eLen[a.edge] - a.trim), p = at(g.eCurve[a.edge], t);
+    const ang = Math.atan2(p.z - r.cz, p.x - r.cx), half = Math.asin(Math.min(1, (a.kerbHalf + 0.3) / Ro));
+    wins.push([ang - half, ang + half]);
+  }
+  const inWin = (ang: number) => wins.some(([a0, a1]) => { const d = Math.atan2(Math.sin(ang - (a0 + a1) / 2), Math.cos(ang - (a0 + a1) / 2)); return Math.abs(d) < (a1 - a0) / 2; });
+  const seg = 72;
+  for (let k = 0; k < seg; k++) {
+    const a0 = (k / seg) * Math.PI * 2, a1 = ((k + 1) / seg) * Math.PI * 2;
+    if (inWin((a0 + a1) / 2)) continue;
+    const Pt = (a: number, rr: number, y: number) => new THREE.Vector3(x + Math.cos(a) * rr * U, y, z + Math.sin(a) * rr * U);
+    m.quad(Pt(a0, Ro, Y_KERB), Pt(a0, Ro + KERB_M, Y_KERB), Pt(a1, Ro + KERB_M, Y_KERB), Pt(a1, Ro, Y_KERB), C.kerb);
+    m.quad(Pt(a0, Ro, Y_ASPHALT), Pt(a0, Ro, Y_KERB), Pt(a1, Ro, Y_KERB), Pt(a1, Ro, Y_ASPHALT), C.gutter);
+    m.quad(Pt(a0, Ro + KERB_M, Y_WALK), Pt(a0, Ro + KERB_M + SIDEWALK_M, Y_WALK), Pt(a1, Ro + KERB_M + SIDEWALK_M, Y_WALK), Pt(a1, Ro + KERB_M, Y_WALK), C.walk);
+  }
+}
+
+/**
+ * NEBULA: draw a junction / bend PLATE from its plan (roads/junctions.ts):
+ *  - asphalt: a fan from the node over the boundary made of every rounded
+ *    kerb corner and the arm mouths between them (the arms' asphalt stops
+ *    exactly at those mouths, so plate and arms share edges, no overlap);
+ *  - per corner: a gutter band just inside the kerb line, a raised kerb band
+ *    with its face, and a sidewalk band outside — offset along the corner's
+ *    outward normals, whose end normals equal the arms' own, so the bands
+ *    run on seamlessly from the arms' kerbs and sidewalks.
+ */
+function drawJunction(m: Mesher, g: RoadGraph, plan: JunctionPlan): void {
+  const node = new THREE.Vector3(g.nx[plan.node] * U, Y_ASPHALT, g.nz[plan.node] * U);
+  const P = (p: V2, n: V2, off: number, y: number) => new THREE.Vector3((p.x + n.x * off) * U, y, (p.z + n.z * off) * U);
+  // Boundary in order: corner pts; consecutive corners connect across an arm mouth.
+  const boundary: THREE.Vector3[] = [];
+  for (const c of plan.corners) for (let k = 0; k < c.pts.length; k++) boundary.push(P(c.pts[k], c.nrm[k], 0, Y_ASPHALT));
+  if (plan.arms.length === 2 && plan.corners.length === 2) {
+    // Bend: corner 0 runs arm0→arm1 on one side, corner 1 the same on the
+    // other; the closed outline is corner 0, then corner 1 REVERSED.
+    boundary.length = 0;
+    const [c0, c1] = plan.corners;
+    for (let k = 0; k < c0.pts.length; k++) boundary.push(P(c0.pts[k], c0.nrm[k], 0, Y_ASPHALT));
+    for (let k = c1.pts.length - 1; k >= 0; k--) boundary.push(P(c1.pts[k], c1.nrm[k], 0, Y_ASPHALT));
+  }
+  for (let k = 0; k < boundary.length; k++) m.tri(node, boundary[k], boundary[(k + 1) % boundary.length], C.asphalt);
+  for (const c of plan.corners) {
+    for (let k = 0; k + 1 < c.pts.length; k++) {
+      const a = c.pts[k], b = c.pts[k + 1], na = c.nrm[k], nb = c.nrm[k + 1];
+      m.quad(P(a, na, -GUTTER_M, Y_ASPHALT + 0.0005), P(a, na, 0, Y_ASPHALT + 0.0005), P(b, nb, 0, Y_ASPHALT + 0.0005), P(b, nb, -GUTTER_M, Y_ASPHALT + 0.0005), C.gutter);
+      m.quad(P(a, na, 0, Y_KERB), P(a, na, KERB_M, Y_KERB), P(b, nb, KERB_M, Y_KERB), P(b, nb, 0, Y_KERB), C.kerb);
+      m.quad(P(a, na, 0, Y_ASPHALT), P(a, na, 0, Y_KERB), P(b, nb, 0, Y_KERB), P(b, nb, 0, Y_ASPHALT), C.gutter); // kerb face
+      m.quad(P(a, na, KERB_M, Y_WALK), P(a, na, KERB_M + SIDEWALK_M, Y_WALK), P(b, nb, KERB_M + SIDEWALK_M, Y_WALK), P(b, nb, KERB_M, Y_WALK), C.walk);
+    }
+  }
+}
+
 
 export class GraphRoadLayer {
   group = new THREE.Group();
@@ -169,6 +265,8 @@ export class GraphRoadLayer {
   traffic: GraphTraffic | null = null;
   private seed = 1;
   showZones = false;
+  /** NEBULA: junction plans of the last build (traffic lights, power poles use them). */
+  plans = new Map<number, JunctionPlan>();
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0.5);
@@ -188,20 +286,31 @@ export class GraphRoadLayer {
       this.builtVersion = g.version;
       if (this.roads) { this.group.remove(this.roads); this.roads.geometry.dispose(); }
       const m = new Mesher();
+      // NEBULA: plan every node first (trims, rounded kerb corners), then
+      // extrude edges between their trims and draw one plate per junction/bend.
+      const rs = rings(g);
+      const plans = planAll(g, rs);
+      this.plans = plans;
+      const ringEdge = new Set(rs.flatMap((r) => r.edges));
+      for (const r of rs) drawRing(m, g, r, plans);
       for (const e of g.liveEdges()) {
-        const trim = (n: number) => (g.nEdges[n].length >= 3 ? boxR(g, n) + 0.5 : 0);
-        extrude(m, g.eCurve[e], g.eLut[e], g.eLen[e], g.eType[e], g.eBorn[e] + this.seed, trim(g.eA[e]), trim(g.eB[e]));
+        if (ringEdge.has(e)) continue; // the ring disc is its surface
+        const [ta, tb] = edgeTrims(g, plans, e);
+        const room = (n: number) => (plans.get(n)?.junction ? CROSSWALK_ROOM : 0);
+        extrude(m, g.eCurve[e], g.eLut[e], g.eLen[e], g.eType[e], g.eBorn[e] + this.seed, ta, tb, false, room(g.eA[e]), room(g.eB[e]));
       }
       for (const n of g.liveNodes()) {
-        const deg = g.nEdges[n].length;
-        if (deg >= 3) {
-          m.disc(g.nx[n] * U, g.nz[n] * U, boxR(g, n) * 1.1 * U, Y_DISC, C.asphalt, 28);
-          for (const e of g.nEdges[n]) crossing(m, g, e, n, boxR(g, n) + 0.5);
+        const deg = g.nEdges[n].length, plan = plans.get(n)!;
+        if (plan.plate) {
+          drawJunction(m, g, plan);
+          if (plan.junction) for (const a of plan.arms) crossing(m, g, a.edge, n, a.trim);
         } else if (deg === 1) {
-          const e = g.nEdges[n][0], h = ROAD_SPEC[g.eType[e]].width / 2;
-          m.disc(g.nx[n] * U, g.nz[n] * U, (roadHalf(g.eType[e])) * U, Y_WALK - 0.001, C.walk, 24);
-          m.disc(g.nx[n] * U, g.nz[n] * U, (h + GUTTER_M + KERB_M) * U, Y_KERB - 0.0005, C.kerb, 24);
-          m.disc(g.nx[n] * U, g.nz[n] * U, (h + GUTTER_M) * U, Y_DISC + 0.015, C.asphalt, 24);
+          // Dead end: round cap — asphalt to the kerb line, then a kerb ring and
+          // a sidewalk ring at the same heights as the road's own bands.
+          const e = g.nEdges[n][0], h = ROAD_SPEC[g.eType[e]].width / 2, x = g.nx[n] * U, z = g.nz[n] * U;
+          m.disc(x, z, (h + GUTTER_M) * U, Y_ASPHALT, C.asphalt, 24);
+          m.ring(x, z, (h + GUTTER_M) * U, (h + GUTTER_M + KERB_M) * U, Y_KERB, C.kerb, 24);
+          m.ring(x, z, (h + GUTTER_M + KERB_M) * U, roadHalf(g.eType[e]) * U, Y_WALK, C.walk, 24);
         }
       }
       this.roads = new THREE.Mesh(m.geometry(), this.mat);
