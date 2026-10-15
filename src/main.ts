@@ -550,7 +550,7 @@ if (inTitle) {
 changelog.openIfUnseen();
 
 // ---- V1.5: update prompt ----
-// Polls /version.json (every 5 min + on focus) and offers to update.
+// Polls /version.json (every minute + on focus) and offers to update.
 const updater = new UpdateChecker({
   save: autosave,
   exportSave: () => { saveWorld(sim.world); return downloadSave(); },
