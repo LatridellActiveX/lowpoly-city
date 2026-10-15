@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-p',
+    title: 'Model viewer',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'New 🏛 Model viewer, in the ☰ menu and on the title screen: a grid of every building, power and water plant, service and vehicle model, with titles and categories (homes, apartments & towers, shops & offices, industry, resources & farms, power & water, services, vehicles, roads) and a search box. Hover a model to spin it, drag to turn it, click for a big view with zoom.' },
+    ],
+  },
+  {
     id: '2026-10-15-o',
     title: 'More homes, shops and industry',
     date: '2026-10-15',

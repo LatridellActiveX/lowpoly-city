@@ -28,6 +28,8 @@ export class GameMenu {
   onChangelog: () => void = () => {};
   /** Saves and returns to the title screen (set by main.ts). */
   onMainMenu: () => void = () => {};
+  /** Opens the Model viewer (set by main.ts). */
+  onModels: () => void = () => {};
 
   constructor(private readonly getSim: () => Simulation) {
     this.button.className = 'btn menu-btn';
@@ -54,9 +56,10 @@ export class GameMenu {
         <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
         <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>
+        <button class="menu-item" data-go="models">🏛 Model viewer<span>Browse every building and vehicle model — rotate and zoom</span></button>
         <button class="menu-item" data-go="mainmenu">🏠 Main menu<span>Save this city and return to the title screen</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
-        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log');
+        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'models') { this.toggle(false); this.onModels(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log');
       }));
     } else if (view === 'settings') {
       const s = this.getSim().settings;
