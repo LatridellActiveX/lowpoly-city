@@ -14,6 +14,7 @@
     "test:cells": "esbuild tools/cells.test.ts --bundle --platform=node --format=esm --outfile=/tmp/cells-test.mjs --log-level=error && node /tmp/cells-test.mjs",
     "test:v15b-res": "esbuild tools/v15b-res.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-res-test.mjs --log-level=error && node /tmp/v15b-res-test.mjs",
     "balance": "esbuild tools/balance.ts --bundle --platform=node --format=esm --outfile=/tmp/balance.mjs --log-level=error && node /tmp/balance.mjs",
+    "lint:tiles": "node tools/lint-tiles.mjs",
     "bench": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs",
     "bench:check": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs --check",
     "test:mapsize": "esbuild tools/mapsize.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mapsize-test.mjs --log-level=error && node /tmp/mapsize-test.mjs",

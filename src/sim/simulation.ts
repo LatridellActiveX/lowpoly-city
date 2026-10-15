@@ -801,7 +801,7 @@ export class Simulation {
   /** Convenience for debugging: tile coordinates of every tile matching a predicate. */
   find(pred: (t: Tile) => boolean): Array<[number, number]> {
     const out: Array<[number, number]> = [];
-    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i)));
+    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i))); // lint-allow: debug/test helper, never per tick
     return out;
   }
 }
