@@ -181,12 +181,44 @@ export function syncGraphToTiles(w: World): number {
   for (const i of w.graphTiles) if (!w.tiles[i].road) dead.add(i);
   if (!dead.size) return 0;
   let n = 0;
-  for (const e of w.roads.liveEdges()) for (const i of edgeTiles(w.roads, e).keys()) if (dead.has(i)) { w.roads.removeEdge(e); n++; break; }
+  const ends = new Set<number>();
+  for (const e of w.roads.liveEdges()) for (const i of edgeTiles(w.roads, e).keys()) if (dead.has(i)) { ends.add(w.roads.eA[e]); ends.add(w.roads.eB[e]); w.roads.removeEdge(e); n++; break; }
+  // NEBULA FIX (root cause of "power stops at the junction"): removeEdge
+  // leaves its end nodes behind. A junction node whose every edge went is
+  // left as a LONE node exactly where the junction was. RoadGraph.snap()
+  // prefers an existing node (≤ 8 m) over splitting an edge, lone nodes
+  // included — so the next road built there (rebuilding the junction, or a
+  // new T/+ placed on that road) attached to the stale lone node instead of
+  // splitting the through road. The new arm then hung in the graph
+  // unconnected to the road it visibly meets: graph traffic could not turn
+  // in, the graph utilities (sim/graphutil.ts) and the street poles/wires
+  // (render/graphUtilities.ts) stopped at that junction. Drop the empties.
+  for (const m of ends) if (w.roads.nAlive[m] && !w.roads.nEdges[m].length) w.roads.tidyNode(m);
   for (const i of dead) w.graphTiles.delete(i);
   // Tiles only those edges covered are no longer drawn by the graph: hand them back to the tile renderer.
   const live = new Set<number>();
   for (const e of w.roads.liveEdges()) for (const i of edgeTiles(w.roads, e).keys()) live.add(i);
-  for (const i of [...w.graphTiles]) if (!live.has(i)) w.graphTiles.delete(i);
+  const orphans: number[] = [];
+  for (const i of [...w.graphTiles]) if (!live.has(i)) { w.graphTiles.delete(i); orphans.push(i); }
+  // NEBULA FIX — "power doesn't reach past the junction". Removing a graph
+  // edge removes ALL of it, not just the bulldozed tile: bulldozing (or
+  // rebuilding) one tile at a junction dropped every edge through that
+  // junction, so whole street runs beyond it fell out of the road graph.
+  // Their tiles stayed roads, so the TILE power fill still reached them,
+  // but the graph — which in a graph world is the live network: graph
+  // traffic, graph utilities (sim/graphutil.ts) and the street poles and
+  // wires drawn from it (render/graphUtilities.ts) — was cut in pieces at
+  // that junction, and rebuilding the junction tile only re-absorbed that
+  // one fresh tile (absorbTileRoads only takes tiles NOT already in
+  // graphTiles), so the pieces were never joined again.
+  // In a graph world we now re-absorb the orphaned road tiles straight
+  // away: the surviving runs become graph edges again, joined to the
+  // junctions they touch, so the graph stays the complete, connected
+  // network. (Pure tile worlds keep the old hand-back to the tile renderer.)
+  // Only in a WHOLE graph world (every other road tile is a graph tile): a
+  // tile town that merely has a free road keeps its tile roads as tiles.
+  const whole = w.graphRoads && !w.tiles.some((t, i) => t.road && !w.graphTiles.has(i) && !orphans.includes(i));
+  if (whole && orphans.length) absorbTileRoads(w, orphans.filter((i) => w.tiles[i].road));
   w.blocks.regenerate(w.roads);
   return n;
 }

@@ -242,6 +242,10 @@ export function deserializeWorld(raw: string): World | null {
       w.graphTiles = new Set<number>((data.graphTiles ?? []).filter((i: number) => w.tiles[i]?.road));
       rebuildBlocks(w);
       w.graphRoads = data.graphRoads ?? w.graphTiles.size > 0; // OASIS
+      // NEBULA repair: saves made before the syncGraphToTiles fix can hold
+      // stale LONE road nodes (no edges) where a junction was edited; they
+      // would capture the next road built there (see roads/persist.ts).
+      for (const m of w.roads.liveNodes()) if (!w.roads.nEdges[m].length) w.roads.tidyNode(m);
     }
     // ---- oasis merge (1.6 + models) ----
     // 1.6 (above) restores/migrates the road graph; the models branch adds

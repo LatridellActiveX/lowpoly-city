@@ -722,7 +722,20 @@ export class CityRenderer {
         // V1.6 B6: tiles rasterised from a freeform road are drawn by the
         // smooth graph mesh (render/graphRoads.ts), not as tile pieces.
         if (!sim.world.graphTiles.has(i)) this.addRoad(t, x, z, center, has);
-        if (sim.world.graphTiles.has(i)) return;
+        if (sim.world.graphTiles.has(i)) {
+          // NEBULA: the power/water coverage overlay tints graph road tiles
+          // too (as it always did tile roads), so the overlay shows how far
+          // the network really reaches along the streets — through every
+          // junction — instead of only the lots beside them.
+          if (this.overlay === 'power' || this.overlay === 'water') {
+            const sv = sim.net.service[i], net = this.overlay === 'power' ? sv.powerNet : sv.waterNet;
+            if (net >= 0) {
+              const served = this.overlay === 'power' ? sv.powered : sv.watered;
+              P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(!served ? 0xff3b30 : this.overlay === 'power' ? 0xffd21f : 0x29a3ff));
+            }
+          }
+          return;
+        }
         // NEBULA: every road carries a WATER MAIN (sim: roads are water
         // conduits). In the water view / pipe tool, draw it down the tile
         // road's centre, joined to neighbouring roads and pipes.

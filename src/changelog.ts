@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-m',
+    title: 'Fix: roads cut off at a junction after editing it',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Building a junction on a road you had edited before (for example the road in from the outside connection) now joins it properly. The new street used to hang off a leftover point instead, so power lines, traffic and street poles stopped at that junction.' },
+      { tag: 'fix', text: 'Bulldozing or rebuilding a road tile at a junction no longer cuts the streets beyond it out of the road network.' },
+      { tag: 'fix', text: 'Cities saved with leftover junction points are cleaned up when you load them.' },
+      { tag: 'improved', text: 'The power and water views now colour the streets too, so you can see how far the network reaches past every junction.' },
+    ],
+  },
+  {
     id: '2026-10-15-i',
     title: 'Power & water grid view',
     date: '2026-10-15',
