@@ -390,6 +390,7 @@ renderer.setAnimationLoop(() => {
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.cameraQuat.copy(cam.camera.quaternion);
+  city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
   hudTimer -= dt;
@@ -480,6 +481,8 @@ updater.start();
     return sim;
   },
   cam,
+  /** V1.6 A5: the city renderer (chunk culling toggle + render stats for the render bench). */
+  renderer: city,
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
   useSim: (s: Simulation) => {
     sim = s;

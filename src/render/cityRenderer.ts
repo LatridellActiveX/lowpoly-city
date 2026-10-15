@@ -43,6 +43,7 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
+import { CHUNK } from '../sim/chunks';
 import { autoSkin, industrialMaterial, Skin } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
@@ -394,6 +395,11 @@ export class CityRenderer {
     add('birch', NATURE.birch(), solid, 512);
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
+    // V1.6 A5: STATIC decoration pools. Wild trees/rocks only change when a
+    // tool clears them, so they live in their own pools that rebuild() leaves
+    // alone unless the decorations or the visible chunks changed.
+    for (const [k, geo, cap] of [['pine', NATURE.pine(), 512], ['oak', NATURE.oak(), 512], ['birch', NATURE.birch(), 512], ['bush', NATURE.bush(), 256], ['rock', NATURE.rock(), 256]] as const)
+      this.decoPools[k] = new InstancePool(this.group, geo, solid, cap, true);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
     // V1.5 roundabout island: kerb ring, lawn, flower bed and a small tree.
     add('ringIsland', merge([
@@ -468,11 +474,98 @@ export class CityRenderer {
     return this.m.compose(pos, this.q, this.s);
   }
 
+  /**
+   * V1.6 A5: RENDER CHUNKING. The map is drawn in the same 16×16-tile chunks
+   * the simulation uses (sim/chunks.ts). Every frame main.ts passes the
+   * camera; we test each chunk's box against the view frustum and keep a
+   * mask of visible chunks. rebuild() only walks tiles of visible chunks, so
+   * on the 192 map a zoomed-in view costs about what the whole 64 map did.
+   * When the camera reveals a different set of chunks we rebuild once.
+   */
+  setView(camera: THREE.Camera, n: number): void {
+    if (!this.cull) { if (this.visible) { this.visible = null; this.visKey = 'all'; this.lastVersion = -1; } return; }
+    const side = Math.ceil(n / CHUNK);
+    camera.updateMatrixWorld();
+    this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projScreen);
+    const mask = this.visScratch.length === side * side ? this.visScratch : (this.visScratch = new Uint8Array(side * side));
+    for (let cz = 0; cz < side; cz++) for (let cx = 0; cx < side; cx++) {
+      // 1-tile margin so things standing on a chunk edge (and their shadows) don't pop.
+      this.box.min.set(cx * CHUNK - 1, -0.5, cz * CHUNK - 1);
+      this.box.max.set(Math.min(n, (cx + 1) * CHUNK) + 1, 6, Math.min(n, (cz + 1) * CHUNK) + 1);
+      mask[cz * side + cx] = this.frustum.intersectsBox(this.box) ? 1 : 0;
+    }
+    let key = '';
+    for (let c = 0; c < mask.length; c++) key += mask[c];
+    if (key !== this.visKey) { this.visKey = key; this.visible = mask.slice(); this.visSide = side; this.lastVersion = -1; }
+  }
+  /** V1.6 A5: chunk culling on/off (render bench + screenshot comparison). */
+  cull = true;
+  private frustum = new THREE.Frustum();
+  private projScreen = new THREE.Matrix4();
+  private box = new THREE.Box3();
+  private visScratch = new Uint8Array(0);
+  private visKey = '';
+  /** Visible-chunk mask (null = draw everything, e.g. before the first setView). */
+  private visible: Uint8Array | null = null;
+  private visSide = 0;
+  private decoPools: Record<string, InstancePool> = {};
+  private decoKey = '';
+  /** Chunks drawn in the last rebuild (debug overlay / render bench). */
+  stats = { chunksDrawn: 0, chunksTotal: 0, tilesWalked: 0, decoRebuilds: 0, rebuilds: 0, rebuildMs: 0 };
+
+  /** Tile indices of visible chunks, ascending. */
+  private visibleTiles(n: number): number[] {
+    const out: number[] = [], vis = this.visible, side = Math.ceil(n / CHUNK);
+    let drawn = 0;
+    for (let cz = 0; cz < side; cz++) for (let cx = 0; cx < side; cx++) {
+      if (vis && this.visSide === side && !vis[cz * side + cx]) continue;
+      drawn++;
+      for (let z = cz * CHUNK; z < Math.min(n, (cz + 1) * CHUNK); z++) for (let x = cx * CHUNK; x < Math.min(n, (cx + 1) * CHUNK); x++) out.push(z * n + x);
+    }
+    this.stats.chunksDrawn = drawn; this.stats.chunksTotal = side * side; this.stats.tilesWalked = out.length;
+    return out;
+  }
+
+  /** Wild trees and rocks of the visible chunks (static pools, see constructor). */
+  private rebuildDeco(sim: Simulation, list: number[]): void {
+    const tiles = sim.world.tiles, seed = sim.world.seed, n = GRID_SIZE;
+    // Cheap fingerprint: visible chunks + every decoration in them.
+    let h = 2166136261;
+    for (const i of list) { const d = tiles[i].deco; if (d) { h ^= i * 8 + d; h = Math.imul(h, 16777619); } }
+    const key = `${seed}|${this.visKey}|${h >>> 0}`;
+    if (key === this.decoKey) return;
+    this.decoKey = key;
+    this.stats.decoRebuilds++;
+    const P = this.decoPools;
+    for (const p of Object.values(P)) p.begin();
+    for (const i of list) {
+      const t = tiles[i];
+      if (!t.deco) continue;
+      const x = i % n, z = (i / n) | 0, center = tileCenter(x, z);
+      const kind = (['', 'pine', 'oak', 'birch', 'bush', 'rock'] as const)[t.deco];
+      const jx = (hash2(x, z, seed + 41) - 0.5) * 0.4;
+      const jz = (hash2(x, z, seed + 43) - 0.5) * 0.4;
+      const size = 0.85 + hash2(x, z, seed + 47) * 0.45;
+      const tint = 0.85 + hash2(x, z, seed + 53) * 0.15;
+      const pos = center.clone().add(new THREE.Vector3(jx, 0, jz));
+      P[kind].add(this.place(pos, hash2(x, z, seed + 59) * Math.PI * 2, size, size), this.c.setRGB(tint, tint, tint));
+      // Dense forest tiles get a second, smaller tree for a fuller canopy.
+      if (t.deco <= Deco.Birch && hash2(x, z, seed + 61) > 0.6) {
+        const p2 = center.clone().add(new THREE.Vector3(-jx * 0.9, 0, -jz * 0.9 + 0.12));
+        P[kind].add(this.place(p2, hash2(x, z, seed + 67) * 6, size * 0.7, size * 0.7), this.c.setRGB(tint, tint, tint));
+      }
+    }
+    for (const p of Object.values(P)) p.end();
+  }
+
   /** Called every frame. Rebuilds instances if the sim changed, then animates. */
   frame(sim: Simulation, time: number): void {
     if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay || this.showPipes !== this.lastShowPipes) {
       this.lastShowPipes = this.showPipes;
+      const t0 = performance.now();
       this.rebuild(sim);
+      this.stats.rebuilds++; this.stats.rebuildMs += performance.now() - t0; // V1.6 A5 render bench
       this.lastVersion = sim.version;
       this.lastOverlay = this.overlay;
     }
@@ -522,27 +615,17 @@ export class CityRenderer {
       if (this.waterMesh) this.group.add(this.waterMesh);
       this.groundSeed = seed;
     }
-    tiles.forEach((t, i) => {
+    // V1.6 A5: only tiles of visible chunks; decorations go to the static pools.
+    const visList = this.visibleTiles(GRID_SIZE);
+    this.rebuildDeco(sim, visList);
+    visList.forEach((i) => {
+      const t = tiles[i];
       const [x, z] = coords(i);
       const center = tileCenter(x, z);
       // A stable pseudo-random quarter-turn for things that don't face a road.
       const turn = Math.floor(hash2(x, z, seed + 7) * 4) * (Math.PI / 2);
 
-      // ---- Decorations: jittered, scaled and rotated by hash ----
-      if (t.deco) {
-        const kind = (['', 'pine', 'oak', 'birch', 'bush', 'rock'] as const)[t.deco];
-        const jx = (hash2(x, z, seed + 41) - 0.5) * 0.4;
-        const jz = (hash2(x, z, seed + 43) - 0.5) * 0.4;
-        const size = 0.85 + hash2(x, z, seed + 47) * 0.45;
-        const tint = 0.85 + hash2(x, z, seed + 53) * 0.15;
-        const pos = center.clone().add(new THREE.Vector3(jx, 0, jz));
-        P[kind].add(this.place(pos, hash2(x, z, seed + 59) * Math.PI * 2, size, size), this.c.setRGB(tint, tint, tint));
-        // Dense forest tiles get a second, smaller tree for a fuller canopy.
-        if (t.deco <= Deco.Birch && hash2(x, z, seed + 61) > 0.6) {
-          const p2 = center.clone().add(new THREE.Vector3(-jx * 0.9, 0, -jz * 0.9 + 0.12));
-          P[kind].add(this.place(p2, hash2(x, z, seed + 67) * 6, size * 0.7, size * 0.7), this.c.setRGB(tint, tint, tint));
-        }
-      }
+      // (V1.6 A5: wild decorations are drawn by rebuildDeco into static pools.)
 
       // (PR 5: water is drawn by the single smooth waterMesh, see buildWaterMesh.)
 
