@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-f',
+    title: 'Cleaner menus',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'All map views (power, water, pollution, zoning…) now live in one dropdown behind the round 👁 view-menu button.' },
+      { tag: 'improved', text: 'Power and Water are merged into a single Utilities toolbar menu with Power and Water sections.' },
+      { tag: 'improved', text: 'Bridges are automatic: drag a road across water and it bridges. The separate Bridge row is gone from the Roads menu.' },
+    ],
+  },
+  {
     id: '2026-10-15-e',
     title: 'Version 1.6: freeform roads and bigger maps',
     date: '2026-10-15',

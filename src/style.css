@@ -236,3 +236,16 @@ body.title-mode .rci, body.title-mode .hint, body.title-mode .toast, body.title-
 .changelog-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
 .changelog-foot .btn { width: auto; padding: 6px 18px; }
 body.title-mode .changelog { z-index: 70; }
+
+/* View menu: one round button, all map views in its dropdown */
+.view-menu { position: relative; }
+.view-btn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--panel); font-size: 18px; line-height: 1; }
+.view-btn:hover { background: rgba(255,255,255,0.15); }
+.view-btn.active { background: var(--accent); color: #0b2230; }
+.view-list { position: absolute; top: 42px; left: 0; z-index: 30; display: flex; flex-direction: column; min-width: 160px; background: var(--panel); border-radius: 10px; padding: 4px; gap: 2px; box-shadow: 0 6px 18px rgba(0,0,0,0.4); }
+.view-list.hidden { display: none; }
+.view-item { background: transparent; border: 0; text-align: left; padding: 6px 10px; border-radius: 7px; font-size: 13px; white-space: nowrap; }
+.view-item:hover { background: rgba(255,255,255,0.1); }
+.view-item.active { background: var(--accent); color: #0b2230; font-weight: 600; }
+.view-item.locked { opacity: 0.35; filter: grayscale(1); }
+.flyout-section { font-size: 11px; font-weight: 600; opacity: 0.6; padding: 6px 6px 2px; text-transform: uppercase; letter-spacing: 0.06em; }
