@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-i',
+    title: 'Version 1.6.0',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'The game now reports its version as 1.6.0 to match the freeform roads and bigger maps update.' },
+    ],
+  },
+  {
     id: '2026-10-15-h',
     title: 'Smooth curves',
     date: '2026-10-15',
