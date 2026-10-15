@@ -1,0 +1,54 @@
+[
+ {
+  "scenario": "empty64",
+  "buildings": 0,
+  "pop": 0,
+  "mean": 0.925,
+  "p50": 0.821,
+  "p95": 1.558,
+  "p99": 2.187,
+  "monthP99": 3.011,
+  "heapKBPerTick": 2.7,
+  "phases": {
+   "wind": 0.0008,
+   "networks": 0.3297,
+   "coverage": 0.0593,
+   "environment": 0.2145,
+   "demand": 0.1527,
+   "growth": 0.0026,
+   "parking": 0.0022,
+   "spawn": 0.0145,
+   "crews": 0.0294,
+   "goods": 0.0647,
+   "garbage": 0.0004,
+   "responders": 0.0019,
+   "month": 0.0069
+  }
+ },
+ {
+  "scenario": "city64",
+  "buildings": 284,
+  "pop": 1930,
+  "mean": 4.092,
+  "p50": 3.915,
+  "p95": 6.145,
+  "p99": 7.107,
+  "monthP99": 8.683,
+  "heapKBPerTick": 10.7,
+  "phases": {
+   "wind": 0.001,
+   "networks": 0.5107,
+   "coverage": 0.0689,
+   "environment": 1.0737,
+   "demand": 0.2768,
+   "growth": 0.1695,
+   "parking": 0.1114,
+   "spawn": 0.0753,
+   "crews": 0.0242,
+   "goods": 0.1557,
+   "garbage": 0.0422,
+   "responders": 0.0015,
+   "month": 0.0187
+  }
+ }
+]

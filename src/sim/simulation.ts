@@ -26,6 +26,7 @@
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
 import { coords, World } from './grid';
+import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigCoal } from './networks';
 import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND, BIG_TOWER_UPKEEP } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
@@ -211,11 +212,11 @@ export class Simulation {
   step(): void {
     const w = this.world;
     w.tick++;
-    stepWind(w); // weather first, so this tick's turbine output uses the new wind
-    this.net = computeNetworks(w);
-    this.cov = computeCoverage(w);
-    this.env = this.envWithServices(w);
-    this.demand = this.computeDemand();
+    prof.begin('wind'); stepWind(w); prof.end(); // weather first, so this tick's turbine output uses the new wind
+    prof.begin('networks'); this.net = computeNetworks(w); prof.end();
+    prof.begin('coverage'); this.cov = computeCoverage(w); prof.end();
+    prof.begin('environment'); this.env = this.envWithServices(w); prof.end();
+    prof.begin('demand'); this.demand = this.computeDemand(); prof.end();
 
     // Spare capacity per network, decremented as lots grow this tick so that
     // two lots can't both claim the last bit of supply.
@@ -230,24 +231,24 @@ export class Simulation {
       this.version++;
     }
     // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
-    growLots(this, sparePower, spareWater);
+    prof.begin('growth'); growLots(this, sparePower, spareWater); prof.end();
     // Cars park (parking.ts): occupancy for the time of day + commuter claims.
-    w.parking.tick(w, w.lots);
-    this.spawnTraffic();
+    prof.begin('parking'); w.parking.tick(w, w.lots); prof.end();
+    prof.begin('spawn'); this.spawnTraffic(); prof.end();
     // PR 5: farms claim/free their fields, then crews are dispatched.
     updateFarms(w);
-    this.crews.tick(w, this.traffic, (i) => this.status(i).operating);
+    prof.begin('crews'); this.crews.tick(w, this.traffic, (i) => this.status(i).operating); prof.end();
     // New-game hint: nothing grows without a Construction Yard.
     if ((w.tick === 3 || w.tick % 240 === 0) && !w.tiles.some((t) => t.structure === 'constructionYard') && w.tiles.some((t) => t.zone !== null))
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
-    this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
+    prof.begin('goods'); this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks); prof.end();
     // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
-    this.garbage.tick(w, this.traffic, (i) => this.status(i).operating);
+    prof.begin('garbage'); this.garbage.tick(w, this.traffic, (i) => this.status(i).operating); prof.end();
     // V1.5b stage F: police patrols + ambulance runs.
-    this.responders.tick(w, this.traffic, this.safety);
+    prof.begin('responders'); this.responders.tick(w, this.traffic, this.safety); prof.end();
     // PR 4 progression: announce new tiers (UI drains `events`).
     this.events.push(...updateTier(w, this.stats().population));
-    if (w.tick % MONTH_TICKS === 0) this.bookMonth();
+    prof.begin('month'); if (w.tick % MONTH_TICKS === 0) this.bookMonth(); prof.end();
     if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
     this.version++;
   }
@@ -325,16 +326,16 @@ export class Simulation {
 
   /** Add the rest of every 2×2 footprint touched by `tiles` (for bulldozing). */
   private expandFootprints(tiles: Array<[number, number]>): Array<[number, number]> {
-    const seen = new Set(tiles.map(([x, z]) => z * 64 + x));
+    const seen = new Set(tiles.map(([x, z]) => z * GRID_SIZE + x));
     const out = [...tiles];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigCoal(this.world.tiles, z * 64 + x)); // V1.5b
+      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigCoal(this.world.tiles, z * GRID_SIZE + x)); // V1.5b
       if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
-      const a = t.part ? t.part - 1 : z * 64 + x;
-      const ax = a % 64, az = Math.floor(a / 64);
+      const a = t.part ? t.part - 1 : z * GRID_SIZE + x;
+      const ax = a % GRID_SIZE, az = Math.floor(a / GRID_SIZE);
       for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-        const k = (az + dz) * 64 + ax + dx;
+        const k = (az + dz) * GRID_SIZE + ax + dx;
         if (!seen.has(k)) { seen.add(k); out.push([ax + dx, az + dz]); }
       }
     }
@@ -350,7 +351,7 @@ export class Simulation {
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    const anchor = tiles[0][1] * 64 + tiles[0][0];
+    const anchor = tiles[0][1] * GRID_SIZE + tiles[0][0];
     tiles.forEach(([x, z], k) => {
       const t = w.at(x, z);
       applyTool(tool, t);
