@@ -1,3 +1,5 @@
+import { RoadGraph } from '../roads/graph';
+import { ZoneBlocks } from '../roads/blocks';
 /**
  * sim/grid.ts — the World: the tile array plus small coordinate helpers.
  *
@@ -91,6 +93,14 @@ export function neighbourIndices(i: number): number[] {
 /** The whole map. */
 export class World {
   tiles: Tile[];
+  /**
+   * V1.6 B6: freeform roads (roads/graph.ts) drawn with the free road tool,
+   * their zone blocks, and the road tiles they were rasterised onto (the
+   * tile renderer skips those; sim/freeroads.ts).
+   */
+  roads = new RoadGraph();
+  blocks = new ZoneBlocks();
+  graphTiles = new Set<number>();
   /** Simulation clock: number of ticks since the city was founded. */
   tick = 0;
   /** Per-city seed for terrain noise and building variety. */

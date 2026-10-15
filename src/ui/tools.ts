@@ -46,7 +46,7 @@ export interface ToolGroupDef {
  * that selects the Road tool (see hud.ts).
  */
 export const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'roundabout', 'parkingLot', 'parkingGarage'] },
+  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'freeRoad', 'roundabout', 'parkingLot', 'parkingGarage'] },
   { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant'] },
   { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'bigWaterTower', 'pumpStation'] },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
@@ -83,6 +83,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'college', label: 'College', icon: '🏛️', key: '0', shape: 'point', hint: '2×2. Education level 3 within 24 tiles: boosts offices, electronics and the top housing levels. $30,000 + $1,400/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   // V1.5: 2×2 roundabout, available from the start.
+  { id: 'freeRoad', label: 'Free road', icon: '〰️', key: 'c', shape: 'point', hint: 'V1.6 freeform roads: click start and end (Straight) or start, bend and end (Curve). Snaps to junctions, roads, 15° angles (Angle) and the 8 m grid (Grid); hold Shift to place freely. Zone cells are previewed while you draw. Ctrl+Z / Ctrl+Y undo and redo. Esc cancels.', group: 'roads' },
   { id: 'roundabout', label: 'Roundabout', icon: '⭕', key: 'h', shape: 'point', hint: '2×2 roundabout ($260): traffic circulates counter-clockwise and entering cars yield — no lights. Click its top-left tile; it joins the roads, power and water mains on every side. Can replace an existing junction.', group: 'roads' },
   { id: 'parkingLot', label: 'Parking Lot', icon: '🅿️', key: 'b', shape: 'point', hint: 'Public surface lot filling the whole tile (16 spaces, $480). Serves buildings within 6 tiles that are short of parking.', group: 'roads' },
   { id: 'parkingGarage', label: 'Parking Garage', icon: '🏢', key: 'm', shape: 'point', hint: 'Public 3-deck garage filling one tile (40 spaces, $1,600). Serves buildings within 9 tiles and earns parking fees. Busy shopping streets also grow their own garages.', group: 'roads' },

@@ -31,6 +31,8 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // built automatically along every road (PR 3 auto power lines).
   // PR 6: + $5 for the water main laid under every road automatically → $17.
   road: 17,
+  // V1.6 B7: free roads are paid per rasterised tile at the road/avenue price (sim/freeroads.ts).
+  freeRoad: 17,
   // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
   avenue: 29, // PR 6: $24 + $5 water main
   // V1.5 2×2 roundabout: per tile (×4 = $260 incl. island landscaping and mains).

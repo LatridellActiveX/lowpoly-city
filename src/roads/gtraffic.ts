@@ -47,9 +47,10 @@
  *   per-segment arrays ordered by s.
  */
 import { at, buildLut, Cubic, polyline, segX, tAtLength, tangent, V2 } from './bezier';
-import { RoadGraph, ROAD_SPEC } from './graph';
+import { LANE_M, RoadGraph, ROAD_SPEC } from './graph';
 
-export const LANE_W = 3.5;
+/** Lane width = the B6 cross-section's lane (cars must fit visibly). */
+export const LANE_W = LANE_M;
 export const STRAIGHT_DEG = 30;
 export const SIGNAL_GREEN = 12, SIGNAL_CLEAR = 2;
 export const ROR_STOP = 1, ROR_GAP = 12;
@@ -95,7 +96,7 @@ export class GraphTraffic {
   /* ---------------- geometry ---------------- */
   lanes(e: number): number { return ROAD_SPEC[this.g.eType[e]].lanes; }
   /** Lane centre offset (to the right of travel). */
-  laneOff(lane: number): number { return (lane + 0.5) * LANE_W; }
+  laneOff(lane: number, e = -1): number { return (e >= 0 ? ROAD_SPEC[this.g.eType[e]].median / 2 : 0) + (lane + 0.5) * LANE_W; }
   /** Start / end arc length of the drivable part of edge e. */
   span(e: number): [number, number] { return [nodeClear(this.g, this.g.eA[e]), this.g.eLen[e] - nodeClear(this.g, this.g.eB[e])]; }
   /** Point on lane (e, dir, lane) at distance s from its start (dir 0 = a→b). */
@@ -104,7 +105,7 @@ export class GraphTraffic {
     const sa = dir === 0 ? s0 + s : L - (L - s1) - s; // along a→b
     const t = tAtLength(this.g.eLut[e], Math.max(0, Math.min(L, sa)));
     const p = at(this.g.eCurve[e], t), d = tangent(this.g.eCurve[e], t);
-    const sg = dir === 0 ? 1 : -1, o = this.laneOff(lane);
+    const sg = dir === 0 ? 1 : -1, o = this.laneOff(lane, e);
     // right of travel: travel dir = sg·d → right normal = (sg·d.z, −sg·d.x)
     return { x: p.x + sg * d.z * o, z: p.z - sg * d.x * o };
   }

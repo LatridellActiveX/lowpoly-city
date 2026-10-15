@@ -633,7 +633,10 @@ export class CityRenderer {
       // (PR 5: water is drawn by the single smooth waterMesh, see buildWaterMesh.)
 
       if (t.road) {
-        this.addRoad(t, x, z, center, has);
+        // V1.6 B6: tiles rasterised from a freeform road are drawn by the
+        // smooth graph mesh (render/graphRoads.ts), not as tile pieces.
+        if (!sim.world.graphTiles.has(i)) this.addRoad(t, x, z, center, has);
+        if (sim.world.graphTiles.has(i)) return;
         if (isIntersection(tiles, i)) {
           // PR 5 fix: ONE signal pole PER APPROACH (3 at a T, 4 at a
           // crossroads), on the near-right corner for traffic entering
@@ -1195,6 +1198,10 @@ export class CityRenderer {
       const one = new THREE.Vector3(1, 1, 1), wp = new THREE.Vector3();
       for (const v of sim.traffic.vehicles) {
         if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
+        // V1.6 B6: on freeform-road tiles the graph layer draws its own cars in
+        // proper lanes; the tile car (driving the staircase) is hidden there.
+        const gt = sim.world.graphTiles;
+        if (gt.size && (gt.has(v.path[v.seg]) || gt.has(v.path[v.seg + 1]))) continue;
         vehiclePose(v, tiles, pos, pose);
         e.set(pose.roll, pose.yaw, pose.pitch);
         this.q.setFromEuler(e);

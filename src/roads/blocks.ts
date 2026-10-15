@@ -40,7 +40,7 @@
  * (the caller demolishes those buildings, as bulldozing does today).
  */
 import { at, Cubic, tangent, tAtLength, V2 } from './bezier';
-import { CELL_M, isStraight, RoadGraph, RoadType, ROAD_SPEC, TYPE_RANK } from './graph';
+import { CELL_M, roadHalf, isStraight, RoadGraph, RoadType, ROAD_SPEC, TYPE_RANK } from './graph';
 
 /**
  * Rows per column. The plan sketched 4 (one tile), but 1.5 zoning reaches
@@ -58,7 +58,13 @@ export const MIN_BACK = 6, MAX_BACK = 10;
 /** Centroid match radius when carrying zoning across a regeneration. */
 export const MATCH_R = 2;
 
-export const setbackFor = (type: RoadType) => Math.max(SETBACK, ROAD_SPEC[type].width / 2 + 4);
+/**
+ * First row offset: the road's full half-width (sidewalk included, B6
+ * cross-section) plus 2 m, never less than the 16 m grid setback — so
+ * cell depth stays 8 m per row and wider roads push the cells out instead
+ * of eating into them.
+ */
+export const setbackFor = (type: RoadType) => Math.max(SETBACK, roadHalf(type) + 2);
 
 /** One zone cell. quad = frontage-start, frontage-end, back-end, back-start (x, z pairs). */
 export interface ZoneCell {

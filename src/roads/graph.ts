@@ -46,13 +46,28 @@ export const BUCKET = 64;
 
 export type RoadType = 'street' | 'avenue' | 'highway' | 'oneway';
 export type NodeKind = 'plain' | 'signal' | 'roundabout' | 'stop';
-/** Lanes per direction, total width (m) and tightest allowed curve radius (m). */
-export const ROAD_SPEC: Record<RoadType, { lanes: number; width: number; minRadius: number; speed: number }> = {
-  street: { lanes: 1, width: 12, minRadius: 24, speed: 13 },
-  avenue: { lanes: 2, width: 20, minRadius: 40, speed: 17 },
-  highway: { lanes: 3, width: 26, minRadius: 60, speed: 25 },
-  oneway: { lanes: 1, width: 10, minRadius: 24, speed: 13 },
+/**
+ * V1.6 B6 CROSS-SECTION (Parker: wider lanes so cars visibly fit, more
+ * detail). From the centreline out, per side:
+ *   median/2 (avenue/highway) | lanes × LANE_M | SHOULDER (gutter-side
+ *   strip of asphalt) | GUTTER | KERB | SIDEWALK
+ * Cars are drawn ~3.8 m wide, so lanes are LANE_M = 6 m. `width` is the
+ * asphalt (kerb to kerb, used for road footprints and junction boxes);
+ * roadHalf() is the full half-width to the back of the sidewalk, which is
+ * where zone blocks start (blocks.ts setbackFor).
+ */
+export const LANE_M = 6, SHOULDER_M = 1.5, GUTTER_M = 0.8, KERB_M = 0.5, SIDEWALK_M = 4;
+const MEDIAN: Record<string, number> = { street: 0, avenue: 2, highway: 3, oneway: 0 };
+const spec = (lanes: number, median: number, minRadius: number, speed: number) => ({ lanes, median, width: 2 * (median / 2 + lanes * LANE_M + SHOULDER_M), minRadius, speed });
+/** Lanes per direction, median and asphalt width (m), tightest curve radius (m), speed (m/s). */
+export const ROAD_SPEC: Record<RoadType, { lanes: number; median: number; width: number; minRadius: number; speed: number }> = {
+  street: spec(1, MEDIAN.street, 24, 13),
+  avenue: spec(2, MEDIAN.avenue, 40, 17),
+  highway: spec(3, MEDIAN.highway, 60, 25),
+  oneway: spec(1, MEDIAN.oneway, 24, 13),
 };
+/** Full half-width (centreline to the back of the sidewalk). */
+export const roadHalf = (t: RoadType) => ROAD_SPEC[t].width / 2 + GUTTER_M + KERB_M + SIDEWALK_M;
 export const TYPE_RANK: Record<RoadType, number> = { highway: 3, avenue: 2, oneway: 1, street: 1 };
 
 export interface SnapResult { p: V2; kind: 'node' | 'edge' | 'angle' | 'grid' | 'free'; node?: number; edge?: number; t?: number }

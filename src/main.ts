@@ -42,6 +42,11 @@ import { NewGameOptions, TitleScreen } from './ui/titleScreen';
 import { buildBackdrop } from './ui/titleBackdrop';
 import { loadSlotIntoMain, saveToSlot } from './sim/slots';
 import { World } from './sim/grid';
+import { GraphRoadLayer } from './render/graphRoads';
+import { placeFreeRoad, paintBlocks, undo, redo } from './sim/freeroads';
+import { quadCubic, lineCubic } from './roads/bezier';
+import { FreeRoadTool, brushBlocks, toMetres } from './ui/freeRoadTool';
+import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
 gameLog.install();
@@ -52,6 +57,8 @@ const { renderer, scene, ground, sun, hemi } = sceneBundle;
 const cam = new IsoCamera();
 const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
+// V1.6 B6/B7: freeform roads (graph mesh, zone-block overlay, preview grid, lane cars) and their tool.
+const graphLayer = new GraphRoadLayer(scene);
 // Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
 const dayNight = new DayNight(scene, sun, hemi);
 
@@ -131,6 +138,7 @@ const hud = new Hud(app, {
  * a road-side drag reaches back). Shown only while a zone tool is active.
  * Residential High is locked until the 10,000 tier.
  */
+const freeTool = new FreeRoadTool(graphLayer, () => sim, (m) => hud.flash(m));
 const zoneBar = document.createElement('div');
 zoneBar.id = 'zonebar';
 zoneBar.className = 'panel hidden';
@@ -150,6 +158,7 @@ function renderZoneBar(): void {
 function setTool(id: ToolId): void {
   if (id !== tool) sound.play('tool');
   tool = id;
+  freeTool.show(id === 'freeRoad');
   renderZoneBar();
   hud.setTool(id);
   // Pipes are underground: only show them while placing pipes (or via the water overlay).
@@ -172,6 +181,12 @@ function setOverlay(o: OverlayMode): void {
  * click, and while dragging a zone rectangle it shows its size and total.
  */
 function updatePreview(): void {
+  if (tool === 'freeRoad') {
+    preview.show([]);
+    freeTool.hover(toMetres(pointer.x, pointer.z));
+    hud.showTip(freeTool.tip, mouse[0], mouse[1]);
+    return;
+  }
   if (!hoverTile) {
     hud.showTip(null);
     return preview.show([]);
@@ -297,8 +312,16 @@ attachInput(renderer.domElement, cam, ground, {
     if (dragFrom && end) {
       sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
       hud.pickCell = [Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.x * 4))), Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.z * 4)))];
+      const pm = toMetres(pointer.x, pointer.z);
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
-      else {
+      else if (tool === 'freeRoad') {
+        const msg = freeTool.click(pm);
+        if (msg) { hud.flash(msg); sound.play(msg.startsWith('-$') ? toolSound('road') : 'error'); }
+      } else if (ZONE_TOOLS.has(tool) && sim.world.blocks.cellAt(pm) && dragFrom[0] === end[0] && dragFrom[1] === end[1]) {
+        // V1.6 B7: a click on a freeform road's block paints block cells (brush).
+        const n = brushBlocks(sim, pm, codeForTool(sim, tool, idx(end[0], end[1]), sim.zoneOpt), sim.zoneOpt.depth);
+        hud.flash(n ? `Zoned ${n} cells` : 'Already zoned');
+      } else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
         // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
         if (r.locked || r.changed === 0) sound.play('error');
@@ -334,6 +357,9 @@ attachInput(renderer.domElement, cam, ground, {
       }
       return true;
     }
+    if (k === 'ctrl+z') { freeTool.undo(); return true; }
+    if (k === 'ctrl+y') { freeTool.redo(); return true; }
+    if (k === 'escape' && tool === 'freeRoad' && freeTool.pts.length) { freeTool.cancel(); updatePreview(); return true; }
     if (k === 'escape') {
       if (hud.openGroup) {
         hud.closeFlyout();
@@ -396,6 +422,9 @@ renderer.setAnimationLoop(() => {
   city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
+  graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
+  graphLayer.sync(sim.world.roads, sim.world.blocks);
+  graphLayer.updateCars(sim.world.roads, dt * (sim.speed || 0));
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
@@ -491,6 +520,10 @@ updater.start();
   cam,
   /** V1.6 A5: the city renderer (chunk culling toggle + render stats for the render bench). */
   renderer: city,
+  /** V1.6 B6/B7: free-road layer + tool + helpers (Playwright screenshots/flows). */
+  graphLayer,
+  freeTool,
+  free: { placeFreeRoad, paintBlocks, quadCubic, lineCubic, undo, redo },
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
   useSim: (s: Simulation) => {
     sim = s;

@@ -176,7 +176,8 @@ export class Simulation {
    * V1.6 A2: after a player edit (outside the tick), rescan every chunk and
    * recompute the networks so overlays and info panels update immediately.
    */
-  private refreshNet(): NetworkResult {
+  /** (public for sim/freeroads.ts undo) */
+  refreshNet(): NetworkResult {
     const w = this.world;
     w.chunks.touchAll();
     w.chunks.sync(w.tiles);

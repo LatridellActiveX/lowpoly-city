@@ -25,7 +25,8 @@
     "test:blocks": "esbuild tools/blocks.test.ts --bundle --platform=node --format=esm --outfile=/tmp/blocks-test.mjs --log-level=error && node /tmp/blocks-test.mjs",
     "test:blockbridge": "esbuild tools/blockbridge.test.ts --bundle --platform=node --format=esm --outfile=/tmp/blockbridge-test.mjs --log-level=error && node /tmp/blockbridge-test.mjs",
     "test:gtraffic": "esbuild tools/gtraffic.test.ts --bundle --platform=node --format=esm --outfile=/tmp/gtraffic-test.mjs --log-level=error && node /tmp/gtraffic-test.mjs",
-    "test:utilities": "esbuild tools/utilities.test.ts --bundle --platform=node --format=esm --outfile=/tmp/utilities-test.mjs --log-level=error && node /tmp/utilities-test.mjs"
+    "test:utilities": "esbuild tools/utilities.test.ts --bundle --platform=node --format=esm --outfile=/tmp/utilities-test.mjs --log-level=error && node /tmp/utilities-test.mjs",
+    "test:freeroads": "esbuild tools/freeroads.test.ts --bundle --platform=node --format=esm --outfile=/tmp/freeroads-test.mjs --log-level=error && node /tmp/freeroads-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"
