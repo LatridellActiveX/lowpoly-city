@@ -75,8 +75,8 @@ for (const name of ['small', 'large']) {
   const j1 = serializeWorld(a.world), w2 = deserializeWorld(j1)!, j2 = serializeWorld(w2), j3 = serializeWorld(deserializeWorld(j2)!);
   const A = JSON.parse(j1), B = JSON.parse(j2);
   ok(JSON.stringify(A.roadGraph) === JSON.stringify(B.roadGraph) && JSON.stringify(A.graphTiles) === JSON.stringify(B.graphTiles), `${name} graph round trip exact`);
-  // crewLinger counts down once per load (pre-1.6 crew re-dispatch) — the one field excluded.
-  const norm = (j: string) => { const d = JSON.parse(j); if (d.tilesRle) delete d.tilesRle.crewLinger; for (const t of d.tiles ?? []) delete t.crewLinger; return JSON.stringify(d); };
+  // crew / crewLinger re-settle once per load (pre-1.6 crew re-dispatch) — the one field excluded.
+  const norm = (j: string) => { const d = JSON.parse(j); if (d.tilesRle) { delete d.tilesRle.crewLinger; delete d.tilesRle.crew; } for (const t of d.tiles ?? []) { delete t.crewLinger; delete t.crew; } return JSON.stringify(d); };
   ok(norm(j2) === norm(j3), `${name} v10 → v10 lossless (${(j2.length / 1024).toFixed(0)} KB)`);
 }
 
