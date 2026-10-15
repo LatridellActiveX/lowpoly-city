@@ -37,8 +37,15 @@ export const tileCentre = (i: number): V2 => ({ x: ((i % GRID_SIZE) + 0.5) * TIL
  * the node of every node tile.
  */
 export function traceRoads(world: World): { g: RoadGraph; nodeOf: Map<number, number> } {
+  return traceTiles(world, (t) => t.road);
+}
+/**
+ * B5: the same tracing for any tile set — power lines and pipes become a
+ * UTILITY graph with traceTiles(world, t => t.powerLine && !t.road).
+ */
+export function traceTiles(world: World, on: (t: World['tiles'][number]) => boolean): { g: RoadGraph; nodeOf: Map<number, number> } {
   const N = GRID_SIZE, t = world.tiles, g = new RoadGraph();
-  const road = (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N && t[z * N + x].road;
+  const road = (x: number, z: number) => x >= 0 && z >= 0 && x < N && z < N && on(t[z * N + x]);
   const dirs = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
   const isNode = (i: number): boolean => {
     const x = i % N, z = Math.floor(i / N);
@@ -51,7 +58,7 @@ export function traceRoads(world: World): { g: RoadGraph; nodeOf: Map<number, nu
     return t[(z + dz) * N + x + dx].roadType !== t[i].roadType || t[(z - dz) * N + x - dx].roadType !== t[i].roadType;
   };
   const nodeOf = new Map<number, number>();
-  for (let i = 0; i < N * N; i++) if (t[i].road && isNode(i)) nodeOf.set(i, g.addNode(tileCentre(i)));
+  for (let i = 0; i < N * N; i++) if (on(t[i]) && isNode(i)) nodeOf.set(i, g.addNode(tileCentre(i)));
   // Walk from every node in each direction to the next node.
   for (const [i, a] of nodeOf) {
     const x = i % N, z = Math.floor(i / N);
