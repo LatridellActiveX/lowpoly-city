@@ -81,8 +81,9 @@ Version 1.5b is on the same branch (`version-1.5`):
   * Under sustained high demand, homes densify and the zoning upgrades to match.
   * Empty residential zoning cools R demand.
 * **Services:**
-  * Garbage dump and trucks.
-  * Police and crime.
+  * A 2×2 landfill (unlocks at 1,000 people) with garbage trucks. It has a finite capacity: its model grows through six stages as it fills, a compactor and gulls work on it, and once it is full it stops taking garbage until you build a new one.
+  * Recycling center (unlocks at 2,500 people): buildings around it make up to 45% less garbage, so landfills last longer.
+  * Police and crime (police and the high school unlock at 2,500 people).
   * Clinic, hospital and ambulances.
   * Schools: elementary is available from the start. Workforce education matters.
 * **Offices:** Commercial ▸ Office zoning, with law firms, cable and internet companies, data centres, cell towers and radio stations.

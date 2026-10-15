@@ -1,5 +1,5 @@
 /**
- * render/serviceModels.ts — V1.5b models for city services (garbage dump,
+ * render/serviceModels.ts — V1.5b models for city services (garbage dump / V1.6 landfill, recycling center,
  * police station, clinic, hospital, schools, college), the garbage pile,
  * and the service vehicles' add-on parts (garbage-truck body, police light
  * bar, ambulance body).
@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
+import { landfillStageModel, slab, V3 } from './landfillModel';
 
 const cyl = (r: number, h: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
 const WIN = 0x9fc4e8, CONC = 0xc8c3b8, BRICK = 0xb5543c, ROOFD = 0x4d5560, GRASS = 0x6fb54f, WHITE = 0xf2f2ee;
@@ -63,10 +64,69 @@ function depotModel(): THREE.BufferGeometry {
   return merge(p);
 }
 
+
+/**
+ * V1.6: RECYCLING CENTER (1×1, svc8). A green sorting hall with a rooftop
+ * solar array and a big recycling sign, an inclined conveyor feeding it, bale
+ * stacks of cardboard / plastic / paper / cans, a row of colour-coded
+ * drop-off bins, a shipping container, a forklift, hedges and a light mast.
+ */
+function recyclingModel(): THREE.BufferGeometry {
+  const GREEN = 0x3f8f6a;
+  const p: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0xb4b2aa)];
+  // Sorting hall: corrugated green walls (with ribs), dark roof, skylights, solar panels.
+  p.push(part(box(0.62, 0.24, 0.4), GREEN, [-0.12, 0.012, -0.22]));
+  for (let k = 0; k < 8; k++) p.push(part(box(0.008, 0.24, 0.008), 0x2f7455, [-0.4 + k * 0.08, 0.012, -0.016]));
+  p.push(part(gable(0.66, 0.08, 0.44), 0x2f3d44, [-0.12, 0.252, -0.22]));
+  for (let k = 0; k < 3; k++) {
+    p.push(part(box(0.16, 0.008, 0.1), 0x1f3b66, [-0.28 + k * 0.17, 0.3, -0.31], [-0.3, 0, 0]));
+    p.push(part(box(0.16, 0.008, 0.1), 0x1f3b66, [-0.28 + k * 0.17, 0.3, -0.16], [0.3, 0, 0]));
+  }
+  p.push(part(box(0.14, 0.15, 0.006), 0xc9cdd1, [-0.12, 0.012, -0.014])); // roll-up door
+  for (let k = 1; k < 5; k++) p.push(part(box(0.14, 0.004, 0.008), 0x9aa0a6, [-0.12, 0.012 + k * 0.03, -0.012]));
+  p.push(part(box(0.22, 0.012, 0.06), 0x4a525a, [-0.12, 0.17, 0.014])); // canopy over the door
+  // The recycling sign: green plate on the wall with a white triangle of three bars.
+  p.push(part(box(0.2, 0.1, 0.01), 0x2f9a4c, [-0.36, 0.14, -0.012]));
+  p.push(part(box(0.066, 0.012, 0.006), 0xffffff, [-0.36, 0.158, -0.004]));
+  p.push(part(box(0.066, 0.012, 0.006), 0xffffff, [-0.378, 0.18, -0.004], [0, 0, Math.PI / 3]));
+  p.push(part(box(0.066, 0.012, 0.006), 0xffffff, [-0.342, 0.18, -0.004], [0, 0, -Math.PI / 3]));
+  // Inclined conveyor from the yard up into the hall's side, on legs.
+  const a: V3 = [0.3, 0.05, 0.12], b: V3 = [0.3, 0.2, -0.12];
+  p.push(slab(a, b, 0.05, 0.03, 0x4d555d), slab([a[0], a[1] + 0.02, a[2]], [b[0], b[1] + 0.02, b[2]], 0.056, 0.01, 0x2b3035));
+  for (const f of [0.3, 0.7]) p.push(part(box(0.012, a[1] + (b[1] - a[1]) * f, 0.012), 0x7b8288, [0.3, 0, a[2] + (b[2] - a[2]) * f]));
+  p.push(part(box(0.1, 0.06, 0.1), 0x8a8f94, [0.3, 0.012, 0.18])); // feed hopper
+  // Bale stacks: cardboard, plastic, paper, cans.
+  const bales: Array<[number, number, number, number]> = [[0.34, -0.36, 0, 0xc39a62], [0.34, -0.36, 1, 0xc39a62], [0.2, -0.38, 0, 0x3d7cc9], [0.2, -0.38, 1, 0xe9e6dc], [0.46, -0.3, 0, 0xb8bec4], [0.08, -0.46, 0, 0x3d7cc9]];
+  for (const [x, z, h, c] of bales) p.push(part(box(0.1, 0.07, 0.08), c, [x - 0.02, 0.012 + h * 0.072, z]));
+  // Colour-coded drop-off bins along the front, each with a lid.
+  [0x2f6fb0, 0x2f9a4c, 0xe0b52a, 0xc23b2e, 0x7d8790].forEach((c, k) => {
+    p.push(part(box(0.12, 0.1, 0.1), c, [-0.38 + k * 0.14, 0.012, 0.3]));
+    p.push(part(box(0.126, 0.012, 0.106), 0x2b2b2b, [-0.38 + k * 0.14, 0.112, 0.3]));
+    p.push(part(box(0.05, 0.02, 0.006), 0xffffff, [-0.38 + k * 0.14, 0.07, 0.352]));
+  });
+  // Shipping container with ribs, back right.
+  p.push(part(box(0.22, 0.1, 0.1), 0x2f6fb0, [0.34, 0.012, -0.12 - 0.1]));
+  for (let k = 0; k < 5; k++) p.push(part(box(0.006, 0.1, 0.104), 0x245a86, [0.25 + k * 0.045, 0.012, -0.22]));
+  // Forklift: body, mast, forks, overhead guard.
+  p.push(part(box(0.07, 0.04, 0.05), 0xe0b52a, [0.05, 0.02, 0.42]));
+  p.push(part(box(0.012, 0.09, 0.04), 0x555c63, [0.09, 0.02, 0.42]));
+  for (const z of [-0.012, 0.012]) p.push(part(box(0.05, 0.006, 0.008), 0x555c63, [0.12, 0.022, 0.42 + z]));
+  for (const [x, z] of [[0.03, 0.4], [0.03, 0.44], [0.065, 0.4], [0.065, 0.44]]) p.push(part(box(0.005, 0.05, 0.005), 0x333333, [x, 0.06, z]));
+  p.push(part(box(0.05, 0.005, 0.05), 0x333333, [0.047, 0.11, 0.42]));
+  for (const [x, z] of [[0.03, 0.4], [0.03, 0.44], [0.07, 0.4], [0.07, 0.44]]) p.push(part(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 8).rotateX(Math.PI / 2), 0x222222, [x, 0.012, z]));
+  // Hedges along the front corners and a light mast.
+  for (const s of [-1, 1]) p.push(part(box(0.2, 0.05, 0.05), 0x4f7a3a, [s * 0.36, 0.012, 0.45]));
+  p.push(part(new THREE.CylinderGeometry(0.008, 0.012, 0.4, 6).translate(0, 0.2, 0), 0x7b8288, [0.4, 0.012, 0.36]));
+  p.push(part(box(0.07, 0.016, 0.04), 0xf2f2ee, [0.4, 0.41, 0.36]));
+  return merge(p);
+}
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
-    // Garbage dump: fenced yard, two big waste mounds, a compactor shed and a parked truck.
+    svc8: recyclingModel(), // V1.6
+    // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>); svc0 below is the LEGACY 1×1 dump kept for old saves.
+    ...Object.fromEntries(Array.from({ length: 6 }, (_, k) => [`svc0_${k}`, landfillStageModel(k)])),
+    // LEGACY 1×1 garbage dump (old saves whose dump couldn't grow to 2×2): fenced yard, two waste mounds, a compactor shed and a parked truck.
     svc0: merge([
       part(box(0.96, 0.012, 0.96), 0x8f8676),
       ...[[-0.47, 0, 0.94, 0.02], [0.47, 0, 0.94, 0.02], [0, -0.47, 0.02, 0.94]].map(([x, z, w, d]) => part(box(w, 0.1, d), 0x6d7177, [x, 0.012, z])),

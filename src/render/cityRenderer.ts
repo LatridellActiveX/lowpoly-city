@@ -54,8 +54,9 @@ import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
-import { SERVICE_DEFS, Svc } from '../sim/services';
-import { G_MAX, G_WARN } from '../sim/garbage';
+import { landfillDozerModel, landfillGullModel, landfillTopSize, landfillTopY, LF_CZ } from './landfillModel';
+import { serviceSize, Svc } from '../sim/services';
+import { G_MAX, G_WARN, landfillStage, LANDFILL_STAGES } from '../sim/garbage';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
@@ -230,6 +231,8 @@ export class CityRenderer {
   private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number; axis: 'ns' | 'ew' }> = [];
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
+  /** V1.6: landfill centres (world x/z), fill stage and a phase, for the animated compactor and gulls. */
+  private landfills: Array<{ c: THREE.Vector3; stage: number; phase: number }> = [];
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
   private cranes: Array<{ pos: THREE.Vector3; phase: number; aim: number; reach: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
@@ -257,6 +260,7 @@ export class CityRenderer {
   private readonly q = new THREE.Quaternion();
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
+  private readonly pv = new THREE.Vector3(); // V1.6 scratch position
 
   /**
    * Glow materials for night (PR 3). ADDITIVE blending adds their colour to
@@ -441,6 +445,9 @@ export class CityRenderer {
     this.pools.iconGarbage.mesh.renderOrder = 20;
     // V1.5b services, garbage piles and service-vehicle parts.
     for (const [k, g] of Object.entries(serviceModels())) add(k, g, solid, k === 'garbagePile' ? 512 : k.startsWith('svc') ? 32 : 128);
+    // V1.6 landfill: an animated compactor and circling gulls (positions written every frame in animate()).
+    add('landfillDozer', landfillDozerModel(), solid, 32);
+    add('landfillGull', landfillGullModel(), solid, 256, false);
     add('waterTower', MODELS.waterTower(), solid, 32);
     add('bigWaterTower', MODELS.bigWaterTower(), solid, 16); // V1.5b kind 1
     add('park', MODELS.park(), solid, 64);
@@ -595,6 +602,7 @@ export class CityRenderer {
     this.markers = [];
     this.lamps = [];
     this.cranes = [];
+    this.landfills = [];
     this.junctions = [];
     this.stacks = [];
     const tiles = sim.world.tiles;
@@ -759,8 +767,13 @@ export class CityRenderer {
       }
       // V1.5b service buildings (2×2 ones are centred on their block).
       if (t.structure === 'service' && !t.part) {
-        const big = SERVICE_DEFS[t.kind]?.size === 2;
-        P[`svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+        const big = serviceSize(tiles, i) === 2;
+        if (t.kind === Svc.Dump && big) {
+          // V1.6 landfill: the model changes with how full it is (stage 0 … LANDFILL_STAGES − 1); the compactor and gulls are animated.
+          const stage = landfillStage(t), c = new THREE.Vector3(x + 1, 0, z + 1);
+          P[`svc0_${stage}`]?.add(this.place(c, 0));
+          this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
+        } else P[`svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
       if (t.zone && t.level > 0 && t.garbage >= G_WARN) {
@@ -1422,6 +1435,32 @@ export class CityRenderer {
       jib.add(this.m.compose(pos, this.q, this.s.set(reach, 1, 1)));
     }
     jib.end();
+
+    // V1.6 landfills: the compactor drives back and forth over the working surface (it parks at the gate once the
+    // landfill is full); gulls circle above and there are more of them the fuller the pit is.
+    const dozer = this.pools.landfillDozer, gulls = this.pools.landfillGull;
+    dozer.begin(); gulls.begin();
+    for (const { c, stage, phase } of this.landfills) {
+      if (stage >= LANDFILL_STAGES - 1) {
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, 0.5);
+        dozer.add(this.m.compose(this.pv.set(c.x + 0.55, 0.012, c.z + 0.62), this.q, this.s.set(1.3, 1.3, 1.3)));
+        continue;
+      }
+      const [tw, td] = landfillTopSize(stage), t = time * 0.35 + phase;
+      const ax = tw * 0.34, az = td * 0.3, cz = c.z + LF_CZ;
+      const dx = ax * Math.cos(t), dz = az * 2 * Math.cos(2 * t + 0.8);
+      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(-dz, dx)); // model forward is +x
+      this.pv.set(c.x + ax * Math.sin(t), landfillTopY(stage) + Math.sin(time * 9 + phase) * 0.002, cz + az * Math.sin(2 * t + 0.8));
+      dozer.add(this.m.compose(this.pv, this.q, this.s.set(1.3, 1.3, 1.3)));
+      for (let k = 0; k < 2 + stage * 2; k++) {
+        const ang = time * (0.5 + 0.07 * k) + phase + k * 2.1, r = 0.55 + 0.12 * (k % 3);
+        const vx = -Math.sin(ang), vz = Math.cos(ang) * 0.8; // tangent: the bird flies along its orbit
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(-vz, vx));
+        this.pv.set(c.x + r * Math.cos(ang), 0.55 + 0.15 * Math.sin(time * 0.7 + k) + 0.04 * k, cz + r * Math.sin(ang) * 0.8);
+        gulls.add(this.m.compose(this.pv, this.q, this.s.set(1.5, 1.5, 1.5 * (0.55 + 0.45 * Math.abs(Math.sin(time * 9 + k * 1.3))))));
+      }
+    }
+    dozer.end(); gulls.end();
 
     const mk = this.pools.marker;
     const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew, ig = this.pools.iconGarbage;

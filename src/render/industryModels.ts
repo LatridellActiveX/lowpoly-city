@@ -11,6 +11,7 @@
  */
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
+import { slab } from './landfillModel';
 
 const STEEL = 0xc5cbd2, STEEL_D = 0x8d949c, CONCRETE = 0xb9b5ac, ROOF = 0x5c6670, WOOD = 0x8a6440;
 const cyl = (r: number, h: number, seg = 14) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
@@ -386,6 +387,161 @@ export function oilRigModel(): THREE.BufferGeometry {
   return merge(p);
 }
 
+/** Move parts built around the origin (forward = +x) to (x, y, z), turned by yaw about y. */
+function placed(parts: THREE.BufferGeometry[], yaw: number, x: number, y: number, z: number): THREE.BufferGeometry[] {
+  for (const g of parts) g.rotateY(yaw).translate(x, y, z);
+  return parts;
+}
+/** Rigid-frame haul truck (forward +x): six wheels, cab, tipping bed with a load of rock. tilt raises the front of the bed. */
+function haulTruck(yaw: number, x: number, y: number, z: number, tilt = 0.05, loaded = true): THREE.BufferGeometry[] {
+  const p: THREE.BufferGeometry[] = [part(box(0.22, 0.025, 0.08), 0x3d4349, [0, 0.04, 0])];
+  for (const [wx, wz] of [[0.085, 0.048], [0.085, -0.048], [-0.075, 0.048], [-0.075, -0.048], [-0.03, 0.048], [-0.03, -0.048]]) {
+    p.push(part(new THREE.CylinderGeometry(0.033, 0.033, 0.03, 10).rotateX(Math.PI / 2), 0x23262a, [wx, 0.033, wz]));
+    p.push(part(new THREE.CylinderGeometry(0.016, 0.016, 0.032, 6).rotateX(Math.PI / 2), 0xb8bec4, [wx, 0.033, wz]));
+  }
+  p.push(part(box(0.06, 0.06, 0.09), 0xf2b134, [0.09, 0.052, 0]));
+  p.push(part(box(0.004, 0.03, 0.07), 0x9fd7ff, [0.121, 0.09, 0]));
+  p.push(part(box(0.07, 0.008, 0.1), 0xe09a1a, [0.085, 0.112, 0])); // canopy over the cab
+  p.push(part(box(0.17, 0.05, 0.1), 0xe0a32a, [-0.04, 0.06, 0], [0, 0, tilt])); // tipping bed
+  for (const z of [-0.052, 0.052]) p.push(part(box(0.17, 0.05, 0.006), 0xb88218, [-0.04, 0.06, z], [0, 0, tilt]));
+  if (loaded) p.push(part(box(0.15, 0.02, 0.08), 0x8f897d, [-0.04, 0.105, 0], [0, 0, tilt]));
+  return placed(p, yaw, x, y, z);
+}
+/** Crawler excavator (forward +x): tracks, house, cab, counterweight, boom, stick and bucket. */
+function excavator(yaw: number, x: number, z: number): THREE.BufferGeometry[] {
+  const p: THREE.BufferGeometry[] = [];
+  for (const s of [-1, 1]) {
+    p.push(part(box(0.19, 0.03, 0.04), 0x2b2e31, [0, 0, s * 0.055]));
+    for (const wx of [-0.07, 0, 0.07]) p.push(part(new THREE.CylinderGeometry(0.015, 0.015, 0.042, 8).rotateX(Math.PI / 2), 0x555c63, [wx, 0.015, s * 0.055]));
+  }
+  p.push(part(box(0.12, 0.02, 0.1), 0x3d4349, [0, 0.03, 0]));
+  p.push(part(box(0.11, 0.05, 0.1), 0xe0b52a, [-0.01, 0.05, 0]));
+  p.push(part(box(0.05, 0.05, 0.07), 0xf2f2ee, [0.015, 0.1, -0.01]));
+  p.push(part(box(0.004, 0.03, 0.06), 0x9fd7ff, [0.042, 0.11, -0.01]));
+  p.push(part(box(0.04, 0.045, 0.1), 0x4d555d, [-0.075, 0.05, 0])); // counterweight
+  p.push(slab([0.04, 0.085, 0.03], [0.15, 0.18, 0.03], 0.016, 0.016, 0xe0b52a)); // boom
+  p.push(slab([0.15, 0.18, 0.03], [0.21, 0.06, 0.03], 0.014, 0.014, 0xe0b52a)); // stick
+  p.push(part(box(0.045, 0.04, 0.07), 0x4d555d, [0.21, 0.03, 0.03], [0, 0, 0.5])); // bucket
+  p.push(part(box(0.012, 0.05, 0.012), 0x8d949c, [0.1, 0.1, 0.045], [0, 0, -0.5])); // hydraulic ram
+  return placed(p, yaw, x, 0.012, z);
+}
+/** Articulated wheel loader (forward +x): four wheels, cab, engine hood, lift arms and bucket. */
+function wheelLoader(yaw: number, x: number, z: number, bucketLoad = true): THREE.BufferGeometry[] {
+  const p: THREE.BufferGeometry[] = [];
+  for (const wx of [-0.06, 0.06]) for (const s of [-1, 1]) {
+    p.push(part(new THREE.CylinderGeometry(0.035, 0.035, 0.032, 10).rotateX(Math.PI / 2), 0x23262a, [wx, 0.035, s * 0.06]));
+    p.push(part(new THREE.CylinderGeometry(0.018, 0.018, 0.034, 6).rotateX(Math.PI / 2), 0xe0b52a, [wx, 0.035, s * 0.06]));
+  }
+  p.push(part(box(0.07, 0.04, 0.08), 0xe0b52a, [-0.05, 0.04, 0]));
+  p.push(part(box(0.06, 0.035, 0.08), 0xe0b52a, [0.05, 0.04, 0]));
+  p.push(part(box(0.045, 0.05, 0.065), 0xf2f2ee, [-0.045, 0.08, 0]));
+  p.push(part(box(0.004, 0.028, 0.055), 0x9fd7ff, [-0.022, 0.095, 0]));
+  p.push(part(box(0.05, 0.03, 0.07), 0xc9971a, [-0.075, 0.08, 0])); // engine hood
+  for (const s of [-1, 1]) p.push(slab([0.04, 0.07, s * 0.04], [0.115, 0.05, s * 0.04], 0.012, 0.012, 0x4d555d)); // lift arms
+  p.push(part(box(0.045, 0.045, 0.11), 0x4d555d, [0.125, 0.02, 0], [0, 0, 0.25])); // bucket
+  if (bucketLoad) p.push(part(new THREE.ConeGeometry(0.035, 0.03, 6).translate(0, 0.015, 0), 0x8f897d, [0.13, 0.062, 0]));
+  return placed(p, yaw, x, 0.012, z);
+}
+/** A cone-shaped stockpile of aggregate with a darker base ring. */
+function stockpile(p: THREE.BufferGeometry[], x: number, z: number, r: number, color: number): void {
+  p.push(part(new THREE.ConeGeometry(r, r * 1.15, 9).translate(0, r * 0.575, 0), color, [x, 0.012, z]));
+  p.push(part(new THREE.CylinderGeometry(r * 1.04, r * 1.12, 0.012, 9), 0x6e695e, [x, 0.012, z]));
+}
+/** A covered belt conveyor from a to b on trestle legs (legs go down to the ground). */
+function beltConveyor(p: THREE.BufferGeometry[], a: [number, number, number], b: [number, number, number], legs = 3): void {
+  p.push(slab(a, b, 0.04, 0.03, 0x4d555d));
+  p.push(slab([a[0], a[1] + 0.018, a[2]], [b[0], b[1] + 0.018, b[2]], 0.046, 0.012, 0x2b3035)); // hood
+  for (let k = 1; k <= legs; k++) {
+    const f = k / (legs + 1), x = a[0] + (b[0] - a[0]) * f, y = a[1] + (b[1] - a[1]) * f, z = a[2] + (b[2] - a[2]) * f;
+    p.push(part(box(0.012, Math.max(0.01, y - 0.012), 0.012), STEEL_D, [x, 0.012, z]));
+  }
+}
+
+/**
+ * Quarry (role model, 1×1 lot, front = +z): a four-tier rock face with strata,
+ * blast holes and a vegetated crest across the back, stepped side benches, a
+ * zig-zag haul road up to the crest with a drill rig on top, and a working pit
+ * floor (pond, excavator, loader, haul trucks, boulders, blasted rubble). On
+ * the right: a feed ramp into a crusher hopper, belts up a screening tower and
+ * three stacker conveyors dropping onto aggregate stockpiles. At the front a
+ * weighbridge, site office, fuel tank, sign, light masts and perimeter fence.
+ */
+function quarryModel(): THREE.BufferGeometry {
+  const P: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0xa39e93)];
+  const hh = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+  // ---- Rock face: four tiers whose back edge stays at z = −0.46 while the front steps back ----
+  const tierCol = [0xd2c9b2, 0xbfb59b, 0xcfc6ae, 0xada38a];
+  for (let i = 0; i < 4; i++) {
+    const w = 0.92 - 0.04 * i, d = 0.24 - 0.04 * i, y = 0.012 + 0.075 * i, zf = -0.22 - 0.04 * i;
+    P.push(part(box(w, 0.075, d), tierCol[i], [0, y, zf - d / 2]));
+    P.push(part(box(w - 0.02, 0.006, 0.006), 0x8a806a, [0, y + 0.035, zf + 0.002])); // dark strata band
+    P.push(part(box(w - 0.04, 0.003, 0.035), 0x9a917b, [0, y + 0.075, zf - 0.02])); // bench ledge
+    for (let k = 0; k < 4; k++) P.push(part(cyl(0.005, 0.06, 5), 0x3a3a3a, [-w * 0.38 + (k + hh(i * 4 + k)) * w * 0.2, y + 0.008, zf + 0.002])); // blast holes
+  }
+  P.push(part(box(0.88, 0.02, 0.12), 0x6e5a3a, [0, 0.312, -0.4])); // overburden on the crest
+  for (let k = 0; k < 9; k++) P.push(part(new THREE.IcosahedronGeometry(0.02 + 0.016 * hh(k), 0).translate(0, 0.016, 0), 0x5f8f45, [-0.4 + k * 0.1, 0.332, -0.36 - 0.06 * hh(k + 20)]));
+  for (const x of [-0.3, 0.34]) { P.push(part(cyl(0.008, 0.05, 5), 0x6b4a2b, [x, 0.332, -0.42])); P.push(part(new THREE.ConeGeometry(0.05, 0.14, 7).translate(0, 0.07, 0), 0x2f7a3a, [x, 0.372, -0.42])); }
+  // ---- Left side benches, rubble at the foot, boulders ----
+  P.push(part(box(0.12, 0.075, 0.38), tierCol[0], [-0.4, 0.012, -0.07]));
+  P.push(part(box(0.08, 0.075, 0.3), tierCol[1], [-0.42, 0.087, -0.11]));
+  P.push(part(box(0.05, 0.05, 0.22), tierCol[2], [-0.435, 0.162, -0.15]));
+  P.push(part(box(0.04, 0.04, 0.7), 0x8a806a, [0.46, 0.012, -0.05])); // right-hand berm
+  for (let k = 0; k < 8; k++) P.push(part(new THREE.ConeGeometry(0.03 + 0.03 * hh(k + 40), 0.04 + 0.04 * hh(k + 50), 6).translate(0, 0.03, 0), k % 2 ? 0xb5ab92 : 0x9a9078, [-0.32 + k * 0.09, 0.012, -0.2 + 0.03 * hh(k + 60)]));
+  for (let k = 0; k < 11; k++) P.push(part(new THREE.IcosahedronGeometry(0.018 + 0.022 * hh(k + 70), 0).translate(0, 0.014, 0), k % 3 ? 0xaaa293 : 0x8a847a, [-0.3 + 0.55 * hh(k + 80), 0.012, -0.18 + 0.35 * hh(k + 90)], [hh(k), hh(k + 1), 0]));
+  // ---- Pit floor: pond, haul road zig-zag up the left side, drill rig on the crest ----
+  P.push(part(box(0.2, 0.01, 0.12), 0x7a735f, [-0.24, 0.012, -0.12]));
+  P.push(part(box(0.17, 0.006, 0.09), 0x4d7f8f, [-0.24, 0.02, -0.12])); // pond
+  const road: Array<[number, number, number]> = [[-0.22, 0.014, 0.06], [-0.36, 0.09, -0.02], [-0.42, 0.166, -0.18], [-0.34, 0.24, -0.3], [-0.2, 0.31, -0.38]];
+  for (let k = 0; k < road.length - 1; k++) P.push(slab(road[k], road[k + 1], 0.07, 0.012, 0x8d826c));
+  for (const [rx, ry, rz] of road) P.push(part(box(0.075, 0.014, 0.075), 0x8d826c, [rx, ry - 0.007, rz])); // landings at the bends
+  P.push(...placed([part(box(0.1, 0.05, 0.07), 0xe0b52a, [0, 0.02, 0]), part(box(0.012, 0.2, 0.012), 0x4d555d, [0.045, 0.02, 0]), part(box(0.05, 0.012, 0.012), 0x4d555d, [0.02, 0.215, 0]), part(box(0.07, 0.014, 0.08), 0x2b2e31, [0, 0.012, 0])], 0.3, 0.14, 0.312, -0.38)); // drill rig
+  // ---- Vehicles in the pit ----
+  P.push(...excavator(-0.5, 0.04, -0.12));
+  P.push(...wheelLoader(2.6, -0.06, 0.03));
+  P.push(...haulTruck(0.3, -0.14, 0.012, 0.14, 0.12));
+  P.push(...haulTruck(Math.PI / 2, 0.2, 0.012, 0.3, 0.0, false)); // second truck heading for the exit
+  // ---- Processing plant on the right: feed ramp → crusher → belts → screen tower → stackers ----
+  P.push(slab([0.16, 0.012, -0.16], [0.24, 0.13, -0.16], 0.1, 0.014, 0x8d826c)); // earth ramp for trucks to tip into the hopper
+  P.push(part(box(0.14, 0.12, 0.12), 0x6d757b, [0.32, 0.012, -0.16])); // crusher house
+  P.push(part(new THREE.CylinderGeometry(0.085, 0.04, 0.07, 4).rotateY(Math.PI / 4).translate(0, 0.035, 0), 0x8a8f94, [0.32, 0.132, -0.16])); // hopper
+  for (const [dx, dz] of [[-0.06, -0.05], [0.06, -0.05], [-0.06, 0.05], [0.06, 0.05]]) P.push(part(box(0.01, 0.03, 0.01), STEEL_D, [0.32 + dx, 0.012, -0.16 + dz]));
+  P.push(part(box(0.1, 0.02, 0.1), 0xc23b2e, [0.32, 0.128, -0.16])); // red feeder skirt
+  beltConveyor(P, [0.32, 0.05, -0.1], [0.32, 0.3, 0.09]);
+  P.push(part(box(0.12, 0.3, 0.1), 0x8f989f, [0.32, 0.012, 0.14])); // screening tower
+  for (let k = 0; k < 6; k++) P.push(part(box(0.008, 0.3, 0.104), 0x6d757b, [0.27 + k * 0.02, 0.012, 0.14])); // wall ribs
+  P.push(part(box(0.13, 0.014, 0.11), 0x3d4a55, [0.32, 0.312, 0.14])); // roof
+  P.push(part(box(0.1, 0.04, 0.004), 0x9fd7ff, [0.32, 0.2, 0.192])); // window band
+  P.push(part(box(0.01, 0.3, 0.02), STEEL_D, [0.39, 0.012, 0.19])); // ladder
+  P.push(part(box(0.075, 0.008, 0.02), STEEL, [0.4, 0.3, 0.2]));
+  beltConveyor(P, [0.32, 0.2, 0.19], [0.12, 0.13, 0.33], 2);
+  beltConveyor(P, [0.32, 0.2, 0.19], [0.28, 0.12, 0.4], 1);
+  beltConveyor(P, [0.32, 0.2, 0.19], [0.42, 0.11, 0.3], 1);
+  stockpile(P, 0.12, 0.34, 0.09, 0x8f8f8f);
+  stockpile(P, 0.28, 0.4, 0.075, 0xd8c08a);
+  stockpile(P, 0.41, 0.28, 0.07, 0x4a4a4e);
+  P.push(part(new THREE.CylinderGeometry(0.01, 0.01, 0.12, 6).translate(0, 0.06, 0), 0x3d95d9, [0.45, 0.012, 0.0])); // dust-suppression water standpipe
+  P.push(part(box(0.03, 0.012, 0.03), 0x3d95d9, [0.45, 0.132, 0.0]));
+  // ---- Front: exit road, weighbridge, office, fuel tank, sign, masts, fence ----
+  P.push(part(box(0.16, 0.006, 0.42), 0x4d5156, [-0.12, 0.012, 0.27]));
+  for (let k = 0; k < 3; k++) P.push(part(box(0.012, 0.002, 0.05), 0xf2e6a0, [-0.12, 0.018, 0.14 + k * 0.12]));
+  P.push(part(box(0.14, 0.012, 0.1), STEEL, [-0.12, 0.018, 0.34])); // weighbridge deck
+  P.push(part(box(0.15, 0.1, 0.11), 0xf2f0ea, [-0.34, 0.012, 0.34])); // office cabin
+  P.push(part(box(0.17, 0.012, 0.13), 0x4d555d, [-0.34, 0.112, 0.34]));
+  P.push(part(box(0.06, 0.04, 0.004), 0x9fd7ff, [-0.34, 0.06, 0.396]));
+  P.push(part(box(0.04, 0.02, 0.04), 0x8d949c, [-0.2, 0.012, 0.4])); // entry steps
+  P.push(part(box(0.1, 0.05, 0.006), 0xf28c1d, [-0.34, 0.14, 0.395])); // company sign over the office door
+  P.push(part(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 8).rotateZ(Math.PI / 2), 0xeeeeea, [-0.4, 0.06, 0.18])); // fuel tank
+  for (const dx of [-0.04, 0.04]) P.push(part(box(0.012, 0.04, 0.05), STEEL_D, [-0.4 + dx, 0.012, 0.18]));
+  for (let k = 0; k < 4; k++) P.push(part(box(0.01, 0.02, 0.006), k % 2 ? 0x222222 : 0xffd21f, [-0.43 + k * 0.02, 0.07, 0.21])); // hazard stripes
+  P.push(part(box(0.012, 0.1, 0.012), 0x555c63, [-0.04, 0.012, 0.46]));
+  P.push(part(box(0.2, 0.014, 0.014), 0xd02c2c, [-0.13, 0.09, 0.46]));
+  for (const x of [-0.45, 0.45]) { P.push(part(cyl(0.008, 0.38, 6), 0x7b8288, [x, 0.012, 0.0])); P.push(part(box(0.07, 0.014, 0.04), 0xfff3c4, [x, 0.39, 0.0])); }
+  for (let k = 0; k < 10; k++) { const v = -0.46 + k * 0.1; P.push(part(box(0.012, 0.07, 0.012), 0x8d949c, [v, 0.012, 0.475])); }
+  for (let k = 0; k < 8; k++) P.push(part(box(0.012, 0.07, 0.012), 0x8d949c, [-0.475, 0.012, -0.46 + k * 0.14]));
+  P.push(part(box(0.94, 0.006, 0.006), 0xb8bec4, [0, 0.06, 0.475]), part(box(0.006, 0.006, 0.94), 0xb8bec4, [-0.475, 0.06, 0]));
+  return merge(P);
+}
+
 /** Every role model by name (keys match sim/chains.ts Role). */
 export function roleModels(): Record<string, THREE.BufferGeometry> {
   return {
@@ -400,15 +556,8 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
     ]),
     // Oil rig: lattice derrick, pumpjack, two tanks.
     oilRig: oilRigModel(),
-    // Quarry: stepped pit, rock piles, conveyor and excavator.
-    quarry: merge([
-      part(box(0.96, 0.012, 0.96), 0xa39e93),
-      part(box(0.7, 0.02, 0.5), 0x8f897d, [0, 0.012, -0.18]), part(box(0.5, 0.02, 0.34), 0x7a7468, [0, 0.032, -0.2]),
-      part(box(0.3, 0.02, 0.2), 0x625d53, [0, 0.052, -0.22]),
-      ...[[0.3, 0.2, 0.12], [0.18, 0.3, 0.09], [-0.3, 0.25, 0.1]].map(([x, z, r]) => part(new THREE.ConeGeometry(r, r * 1.2, 7).translate(0, r * 0.6, 0), 0xc9c3b5, [x, 0.012, z])),
-      part(box(0.04, 0.03, 0.5), 0x5d6468, [-0.1, 0.18, 0.1], [0.45, 0, 0]),
-      part(box(0.12, 0.06, 0.08), 0xf2b134, [0.12, 0.07, -0.2]), part(box(0.02, 0.02, 0.16), 0xf2b134, [0.12, 0.15, -0.28], [0.6, 0, 0]),
-    ]),
+    // Quarry: terraced rock face, haul road, crusher + screening plant, stockpiles, vehicles, site office.
+    quarry: quarryModel(),
     // Lumber mill: long saw shed with a log yard and a plank stack.
     lumberMill: merge([
       part(box(0.96, 0.012, 0.96), 0x9c8a62),

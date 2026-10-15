@@ -25,8 +25,8 @@ import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
-import { SERVICE_DEFS, serviceAnchors, Svc } from '../sim/services';
-import { G_MAX, G_WARN } from '../sim/garbage';
+import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services';
+import { G_MAX, G_WARN, LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
@@ -692,9 +692,16 @@ export class Hud {
     // V1.5b services: the building itself, then garbage + coverage on any tile.
     if (t.structure === 'service') {
       const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
-      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${d.size === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
       if (d.svc === Svc.Police || d.svc === Svc.Clinic || d.svc === Svc.Hospital) rows.push(`<div class="row">${d.svc === Svc.Police ? 'Patrol cars' : 'Ambulances'} out: <b>${sim.responders.outOf(a)} / ${d.fleet}</b></div>`);
-      if (d.svc === Svc.Dump) rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+      if (d.svc === Svc.Dump) {
+        const lf = sim.world.tiles[a], fill = landfillFill(lf);
+        rows.push(`<div class="row">🗑 Landfill: <b class="${fill >= 0.8 ? 'bad' : ''}">${Math.round(fill * 100)}% full</b> (${Math.round(lf.stock).toLocaleString()} / ${LANDFILL_MAX.toLocaleString()})</div>`);
+        if (landfillFull(lf)) rows.push('<div class="row bad">FULL — it takes no more garbage. Build a new landfill (recycling centers slow the flow).</div>');
+        else if (fill >= 0.8) rows.push('<div class="row bad">Almost full — plan a new landfill.</div>');
+        rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+      }
+      if (d.svc === Svc.Recycling) rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
       if (d.svc === Svc.Depot) {
         let n = 0; sim.world.tiles.forEach((q, j) => { if ((q.zone === 'industrial' || q.zone === 'commercial') && q.level > 0 && depotOf([a], j) === a) n++; });
         rows.push(`<div class="row">📦 Loads handled: <b>${sim.shipping.depotLoads.get(a) ?? 0}</b> · businesses in catchment: <b>${n}</b></div>`);
@@ -702,7 +709,7 @@ export class Hud {
       }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
-    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Garbage Dump nearby' : ''}</div>`);
+    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
     if (t.zone) {
       const c = sim.cov.by;
       // V1.5b stage G: workforce education.
@@ -714,7 +721,7 @@ export class Hud {
       if (cr > 0.02) rows.push(`<div class="row">🚓 Crime: <b class="${cr > 0.4 ? 'bad' : ''}">${Math.round(cr * 100)}%</b>${c[Svc.Police][i] < 0.3 && cr > 0.2 ? ' — build a Police Station nearby' : ''}</div>`);
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       if ((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0) { const dp = depotOf(serviceAnchors(sim.world, Svc.Depot), i); if (dp >= 0) rows.push(`<div class="row">📦 Ships via the depot at ${coords(dp).join(', ')}</div>`); }
-      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
+      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · ♻️ ${pct(c[Svc.Recycling][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
     // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).

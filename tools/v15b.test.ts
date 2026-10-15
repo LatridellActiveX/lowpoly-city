@@ -7,7 +7,7 @@ const store = new Map<string, string>();
 
 import { Simulation } from '../src/sim/simulation';
 import { World } from '../src/sim/grid';
-import { loadWorld, saveWorld } from '../src/sim/save';
+import { loadWorld, migrateLandfills, saveWorld } from '../src/sim/save';
 import { output } from '../src/sim/networks';
 import { idx } from '../src/sim/grid';
 import { rangeOf } from '../src/sim/parking';
@@ -44,18 +44,18 @@ function town(opts: { comDepth?: number; seed?: number } = {}): Simulation {
 }
 const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) { s.step(); s.traffic.update(s.world, 1); s.world.clock += 1; } };
 
-import { SERVICE_DEFS, Svc } from '../src/sim/services';
-import { G_WARN, GARBAGE_START } from '../src/sim/garbage';
+import { SERVICE_DEFS, serviceSize, Svc } from '../src/sim/services';
+import { G_WARN, GARBAGE_START, LANDFILL_MAX, landfillStage } from '../src/sim/garbage';
 import { isUnlocked } from '../src/sim/progression';
 
 // ---------------------------------------------------------------- stage E: garbage
 {
-  check('garbage dump locked < 1,000 people, unlocked at 1,000', !isUnlocked('garbageDump', 0, 999) && isUnlocked('garbageDump', 0, 1000));
+  check('landfill (garbage dump) locked < 1,000 people, unlocked at 1,000', !isUnlocked('garbageDump', 0, 999) && isUnlocked('garbageDump', 0, 1000));
   const res: Record<string, any> = {};
   for (const dump of [false, true]) {
     const s = town({ seed: 21 });
     s.world.peakPop = 1000;
-    if (dump) s.apply('garbageDump', [[31, 17]]);
+    if (dump) s.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); // V1.6: the dump is a 2×2 landfill
     run(s, 2200); // longer since the halved GARBAGE_RATE / higher G_WARN tune
     let g = 0, n = 0, piles = 0, lv = 0;
     s.world.tiles.forEach((t, i) => { if (t.zone && t.level > 0) { g += t.garbage; n++; lv += s.env.landValue[i]; if (t.garbage >= G_WARN) piles++; } });
@@ -76,10 +76,53 @@ import { isUnlocked } from '../src/sim/progression';
   check(`no garbage before ${GARBAGE_START} people`, s2.world.tiles.every((t) => t.garbage === 0));
 }
 
+// ---------------------------------------------------------------- V1.6: landfill capacity, recycling center, unlocks
+{
+  const big = (x: number, z: number): Array<[number, number]> => [[x, z], [x + 1, z], [x, z + 1], [x + 1, z + 1]];
+  check('recycling center unlocks at 2,500 people with police and the high school', !isUnlocked('recyclingCenter', 0, 2499) && isUnlocked('recyclingCenter', 0, 2500));
+
+  const s = town({ seed: 21 });
+  s.world.peakPop = 2500;
+  s.apply('garbageDump', big(31, 17));
+  const a = idx(31, 17), t = s.world.tiles[a];
+  check('the landfill is a 2×2 building (three part tiles link to the anchor)', t.structure === 'service' && t.kind === Svc.Dump && t.part === 0 && s.world.tiles[a + 1].part === a + 1 && s.world.tiles[a + 64].part === a + 1 && s.world.tiles[a + 65].part === a + 1 && serviceSize(s.world.tiles, a) === 2);
+  check('a new landfill is empty (stage 0)', t.stock === 0 && landfillStage(t) === 0);
+  const stages = [0, 0.19, 0.21, 0.51, 0.79, 0.81, 0.999, 1].map((f) => { t.stock = f * LANDFILL_MAX; return landfillStage(t); });
+  check('landfill model stage follows the fill; the last stage is only for a FULL one', JSON.stringify(stages) === '[0,0,1,2,3,4,4,5]', stages);
+  t.stock = 0;
+  run(s, 2200);
+  check('trucks unload into the landfill, so it fills up', t.stock > 0 && t.stock <= LANDFILL_MAX, t.stock);
+  // A full landfill sends no more trucks.
+  t.stock = LANDFILL_MAX;
+  const trips = s.garbage.stats.trips;
+  run(s, 500);
+  check('a full landfill sends no more trucks and stays full', s.garbage.stats.trips === trips && t.stock === LANDFILL_MAX, { trips: s.garbage.stats.trips - trips, stock: t.stock });
+  // Bulldozing the landfill clears the fill, so a new one starts empty.
+  s.apply('bulldoze', big(31, 17));
+  check('bulldozing a landfill removes all four tiles and its fill', [a, a + 1, a + 64, a + 65].every((i) => s.world.tiles[i].structure === 'none' && s.world.tiles[i].stock === 0));
+
+  // Recycling centers cut garbage build-up where they cover (no landfill, so nothing is collected).
+  const near = (sim: Simulation) => { let g = 0; sim.world.tiles.forEach((q, i) => { if (q.zone && q.level > 0 && Math.abs((i % 64) - 31) <= 5 && Math.abs(Math.floor(i / 64) - 17) <= 5) g += q.garbage; }); return g; };
+  const base = town({ seed: 24 }), rec = town({ seed: 24 });
+  base.world.peakPop = rec.world.peakPop = 2500;
+  rec.apply('recyclingCenter', [[31, 17]]);
+  run(base, 1500); run(rec, 1500);
+  const gBase = near(base), gRec = near(rec);
+  check('a recycling center cuts garbage build-up nearby by a lot', gBase > 0 && gRec < gBase * 0.75, { gBase: +gBase.toFixed(1), gRec: +gRec.toFixed(1) });
+
+  // Old saves: a 1×1 dump grows into a 2×2 landfill when the three tiles are free, and the migration is idempotent.
+  const old = town({ seed: 25 });
+  const o = old.world.tiles[a];
+  o.structure = 'service'; o.kind = Svc.Dump; o.part = 0;
+  check('a legacy 1×1 dump reports size 1', serviceSize(old.world.tiles, a) === 1);
+  check('the migration grows a legacy dump to 2×2', migrateLandfills(old.world) === 1 && serviceSize(old.world.tiles, a) === 2 && old.world.tiles[a + 65].part === a + 1);
+  check('the landfill migration is idempotent', migrateLandfills(old.world) === 0);
+}
+
 // ---------------------------------------------------------------- stage F: police + health care
 import { CRIME_START } from '../src/sim/safety';
 {
-  check('police locked < 1,000, clinic/hospital locked < 2,500', !isUnlocked('policeStation', 0, 999) && isUnlocked('policeStation', 0, 1000) && !isUnlocked('clinic', 0, 2499) && isUnlocked('hospital', 0, 2500));
+  check('police locked < 2,500 (V1.6), clinic/hospital locked < 2,500', !isUnlocked('policeStation', 0, 2499) && isUnlocked('policeStation', 0, 2500) && !isUnlocked('clinic', 0, 2499) && isUnlocked('hospital', 0, 2500));
   const res: Record<string, any> = {};
   for (const mode of ['none', 'police', 'clinic']) {
     const s = town({ seed: 23 });
@@ -105,7 +148,7 @@ import { CRIME_START } from '../src/sim/safety';
 import { computeDemand, EDU_BASELINE } from '../src/sim/demand';
 import { eduSlow, EDU_SLOW_ELEM } from '../src/sim/growth';
 {
-  check('elementary unlocked from the start; high school 1,000; college 2,500', isUnlocked('elementarySchool', 0, 0) && !isUnlocked('highSchool', 0, 999) && isUnlocked('highSchool', 0, 1000) && !isUnlocked('college', 0, 2499) && isUnlocked('college', 0, 2500));
+  check('elementary unlocked from the start; high school 2,500 (V1.6); college 2,500', isUnlocked('elementarySchool', 0, 0) && !isUnlocked('highSchool', 0, 2499) && isUnlocked('highSchool', 0, 2500) && !isUnlocked('college', 0, 2499) && isUnlocked('college', 0, 2500));
   // Workforce: shops with no educated workers lose commercial demand; school coverage restores it.
   const w = fresh().world;
   for (let k = 0; k < 20; k++) { const t = w.tiles[idx(5 + k, 5)]; t.zone = 'residential'; t.level = 3; t.res = 20; }

@@ -40,7 +40,7 @@ import { allRegions, buyBlocker, ownedAt, regionPrice } from './regions';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
-import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS } from './services';
+import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS, serviceSize } from './services';
 import { Garbage } from './garbage';
 import { applyServiceEffects, computeSafety, Responders, Safety, serviceEffectOne } from './safety';
 import { LV_MAX } from './environment';
@@ -316,7 +316,9 @@ export class Simulation {
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
     prof.begin('goods'); this.shipping.tick(w, this.traffic, (i) => this.operating(i), this.settings.maxTrucks); prof.end();
     // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
-    prof.begin('garbage'); this.garbage.tick(w, this.traffic, (i) => this.operating(i)); prof.end();
+    prof.begin('garbage'); this.garbage.tick(w, this.traffic, (i) => this.operating(i), this.cov);
+    if (this.garbage.stageChanged) { this.garbage.stageChanged = false; this.version++; } // a landfill's model changes as it fills
+    this.events.push(...this.garbage.takeNotices()); prof.end();
     // V1.5b stage F: police patrols + ambulance runs.
     prof.begin('responders'); this.responders.tick(w, this.traffic, this.safety); prof.end();
     // PR 4 progression: announce new tiers (UI drains `events`).
@@ -407,8 +409,8 @@ export class Simulation {
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
       const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigCoal(this.world.tiles, z * GRID_SIZE + x)); // V1.5b
-      if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
       const a = t.part ? t.part - 1 : z * GRID_SIZE + x;
+      if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && serviceSize(this.world.tiles, a) === 2)) continue;
       const ax = a % GRID_SIZE, az = Math.floor(a / GRID_SIZE);
       for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
         const k = (az + dz) * GRID_SIZE + ax + dx;
@@ -442,8 +444,8 @@ export class Simulation {
   /** Total cost to apply `tool` to these tiles (only tiles where it's valid). */
   quote(tool: ToolId, tiles: Array<[number, number]>): number {
     let cost = 0;
-    // 2×2 plant: one price for the whole footprint.
-    if (tool === 'nuclearPlant' || tool === 'powerPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
+    // 2×2 plant or service (landfill, hospital, college, depot): one price for the whole footprint.
+    if (tool === 'nuclearPlant' || tool === 'powerPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
     if (ZONE_TOOLS.has(tool)) return this.zoneQuote(tool, tiles).cost;
     if (tool === 'parkingLot' || tool === 'parkingGarage') return BUILD_COST[tool];
     for (const [x, z] of tiles) {
