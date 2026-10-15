@@ -95,7 +95,11 @@ export function placeFreeRoad(sim: Simulation, c0: Cubic, type: RoadType, opts: 
     if (demolish.length) sim.apply('bulldoze', demolish.map((i) => [i % GRID_SIZE, Math.floor(i / GRID_SIZE)]));
     w.roads.placeRoad(c, type, opts);
     w.graphRoads = true; // OASIS: a free road makes this a graph world (tile roads join the graph from now on)
-    sim.apply(tool, tiles.map((i) => [i % GRID_SIZE, Math.floor(i / GRID_SIZE)]));
+    // OASIS: these tiles are the RASTER of the free road just placed — they must
+    // not be re-absorbed as straight tile-road runs (absorbTileRoads), which
+    // would lay a staircase of tiny edges over the curve.
+    sim.noAbsorb = true;
+    try { sim.apply(tool, tiles.map((i) => [i % GRID_SIZE, Math.floor(i / GRID_SIZE)])); } finally { sim.noAbsorb = false; }
     for (const i of tiles) if (w.tiles[i].road) w.graphTiles.add(i);
     w.blocks.regenerate(w.roads);
   }

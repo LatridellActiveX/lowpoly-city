@@ -568,6 +568,8 @@ export class Simulation {
    * Tiles are built in drag order until the money runs out, so a road you
    * can only half afford gets built halfway rather than not at all.
    */
+  /** OASIS: set while sim/freeroads.ts lays the raster tiles of a free road (no re-absorbing them). */
+  noAbsorb = false;
   /** V1.6 B8: apply a tile tool, then drop graph roads whose tiles it removed (roads/persist.ts). */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
     const r = this.applyTiles(tool, tiles);
@@ -575,7 +577,7 @@ export class Simulation {
       syncGraphToTiles(this.world);
       // OASIS: in a graph world the tile road tools feed the graph too, so the
       // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
-      if (tool === 'road' || tool === 'avenue' || tool === 'roundabout') {
+      if (!this.noAbsorb && (tool === 'road' || tool === 'avenue' || tool === 'roundabout')) {
         const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
         if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
       }

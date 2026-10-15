@@ -21,3 +21,12 @@
 * New games keep tile roads until they are re-saved and loaded, or you draw free roads. Migrated saves draw every road through the graph.
 * Buildings grow slowly on strongly curved blocks.
 * Bench T1 / T3 are known and non-blocking (see the Performance page).
+
+## Oasis: free roads finished
+
+* The road graph is the live network. Every trip whose two ends are on graph roads (commuters, moving in, freight, garbage and service trucks) pathfinds and drives on graph lanes (`sim/livegraph.ts`). The cars drawn on graph roads are those trips. Trips start and stop mid-road at the building's frontage (`GraphTraffic.spawnAt`).
+* Anything else falls back to the tile router: tile-only roads, no graph route, or a blocked entry lane. Pure tile worlds never use the graph, so 1.5 behaviour and its tests are unchanged.
+* New games are graph worlds (`migrateToGraph` at founding). In a graph world the Road, Avenue and Roundabout tile tools are absorbed into the graph (`absorbTileRoads`). Traced junctions get signals and ring tiles get roundabout nodes.
+* Graph utilities in the live sim (`sim/graphutil.ts`): buildings within reach of a curved road's real geometry are connected and get power and water from spare capacity.
+* Editing the graph completes the trips that are in flight; none are lost.
+* Known: about 5–9% of graph trips give up in gridlock (after 90 s of graph time), which tile cars also do after 25 s stuck. Homes don't yet grow on curve-only block cells.

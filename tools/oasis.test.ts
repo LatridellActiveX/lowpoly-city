@@ -76,7 +76,9 @@ const M = (x: number, z: number) => ({ x: (x + 0.5) * 32, z: (z + 0.5) * 32 });
 const P = (x: number, z: number) => M(x, z);
 const c = Float64Array.of(P(10, 26).x, P(10, 26).z, P(16, 32).x, P(16, 32).z, P(22, 34).x, P(22, 34).z, P(30, 40).x, P(30, 40).z);
 s.apply('bulldoze', rect(11, 27, 29, 32)); s.apply('bulldoze', rect(11, 34, 29, 39)); // clear the factories in the curve's way (the player would bulldoze them)
+const e0 = w.roads.edgeCount();
 const plan = placeFreeRoad(s, c, 'street', {}, true, true);
+ok(w.roads.edgeCount() - e0 <= 4, 'the curve is a few smooth edges, not a re-absorbed staircase', w.roads.edgeCount() - e0);
 ok(plan.ok, 'curved free road placed off the town', plan.reason);
 const curved = w.roads.liveEdges().filter((e) => !isStraightCubic(w.roads.eCurve[e]));
 ok(curved.length > 0, 'graph has a curved edge', curved.length);

@@ -21,6 +21,14 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-15-h',
+    title: 'Smooth curves',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'A curved road placed in a new city stays one smooth road with its junctions, instead of being covered by a staircase of small straight road pieces.' },
+    ],
+  },
+  {
     id: '2026-10-15-g',
     title: 'Free roads carry the real city',
     date: '2026-10-15',
