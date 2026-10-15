@@ -20,7 +20,8 @@
     "test:chunks": "esbuild tools/chunks.test.ts --bundle --platform=node --format=esm --outfile=/tmp/chunks-test.mjs --log-level=error && node /tmp/chunks-test.mjs",
     "test:incremental": "esbuild tools/incremental.test.ts --bundle --platform=node --format=esm --outfile=/tmp/incremental-test.mjs --log-level=error && node /tmp/incremental-test.mjs",
     "test:replay": "esbuild tools/replay.test.ts --bundle --platform=node --format=esm --outfile=/tmp/replay-test.mjs --log-level=error && node /tmp/replay-test.mjs",
-    "test:regions": "esbuild tools/regions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/regions-test.mjs --log-level=error && node /tmp/regions-test.mjs"
+    "test:regions": "esbuild tools/regions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/regions-test.mjs --log-level=error && node /tmp/regions-test.mjs",
+    "test:roadgraph": "esbuild tools/roadgraph.test.ts --bundle --platform=node --format=esm --outfile=/tmp/roadgraph-test.mjs --log-level=error && node /tmp/roadgraph-test.mjs"
   },
   "dependencies": {
     "three": "^0.169.0"
