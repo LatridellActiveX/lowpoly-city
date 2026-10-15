@@ -61,6 +61,7 @@ import { World } from './grid';
 import { hash2 } from './random';
 import { roadNextTo, Traffic } from './traffic';
 import { FUEL_MAX } from './rules';
+import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
 import { farmRate, fieldCount, isFarmLot } from './industry';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
@@ -70,11 +71,13 @@ export const PLANT_INPUT_MAX = 48;
 export const PROCESS_RATE = 0.15;
 
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged'
-  | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics';
+  | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics'
+  | 'apparel' | 'medicine' | 'beverages';
 
 export const GOOD_NAMES: Record<GoodType, string> = {
   goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Crude oil', coal: 'Coal', packaged: 'Packaged food',
   wood: 'Logs', materials: 'Building materials', furniture: 'Furniture', fuel: 'Fuel', plastics: 'Plastics', electronics: 'Electronics',
+  apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages',
 };
 /** Units in one truckload (PR 5: 16). */
 export const LOAD = 16;
@@ -91,6 +94,7 @@ export const FACTORY_MAX = 48;
 export const EXPORT_PRICE: Record<GoodType, number> = {
   goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0, packaged: 420,
   wood: 140, materials: 360, furniture: 520, fuel: 400, plastics: 380, electronics: 760,
+  apparel: 460, medicine: 640, beverages: 300,
 };
 /** V1.5: an imported load costs this × its export price (freight + middlemen). */
 export const IMPORT_PREMIUM = 1.5;
@@ -106,7 +110,7 @@ export const COAL_PRICE = 600;
 export const MATERIAL_USE = 0.04;
 
 /** Does a shop selling `sells` accept a load of `good`? Grocers take packaged food too. */
-export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && good === 'packaged');
+export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && (good === 'packaged' || good === 'beverages'));
 
 /** What an (industrial) tile produces right now (see chains.ts roleOf). */
 export function factoryGood(world: World, i: number): GoodType {
@@ -120,10 +124,34 @@ export function factoryGood(world: World, i: number): GoodType {
  */
 export function shopGood(world: World, i: number): GoodType {
   const r = hash2(i % GRID_SIZE, Math.floor(i / GRID_SIZE), world.seed + 321);
-  return r < 0.36 ? 'goods' : r < 0.62 ? 'food' : r < 0.72 ? 'materials' : r < 0.82 ? 'furniture' : r < 0.91 ? 'electronics' : 'fuel';
+  return r < 0.27 ? 'goods' : r < 0.45 ? 'food' : r < 0.53 ? 'materials' : r < 0.61 ? 'furniture' : r < 0.69 ? 'electronics' : r < 0.75 ? 'fuel' : r < 0.86 ? 'apparel' : 'medicine';
 }
 
 const manhattan = (a: number, b: number) => Math.abs((a % GRID_SIZE) - (b % GRID_SIZE)) + Math.abs(Math.floor(a / GRID_SIZE) - Math.floor(b / GRID_SIZE));
+
+/** V1.5b stage C: export bonus for loads consolidated at a shipping depot. */
+export const DEPOT_BONUS = 0.15;
+/** V1.5b stage C: factories in a depot catchment ship once they hold this much (vs nearly full). */
+export const DEPOT_SHIP_AT = 24;
+/**
+ * V1.5b stage C: the depot (anchor index) whose catchment holds tile i —
+ * the nearest one within its radius (Chebyshev from the 2×2 centre) — or −1.
+ */
+export function depotOf(depots: number[], i: number): number {
+  const N = GRID_SIZE, x = i % N, z = Math.floor(i / N), r = SERVICE_DEFS[Svc.Depot].radius;
+  let best = -1, bd = Infinity;
+  for (const a of depots) {
+    const d = Math.max(Math.abs(x - ((a % N) + 0.5)), Math.abs(z - (Math.floor(a / N) + 0.5))) - 0.5;
+    if (d <= r && d < bd) { bd = d; best = a; }
+  }
+  return best;
+}
+
+/** A road tile next to any of a 2×2 depot's tiles (anchor a), or −1. */
+export function depotRoad(tiles: Tile[], a: number): number {
+  for (const d of [0, 1, GRID_SIZE, GRID_SIZE + 1]) { const r = roadNextTo(tiles, a + d); if (r >= 0) return r; }
+  return -1;
+}
 
 export class Shipping {
   /** Tiles with a truck already on its way TO them (negative key = a processor's input side). */
@@ -147,7 +175,12 @@ export class Shipping {
   private importedSupply = new Set<number>();
   private unit = (g: GoodType) => EXPORT_PRICE[g] / LOAD;
   /** Running totals for tests and the info panel. */
-  stats = { delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0 };
+  /**
+   * V1.5b stage C — SHIPPING DEPOTS. Loads handled per depot anchor
+   * (exports received + imports sent), for Inspect. Not saved (a running count).
+   */
+  depotLoads = new Map<number, number>();
+  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0 };
 
   isIncoming(i: number): boolean {
     return this.incoming.has(i);
@@ -169,8 +202,11 @@ export class Shipping {
     const factories: number[] = [], shops: number[] = [], plants: number[] = [], yards: number[] = [];
     let sites = 0;
     refreshRoles(world, operating);
-    tiles.forEach((t, i) => {
-      if (t.structure === 'powerPlant') plants.push(i);
+    // V1.5b stage C: road-connected depots and who is inside their catchment.
+    const depots = serviceAnchors(world, Svc.Depot);
+    const depotFor = (i: number): number => depotOf(depots, i);
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
+      if (t.structure === 'powerPlant' && !t.part) plants.push(i); // V1.5b: a 2×2 coal plant is fuelled at its anchor
       if (t.structure === 'constructionYard') yards.push(i);
       if (t.zone && t.construct > 0 && t.crew) sites++;
       if (!t.zone || t.level === 0 || t.construct > 0 || !operating(i)) return;
@@ -281,6 +317,20 @@ export class Shipping {
           continue;
         }
       }
+      // 3a) V1.5b stage C: inside a depot's catchment the surplus ships via
+      //     the depot — sooner (half-full is enough), a short trip, and the
+      //     depot's consolidated freight pays DEPOT_BONUS more.
+      const dep = depotFor(f);
+      if (dep >= 0 && t.stock >= DEPOT_SHIP_AT) {
+        const pay = price * world.exportBonus * (1 + DEPOT_BONUS);
+        const to = depotRoad(tiles, dep);
+        if (to >= 0 && traffic.spawn(world, 'truck', from, to, `export via depot: ${good}`, undefined, () => {
+          world.ledger.trade.exports += pay;
+          world.cash += pay;
+          this.stats.exported++; this.stats.depotExports++;
+          this.book(this.depotLoads, dep, 1);
+        })) { t.stock -= LOAD; continue; }
+      }
       // 3) Nobody local needs it: export once the factory is full (local buyers get first dibs).
       if (t.stock >= FACTORY_MAX - 4 && edge >= 0) {
         const pay = price * world.exportBonus;
@@ -299,8 +349,12 @@ export class Shipping {
       if (edge < 0 || trucks() >= maxTrucks || this.incoming.has(key)) return false;
       if (world.tick - (this.lastImport.get(key) ?? -1e9) < IMPORT_EVERY) return false;
       this.lastImport.set(key, world.tick);
-      if (!traffic.spawn(world, 'truck', edge, roadNextTo(tiles, dest), `import: ${good}`, undefined, onArrive)) return false;
+      // V1.5b stage C: inside a depot's catchment the import comes from the depot.
+      const dep = depotFor(dest), depRoad = dep >= 0 ? depotRoad(tiles, dep) : -1;
+      const src = depRoad >= 0 ? depRoad : edge;
+      if (!traffic.spawn(world, 'truck', src, roadNextTo(tiles, dest), depRoad >= 0 ? `import via depot: ${good}` : `import: ${good}`, undefined, onArrive)) return false;
       this.incoming.add(key); this.stats.imported++;
+      if (depRoad >= 0) { this.stats.depotImports++; this.book(this.depotLoads, dep, 1); }
       return true;
     };
     for (const s of shops) {

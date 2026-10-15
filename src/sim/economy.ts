@@ -31,6 +31,8 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   // built automatically along every road (PR 3 auto power lines).
   // PR 6: + $5 for the water main laid under every road automatically → $17.
   road: 17,
+  // V1.6 B7: free roads are paid per rasterised tile at the road/avenue price (sim/freeroads.ts).
+  freeRoad: 17,
   // PR 4 medium-density avenue: wider, faster for traffic. Upgrading a street costs the full price.
   avenue: 29, // PR 6: $24 + $5 water main
   // V1.5 2×2 roundabout: per tile (×4 = $260 incl. island landscaping and mains).
@@ -41,6 +43,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   commercial: 25,
   industrial: 30,
   powerPlant: 4000, // V1.5: coal plant
+  bigWaterTower: 12000, // V1.5b: 3,200 water (4× the basic tower)
   oilPlant: 15000, // V1.5: 8,000 power — cheaper per unit than coal, dearer upkeep
   // PR 4 high tier (unlock at 10,000 people). Priced PROPORTIONALLY to output:
   //   PR 5: coal plant 2,000 power (~2,000 people) for $4,000 + $250/mo; nuclear 8,000 (~8,000 people) = $20,000 + $1,250/mo;
@@ -67,13 +70,15 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   parkingLot: 480, // V1.5: whole tile (16 spaces) — was $120 for a 2×2-cell quarter
   parkingGarage: 1600,
   // V1.5b services (sim/services.ts SERVICE_DEFS has the same prices).
-  garbageDump: 6000,
+  garbageDump: 10000, // V1.6: 2×2 landfill (was a $6,000 1×1 dump)
   policeStation: 5000,
   clinic: 6000,
   hospital: 24000,
   elementarySchool: 4000,
+  shippingDepot: 15000, // V1.5b stage C
   highSchool: 9000,
   college: 30000,
+  recyclingCenter: 8000, // V1.6
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */

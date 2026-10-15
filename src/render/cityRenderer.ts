@@ -15,6 +15,7 @@
  * Things that move every frame (spinning turbine blades, bobbing warning
  * markers) are updated separately in `animate()`, touching only those pools.
  */
+import { TILE_PREVIEW_Y } from './previewHeights';
 import * as THREE from 'three';
 import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
@@ -43,11 +44,24 @@ import { coords, idx, inBounds } from '../sim/grid';
 import { Simulation } from '../sim/simulation';
 import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
+import { CHUNK } from '../sim/chunks';
+import { owns, REGION, regionSide } from '../sim/regions';
+import { autoSkin, industrialMaterial, Skin } from './textures';
+const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
+import { truckBody } from '../sim/truckBodies';
+import { TILE_M } from '../roads/graph';
+import { bigCoalModel, COAL_STACKS } from './coalModel';
+import { isBigCoal, isBigOil } from '../sim/networks';
+import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './roundaboutModel';
+import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
-import { roleModels } from './industryModels';
+import { roleModels, newIndustryModels } from './industryModels';
+import { homeModels, commerceModels, industryExtra } from './cityModels';
+import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
-import { SERVICE_DEFS } from '../sim/services';
-import { G_MAX, G_WARN } from '../sim/garbage';
+import { landfillDozerModel, landfillGullModel, landfillTopSize, landfillTopY, LF_CZ } from './landfillModel';
+import { serviceSize, Svc } from '../sim/services';
+import { G_MAX, G_WARN, landfillStage, LANDFILL_STAGES } from '../sim/garbage';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
@@ -60,21 +74,35 @@ import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
 import { buildGroundMesh, buildWaterMesh, NATURE } from './nature';
 import { BRIDGE_Y, curveYaw, ROADS } from './roads';
 import { roofColor, SIGNAL_COLORS, SIGNAL_LAMPS, WHEELS, VEHICLES, vehiclePose } from './vehicles';
-import { isIntersection, lightState } from '../sim/traffic';
+import { isIntersection, lightState, ringCorner } from '../sim/traffic';
+import { GraphPower, graphMains, graphPower, graphSignals, GraphSignal, nearestPole, signalSlot } from './graphUtilities';
+import { JunctionPlan, planAll, rings } from '../roads/junctions';
 import { Deco } from '../sim/terrain';
 import { hash2 } from '../sim/random';
 import { LAMP_REACH, substationGeometry, SUBSTATION_WIRE_Y, carriesPower, cableMatrix, dropGeometry, lampArmGeometry, lampBulbGeometry, lampYaw, poleGeometry, poleSpot, isPoleTile, nextPole, servingPole, spanGeometry, WIRE_HALF, WIRE_Y } from './powerLines';
 
+const CAR_PAINT = [0xd94b3d, 0x3d7bd9, 0xf2f2f2, 0x2b2d31, 0xf2c14e, 0x4caf6a, 0x9aa1a8, 0x8e4fc1, 0xe0773a];
 export const ZONE_COLORS: Record<ZoneType, number> = {
   residential: 0x7fd36b,
   commercial: 0x69a8ec,
   industrial: 0xeac55c,
 };
 
+/** The colour a zone code is drawn in on the ground (density darkens it); used by the zoning drag preview too. */
+export function zoneCodeColor(code: number): number {
+  const info = ZONE_CODES[code];
+  if (!info || !info.zone) return 0xffffff;
+  const base = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 : code === ZoneCode.ComOffice ? 0x3fb6c9 : ZONE_COLORS[info.zone];
+  const tint = [0, 0, 0.82, 0.66, 0, 0.78, 0, 0.78, 0, 0][code] || 1;
+  return new THREE.Color(base).multiplyScalar(tint).getHex();
+}
+
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping' | 'grid';
 
+/** NEBULA: height of water mains drawn in the water view (just above the asphalt, so they read). */
+const MAIN_Y = 0.066;
 const PIPE_OFFSET = new THREE.Vector3(-0.28, 0, -0.28); // pipes run along the opposite corner
 
 /**
@@ -220,8 +248,25 @@ export class CityRenderer {
   private stacks: THREE.Vector3[] = [];
   /** PR 4: intersections with traffic lights (tile index + pole position). */
   private junctions: Array<{ i: number; pos: THREE.Vector3; yaw: number; axis: 'ns' | 'ew' }> = [];
+  /**
+   * NEBULA: street furniture of the ROAD GRAPH (render/graphUtilities.ts),
+   * recomputed only when the graph's version changes: junction plans, the
+   * pole/wire layout and the per-approach signal poles. graphSignals is
+   * animated every frame from the live GraphTraffic controller.
+   */
+  private gVersion = -1;
+  private gPlans = new Map<number, JunctionPlan>();
+  private gPower: GraphPower = { poles: [], spans: [] };
+  private gSignals: Array<GraphSignal & { pos: THREE.Vector3 }> = [];
+  /** NEBULA LOD: overhead wires are hidden when zoomed far out (sub-pixel there). */
+  setWireLod(far: boolean): void {
+    this.pools.span.mesh.visible = !far;
+    this.pools.drop.mesh.visible = !far;
+  }
   /** The sim being drawn (animate() needs vehicles and the clock). */
   private sim: Simulation | null = null;
+  /** V1.6: landfill centres (world x/z), fill stage and a phase, for the animated compactor and gulls. */
+  private landfills: Array<{ c: THREE.Vector3; stage: number; phase: number }> = [];
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
   private cranes: Array<{ pos: THREE.Vector3; phase: number; aim: number; reach: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
@@ -249,6 +294,7 @@ export class CityRenderer {
   private readonly q = new THREE.Quaternion();
   private readonly s = new THREE.Vector3();
   private readonly c = new THREE.Color();
+  private readonly pv = new THREE.Vector3(); // V1.6 scratch position
 
   /**
    * Glow materials for night (PR 3). ADDITIVE blending adds their colour to
@@ -345,21 +391,31 @@ export class CityRenderer {
           levels.forEach((parts, lv) => {
             // PR 5 perf: the small "fixed" trim (frames, vents, steps...) doesn't
             // cast shadows — at this scale they're invisible and cost a lot in the shadow pass.
-            for (const which of ['walls', 'accent', 'fixed'] as const) add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
+            for (const which of ['walls', 'accent', 'fixed'] as const) {
+              // V1.5b stage B: industrial designs are textured from the atlas
+              // (walls by design: metal / concrete / metal / brick / rust; roofs
+              // and tanks; trim auto-skinned by colour) — same instancing.
+              if (zone === 'industrial') {
+                const force = which === 'walls' ? IND_WALL_SKIN[k % IND_WALL_SKIN.length] : which === 'accent' ? (k === 0 || k === 4 ? Skin.Roof : Skin.Metal) : undefined;
+                add(`${pre}${zone}.${k}.${lv + 1}.${which}`, autoSkin(parts[which], force), industrialMaterial(), 32, which !== 'fixed');
+              } else add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
+            }
             add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
           }),
         );
       }
     }
     // PR 4 traffic: vehicles (moved every frame), traffic lights, driveways.
-    add('car', VEHICLES.car(), solid, 256);
+    add('car', VEHICLES.car(), solid, 640);
     // PR 5 driving polish: spinning wheels, tail/brake lights, headlight glow.
-    add('wheel', VEHICLES.wheel(), solid, 1536, false);
-    add('carRoof', VEHICLES.carRoof(), solid, 320, false);
-    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 320, false);
-    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 320, false);
-    add('truckCab', VEHICLES.truckCab(), solid, 64);
-    add('truckBox', VEHICLES.truckBox(), solid, 64);
+    add('wheel', VEHICLES.wheel(), solid, 3600, false);
+    add('carRoof', VEHICLES.carRoof(), solid, 800, false);
+    add('tailLight', VEHICLES.tailLights(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 800, false);
+    add('headGlow', new THREE.PlaneGeometry(0.16, 0.16), this.signalGlowMat, 800, false);
+    add('truckCab', VEHICLES.truckCab(), solid, 256);
+    add('truckBox', VEHICLES.truckBox(), solid, 256);
+    add('tankerBody', VEHICLES.tankerBody(), solid, 64); // V1.5b stage B
+    add('dumpBody', VEHICLES.dumpBody(), solid, 64);
     add('lightPole', VEHICLES.lightPole(), solid, 512);
     add('lightHead', VEHICLES.lightHead(), new THREE.MeshBasicMaterial({ color: 0xffffff }), 1536, false);
     // PR 5: night glow around each LIT signal lamp (instance colour = lamp colour).
@@ -378,31 +434,51 @@ export class CityRenderer {
     add('birch', NATURE.birch(), solid, 512);
     add('bush', NATURE.bush(), solid, 256);
     add('rock', NATURE.rock(), solid, 256);
+    // V1.6 A5: STATIC decoration pools. Wild trees/rocks only change when a
+    // tool clears them, so they live in their own pools that rebuild() leaves
+    // alone unless the decorations or the visible chunks changed.
+    for (const [k, geo, cap] of [['pine', NATURE.pine(), 512], ['oak', NATURE.oak(), 512], ['birch', NATURE.birch(), 512], ['bush', NATURE.bush(), 256], ['rock', NATURE.rock(), 256]] as const)
+      this.decoPools[k] = new InstancePool(this.group, geo, solid, cap, true);
     add('powerPlant', MODELS.powerPlant(), solid, 32);
-    // V1.5 roundabout island: kerb ring, lawn, flower bed and a small tree.
-    add('ringIsland', merge([
-      part(new THREE.CylinderGeometry(0.46, 0.48, 0.07, 24).translate(0, 0.035, 0), 0xc9c6bf),
-      part(new THREE.CylinderGeometry(0.43, 0.43, 0.075, 24).translate(0, 0.04, 0), 0x6fb54f),
-      part(new THREE.CylinderGeometry(0.2, 0.2, 0.08, 16).translate(0, 0.045, 0), 0xb5651d),
-      ...[0, 1, 2, 3, 4, 5].map((k) => part(new THREE.SphereGeometry(0.035, 6, 4), [0xe84a5f, 0xffd166, 0xf8f8ff][k % 3], [Math.cos(k) * 0.14, 0.1, Math.sin(k) * 0.14])),
-      part(new THREE.CylinderGeometry(0.025, 0.03, 0.28, 6).translate(0, 0.14, 0), 0x6b4a2b),
-      part(new THREE.IcosahedronGeometry(0.14, 0).translate(0, 0.36, 0), 0x3f8f3a),
-      ...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => part(new THREE.SphereGeometry(0.04, 6, 4), 0x4f9e45, [Math.cos(k * 0.785 + 0.3) * 0.34, 0.09, Math.sin(k * 0.785 + 0.3) * 0.34])),
-    ]), solid, 32);
+    // V1.6 roundabout (roundaboutModel.ts): detailed central island, CCW lane arrows and give-way markings.
+    add('ringIsland', ringIslandModel(), solid, 32);
+    add('ringArrow', ringArrowModel(), solid, 128, false);
+    add('ringYield', ringYieldModel(), solid, 128, false);
     add('oilPlant', MODELS.oilPlant(), solid, 32); // V1.5
     add('nuclearPlant', nuclearPlantModel(), solid, 16);
+    // V1.5b: the 2×2 coal plant (high + low detail) with night-lit windows.
+    for (const [pre, det] of [['', true], ['lo:', false]] as const) {
+      const cm = bigCoalModel(det);
+      add(`${pre}coalBig`, autoSkin(cm.solid), industrialMaterial(), 16);
+      add(`${pre}coalBig.lights`, cm.lights, this.windowGlow, 16, false);
+    }
+    // V1.6: the 2×2 oil plant (high + low detail) with night-lit windows and flare.
+    for (const [pre, det] of [['', true], ['lo:', false]] as const) {
+      const om = bigOilModel(det);
+      add(`${pre}oilBig`, autoSkin(om.solid), industrialMaterial(), 16);
+      add(`${pre}oilBig.lights`, om.lights, this.windowGlow, 16, false);
+    }
     add('pumpStation', pumpStationModel(), solid, 16);
     add('windTower', MODELS.windTower(), solid, 64);
     add('windBlades', MODELS.windBlades(), solid, 64);
     // PR 5 industry + wind (industryModels.ts).
     add('nacelle', nacelleModel(), solid, 64);
-    add('farm', farmModel(), solid, 128);
+    add('farm', autoSkin(farmModel()), industrialMaterial(), 128); // V1.5b textured
     // V1.5 stage 10: resource industries and processors (one pool per role).
-    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, g, solid, 64);
+    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
+    for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
+    for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
+    for (const [k, g] of Object.entries({ ...homeModels(), ...commerceModels() })) add(`x.${k}`, g, solid, 64); // V1.6 more homes + shops
+    for (const [k, g] of Object.entries(industryExtra())) add(`x.${k}`, autoSkin(g), industrialMaterial(), 64);
+    // New recipe roles reuse the matching plant model.
+    const roleX = industryExtra();
+    add('role.tailor', autoSkin(roleX.clothing), industrialMaterial(), 64);
+    add('role.pharma', autoSkin(roleX.pharma), industrialMaterial(), 64);
+    add('role.brewery', autoSkin(roleX.brewery), industrialMaterial(), 64);
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
-    for (const k of [0, 1, 2]) add(`foodPlant${k}`, foodPlantModel(k), solid, 128);
+    for (const k of [0, 1, 2]) add(`foodPlant${k}`, autoSkin(foodPlantModel(k)), industrialMaterial(), 128);
     add('constructionYard', constructionYardModel(), solid, 32);
     add('crewLoad', crewLoadModel(), solid, 64);
     add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
@@ -410,7 +486,11 @@ export class CityRenderer {
     this.pools.iconGarbage.mesh.renderOrder = 20;
     // V1.5b services, garbage piles and service-vehicle parts.
     for (const [k, g] of Object.entries(serviceModels())) add(k, g, solid, k === 'garbagePile' ? 512 : k.startsWith('svc') ? 32 : 128);
+    // V1.6 landfill: an animated compactor and circling gulls (positions written every frame in animate()).
+    add('landfillDozer', landfillDozerModel(), solid, 32);
+    add('landfillGull', landfillGullModel(), solid, 256, false);
     add('waterTower', MODELS.waterTower(), solid, 32);
+    add('bigWaterTower', MODELS.bigWaterTower(), solid, 16); // V1.5b kind 1
     add('park', MODELS.park(), solid, 64);
     // PR 3 power lines: poles on the curb, sagging spans, and drop wires to houses.
     add('pole', poleGeometry(), solid, 512);
@@ -434,20 +514,155 @@ export class CityRenderer {
     // Overlay squares are transparent and drawn on top of the ground.
     const overlayMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, vertexColors: false });
     add('overlay', MODELS.tilePlane(), overlayMat, 1024, false);
+    // V1.6 A6: unowned regions are shaded dark (one stretched plane each).
+    add('regionShade', MODELS.tilePlane(), new THREE.MeshBasicMaterial({ color: 0x1b2430, transparent: true, opacity: 0.42, depthWrite: false }), 16, false);
   }
 
   /** Compose position * rotation(y) * scale into the scratch matrix. */
+  /** NEBULA: (re)plan the road graph's junctions / poles / signals when it changed. */
+  private graphPowerFor(sim: Simulation): GraphPower {
+    const g = sim.world.roads;
+    if (g.version !== this.gVersion) {
+      this.gVersion = g.version;
+      const rs = rings(g);
+      this.gPlans = planAll(g, rs);
+      this.gPower = graphPower(g, this.gPlans, rs);
+      this.gSignals = graphSignals(g, this.gPlans).map((s) => ({ ...s, pos: new THREE.Vector3(s.x, 0.056, s.z) }));
+    }
+    return this.gPower;
+  }
+
+  /**
+   * NEBULA: draw what the road graph carries, into the shared instanced
+   * pools (one draw call each, however many):
+   *   power  — street poles on the sidewalk every ~2 tiles + sagging wires,
+   *            chained round junctions (graphPower); the tile power lines
+   *            above wire into them;
+   *   water  — in the water view / pipe tool only, a main down every graph
+   *            road with a joint at each node (graphMains);
+   *   signals— one pole per approach at signal nodes (heads animated in
+   *            animateTraffic from the live controller).
+   */
+  private addGraphUtilities(sim: Simulation): void {
+    const g = sim.world.roads;
+    if (!g.edgeCount()) { this.gSignals = []; return; }
+    const P = this.pools, pw = this.graphPowerFor(sim);
+    const v = new THREE.Vector3(), w = new THREE.Vector3();
+    for (const p of pw.poles) P.pole.add(this.place(v.set(p.x, 0.056, p.z), p.rotY));
+    for (const [a, b] of pw.spans) {
+      const A = pw.poles[a], B = pw.poles[b];
+      P.span.add(cableMatrix(v.set(A.x, 0.056 + WIRE_Y, A.z), w.set(B.x, 0.056 + WIRE_Y, B.z), this.m));
+    }
+    if (this.showPipes || this.overlay === 'water') {
+      const { segs, joints } = graphMains(g);
+      for (const j of joints) P.pipeJoint.add(this.place(v.set(j.x, MAIN_Y, j.z)));
+      for (const [a, b] of segs) {
+        // MODELS.pipe is one tile long along +x: scale x to the piece length.
+        const dx = b.x - a.x, dz = b.z - a.z;
+        P.pipe.add(this.place(v.set(a.x, MAIN_Y, a.z), Math.atan2(-dz, dx), Math.hypot(dx, dz), 1, 1));
+      }
+    }
+    for (const s of this.gSignals) P.lightPole.add(this.place(s.pos, s.yaw));
+  }
+
   private place(pos: THREE.Vector3, rotY = 0, sx = 1, sy = 1, sz = sx): THREE.Matrix4 {
     this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rotY);
     this.s.set(sx, sy, sz);
     return this.m.compose(pos, this.q, this.s);
   }
 
+  /**
+   * V1.6 A5: RENDER CHUNKING. The map is drawn in the same 16×16-tile chunks
+   * the simulation uses (sim/chunks.ts). Every frame main.ts passes the
+   * camera; we test each chunk's box against the view frustum and keep a
+   * mask of visible chunks. rebuild() only walks tiles of visible chunks, so
+   * on the 192 map a zoomed-in view costs about what the whole 64 map did.
+   * When the camera reveals a different set of chunks we rebuild once.
+   */
+  setView(camera: THREE.Camera, n: number): void {
+    if (!this.cull) { if (this.visible) { this.visible = null; this.visKey = 'all'; this.lastVersion = -1; } return; }
+    const side = Math.ceil(n / CHUNK);
+    camera.updateMatrixWorld();
+    this.projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.projScreen);
+    const mask = this.visScratch.length === side * side ? this.visScratch : (this.visScratch = new Uint8Array(side * side));
+    for (let cz = 0; cz < side; cz++) for (let cx = 0; cx < side; cx++) {
+      // 1-tile margin so things standing on a chunk edge (and their shadows) don't pop.
+      this.box.min.set(cx * CHUNK - 1, -0.5, cz * CHUNK - 1);
+      this.box.max.set(Math.min(n, (cx + 1) * CHUNK) + 1, 6, Math.min(n, (cz + 1) * CHUNK) + 1);
+      mask[cz * side + cx] = this.frustum.intersectsBox(this.box) ? 1 : 0;
+    }
+    let key = '';
+    for (let c = 0; c < mask.length; c++) key += mask[c];
+    if (key !== this.visKey) { this.visKey = key; this.visible = mask.slice(); this.visSide = side; this.lastVersion = -1; }
+  }
+  /** V1.6 A5: chunk culling on/off (render bench + screenshot comparison). */
+  cull = true;
+  private frustum = new THREE.Frustum();
+  private projScreen = new THREE.Matrix4();
+  private box = new THREE.Box3();
+  private visScratch = new Uint8Array(0);
+  private visKey = '';
+  /** Visible-chunk mask (null = draw everything, e.g. before the first setView). */
+  private visible: Uint8Array | null = null;
+  private visSide = 0;
+  private decoPools: Record<string, InstancePool> = {};
+  private decoKey = '';
+  /** Chunks drawn in the last rebuild (debug overlay / render bench). */
+  stats = { chunksDrawn: 0, chunksTotal: 0, tilesWalked: 0, decoRebuilds: 0, rebuilds: 0, rebuildMs: 0 };
+
+  /** Tile indices of visible chunks, ascending. */
+  private visibleTiles(n: number): number[] {
+    const out: number[] = [], vis = this.visible, side = Math.ceil(n / CHUNK);
+    let drawn = 0;
+    for (let cz = 0; cz < side; cz++) for (let cx = 0; cx < side; cx++) {
+      if (vis && this.visSide === side && !vis[cz * side + cx]) continue;
+      drawn++;
+      for (let z = cz * CHUNK; z < Math.min(n, (cz + 1) * CHUNK); z++) for (let x = cx * CHUNK; x < Math.min(n, (cx + 1) * CHUNK); x++) out.push(z * n + x);
+    }
+    this.stats.chunksDrawn = drawn; this.stats.chunksTotal = side * side; this.stats.tilesWalked = out.length;
+    return out;
+  }
+
+  /** Wild trees and rocks of the visible chunks (static pools, see constructor). */
+  private rebuildDeco(sim: Simulation, list: number[]): void {
+    const tiles = sim.world.tiles, seed = sim.world.seed, n = GRID_SIZE;
+    // Cheap fingerprint: visible chunks + every decoration in them.
+    let h = 2166136261;
+    for (const i of list) { const d = tiles[i].deco; if (d) { h ^= i * 8 + d; h = Math.imul(h, 16777619); } }
+    const key = `${seed}|${this.visKey}|${h >>> 0}`;
+    if (key === this.decoKey) return;
+    this.decoKey = key;
+    this.stats.decoRebuilds++;
+    const P = this.decoPools;
+    for (const p of Object.values(P)) p.begin();
+    for (const i of list) {
+      const t = tiles[i];
+      if (!t.deco) continue;
+      const x = i % n, z = (i / n) | 0, center = tileCenter(x, z);
+      const kind = (['', 'pine', 'oak', 'birch', 'bush', 'rock'] as const)[t.deco];
+      const jx = (hash2(x, z, seed + 41) - 0.5) * 0.4;
+      const jz = (hash2(x, z, seed + 43) - 0.5) * 0.4;
+      const size = 0.85 + hash2(x, z, seed + 47) * 0.45;
+      const tint = 0.85 + hash2(x, z, seed + 53) * 0.15;
+      const pos = center.clone().add(new THREE.Vector3(jx, 0, jz));
+      P[kind].add(this.place(pos, hash2(x, z, seed + 59) * Math.PI * 2, size, size), this.c.setRGB(tint, tint, tint));
+      // Dense forest tiles get a second, smaller tree for a fuller canopy.
+      if (t.deco <= Deco.Birch && hash2(x, z, seed + 61) > 0.6) {
+        const p2 = center.clone().add(new THREE.Vector3(-jx * 0.9, 0, -jz * 0.9 + 0.12));
+        P[kind].add(this.place(p2, hash2(x, z, seed + 67) * 6, size * 0.7, size * 0.7), this.c.setRGB(tint, tint, tint));
+      }
+    }
+    for (const p of Object.values(P)) p.end();
+  }
+
   /** Called every frame. Rebuilds instances if the sim changed, then animates. */
   frame(sim: Simulation, time: number): void {
     if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay || this.showPipes !== this.lastShowPipes) {
       this.lastShowPipes = this.showPipes;
+      const t0 = performance.now();
       this.rebuild(sim);
+      this.stats.rebuilds++; this.stats.rebuildMs += performance.now() - t0; // V1.6 A5 render bench
       this.lastVersion = sim.version;
       this.lastOverlay = this.overlay;
     }
@@ -474,6 +689,7 @@ export class CityRenderer {
     this.markers = [];
     this.lamps = [];
     this.cranes = [];
+    this.landfills = [];
     this.junctions = [];
     this.stacks = [];
     const tiles = sim.world.tiles;
@@ -481,7 +697,7 @@ export class CityRenderer {
 
     const seed = sim.world.seed;
     // The smooth ground mesh only depends on the seed, so build it once per city.
-    if (seed !== this.groundSeed) {
+    if (seed + GRID_SIZE * 1e10 !== this.groundSeed) { // V1.6 A6: also rebuild when the map size changed
       if (this.groundMesh) {
         this.group.remove(this.groundMesh);
         this.groundMesh.geometry.dispose();
@@ -495,34 +711,50 @@ export class CityRenderer {
       }
       this.waterMesh = buildWaterMesh(seed, (gx, gz) => tiles[idx(gx, gz)].water);
       if (this.waterMesh) this.group.add(this.waterMesh);
-      this.groundSeed = seed;
+      this.groundSeed = seed + GRID_SIZE * 1e10;
     }
-    tiles.forEach((t, i) => {
+    // V1.6 A5: only tiles of visible chunks; decorations go to the static pools.
+    const visList = this.visibleTiles(GRID_SIZE);
+    this.rebuildDeco(sim, visList);
+    visList.forEach((i) => {
+      const t = tiles[i];
       const [x, z] = coords(i);
       const center = tileCenter(x, z);
       // A stable pseudo-random quarter-turn for things that don't face a road.
       const turn = Math.floor(hash2(x, z, seed + 7) * 4) * (Math.PI / 2);
 
-      // ---- Decorations: jittered, scaled and rotated by hash ----
-      if (t.deco) {
-        const kind = (['', 'pine', 'oak', 'birch', 'bush', 'rock'] as const)[t.deco];
-        const jx = (hash2(x, z, seed + 41) - 0.5) * 0.4;
-        const jz = (hash2(x, z, seed + 43) - 0.5) * 0.4;
-        const size = 0.85 + hash2(x, z, seed + 47) * 0.45;
-        const tint = 0.85 + hash2(x, z, seed + 53) * 0.15;
-        const pos = center.clone().add(new THREE.Vector3(jx, 0, jz));
-        P[kind].add(this.place(pos, hash2(x, z, seed + 59) * Math.PI * 2, size, size), this.c.setRGB(tint, tint, tint));
-        // Dense forest tiles get a second, smaller tree for a fuller canopy.
-        if (t.deco <= Deco.Birch && hash2(x, z, seed + 61) > 0.6) {
-          const p2 = center.clone().add(new THREE.Vector3(-jx * 0.9, 0, -jz * 0.9 + 0.12));
-          P[kind].add(this.place(p2, hash2(x, z, seed + 67) * 6, size * 0.7, size * 0.7), this.c.setRGB(tint, tint, tint));
-        }
-      }
+      // (V1.6 A5: wild decorations are drawn by rebuildDeco into static pools.)
 
       // (PR 5: water is drawn by the single smooth waterMesh, see buildWaterMesh.)
 
       if (t.road) {
-        this.addRoad(t, x, z, center, has);
+        // V1.6 B6: tiles rasterised from a freeform road are drawn by the
+        // smooth graph mesh (render/graphRoads.ts), not as tile pieces.
+        if (!sim.world.graphTiles.has(i)) this.addRoad(t, x, z, center, has);
+        if (sim.world.graphTiles.has(i)) {
+          // NEBULA: the power/water coverage overlay tints graph road tiles
+          // too (as it always did tile roads), so the overlay shows how far
+          // the network really reaches along the streets — through every
+          // junction — instead of only the lots beside them.
+          if (this.overlay === 'power' || this.overlay === 'water') {
+            const sv = sim.net.service[i], net = this.overlay === 'power' ? sv.powerNet : sv.waterNet;
+            if (net >= 0) {
+              const served = this.overlay === 'power' ? sv.powered : sv.watered;
+              P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(!served ? 0xff3b30 : this.overlay === 'power' ? 0xffd21f : 0x29a3ff));
+            }
+          }
+          return;
+        }
+        // NEBULA: every road carries a WATER MAIN (sim: roads are water
+        // conduits). In the water view / pipe tool, draw it down the tile
+        // road's centre, joined to neighbouring roads and pipes.
+        if (this.showPipes || this.overlay === 'water') {
+          const j = center.clone().setY(MAIN_Y);
+          P.pipeJoint.add(this.place(j, 0, 0.8, 1, 0.8));
+          const isMain = (n: Tile) => n.road || n.waterPipe;
+          if (has(x + 1, z, isMain)) P.pipe.add(this.place(j, 0));
+          if (has(x, z + 1, isMain)) P.pipe.add(this.place(j, -Math.PI / 2));
+        }
         if (isIntersection(tiles, i)) {
           // PR 5 fix: ONE signal pole PER APPROACH (3 at a T, 4 at a
           // crossroads), on the near-right corner for traffic entering
@@ -563,12 +795,27 @@ export class CityRenderer {
           this.lamps.push(new THREE.Vector3(LAMP_REACH, 0.6, 0).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw).add(spot.pos));
         }
         // Each span once: walk east and south to the next pole (may skip a tile).
-        for (const [dx, dz] of [[1, 0], [0, 1]]) {
+        // NEBULA: graph road tiles have no tile pole (the graph's own street
+        // poles stand there), so a span that would end on one is wired to the
+        // NEAREST GRAPH POLE instead — and we also look west/north, because
+        // the graph tile on that side no longer draws its eastward span.
+        const gts = sim.world.graphTiles;
+        for (const [dx, dz] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) {
           const np = nextPole(tiles, x, z, dx, dz);
           if (!np) continue;
-          const other = poleSpot(tiles, np[0], np[1]);
+          const toGraph = gts.has(idx(np[0], np[1]));
+          if (dx + dz < 0 && !toGraph) continue; // each tile span once (east/south)
           const a = spot.pos.clone().setY(spot.pos.y + WIRE_Y);
-          const b = other.pos.clone().setY(other.pos.y + WIRE_Y);
+          let b: THREE.Vector3;
+          if (toGraph) {
+            const k = nearestPole(this.graphPowerFor(sim), np[0] + 0.5, np[1] + 0.5);
+            if (k < 0) continue;
+            const gp = this.gPower.poles[k];
+            b = new THREE.Vector3(gp.x, WIRE_Y, gp.z);
+          } else {
+            const other = poleSpot(tiles, np[0], np[1]);
+            b = other.pos.clone().setY(other.pos.y + WIRE_Y);
+          }
           P.span.add(cableMatrix(a, b, this.m));
         }
       }
@@ -583,6 +830,11 @@ export class CityRenderer {
         // tower already joins any adjacent pipe network (networks.ts: sources
         // are conduits); here we draw the short pipe into the tower's base so
         // the connection is visible. rotateY(a) sends the +x pipe to (cos a, −sin a).
+        // NEBULA: a pipe beside a graph road joins the main under it (the sim
+        // connects them within 32 m); draw the short stub so it shows.
+        for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (inBounds(x + dx, z + dz) && sim.world.graphTiles.has(idx(x + dx, z + dz))) P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
+        }
         for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
           if (!has(x + dx, z + dz, (n) => n.structure === 'waterTower' || n.structure === 'pumpStation')) continue;
           P.pipe.add(this.place(joint, Math.atan2(-dz, dx), 0.62, 1, 1));
@@ -605,7 +857,25 @@ export class CityRenderer {
         if (st0.powered && t.level > 0) this.addDropWire(tiles, x, z, this.roadFacing(x, z, has) ?? 0, 1, has, t.zone);
       }
 
-      if (t.structure === 'powerPlant') {
+      if (t.structure === 'powerPlant' && t.part) {
+        // V1.5b: a non-anchor tile of a 2×2 coal plant — drawn by its anchor.
+      } else if (t.structure === 'powerPlant' && isBigCoal(tiles, i)) {
+        // V1.5b: the detailed 2×2 coal plant, centred on its footprint.
+        const c2 = center.clone().add(new THREE.Vector3(0.5, 0, 0.5));
+        const pre = this.lod === 'low' ? 'lo:' : '';
+        P[`${pre}coalBig`].add(this.place(c2));
+        P[`${pre}coalBig.lights`].add(this.place(c2), this.c.setHex(0xffd890));
+        if (t.stock > 0) for (const [sx, sy, sz] of COAL_STACKS) this.stacks.push(new THREE.Vector3(sx, sy, sz).add(c2));
+        this.addGridTie(tiles, x, z, has, false);
+      } else if (t.structure === 'powerPlant' && isBigOil(tiles, i)) {
+        // V1.6: the detailed 2×2 oil plant, centred on its footprint.
+        const c2 = center.clone().add(new THREE.Vector3(0.5, 0, 0.5));
+        const pre = this.lod === 'low' ? 'lo:' : '';
+        P[`${pre}oilBig`].add(this.place(c2));
+        P[`${pre}oilBig.lights`].add(this.place(c2), this.c.setHex(0xffd890));
+        if (t.stock > 0) for (const [sx, sy, sz] of OIL_STACKS) this.stacks.push(new THREE.Vector3(sx, sy, sz).add(c2));
+        this.addGridTie(tiles, x, z, has, false);
+      } else if (t.structure === 'powerPlant') {
         // V1.5: kind 1 = oil-fired plant (own model, same stack position).
         (t.kind === PLANT_OIL ? P.oilPlant : P.powerPlant).add(this.place(center, turn));
         // Smoke from the tall stack at model (−0.32, 1.02, −0.3), only while fuelled.
@@ -626,7 +896,7 @@ export class CityRenderer {
       }
       if (t.structure === 'waterTower') {
         const st = sim.status(i);
-        P.waterTower.add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
+        (t.kind === 1 ? P.bigWaterTower : P.waterTower).add(this.place(center), st.powered ? undefined : this.c.setHex(0x8a8a8a));
         if (!st.powered) this.markers.push({ pos: center.clone().setY(1.3), color: new THREE.Color(1, 1, 1), kind: 'power', slot: 0 });
       }
       if (t.structure === 'windTurbine') {
@@ -638,8 +908,13 @@ export class CityRenderer {
       }
       // V1.5b service buildings (2×2 ones are centred on their block).
       if (t.structure === 'service' && !t.part) {
-        const big = SERVICE_DEFS[t.kind]?.size === 2;
-        P[`svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+        const big = serviceSize(tiles, i) === 2;
+        if (t.kind === Svc.Dump && big) {
+          // V1.6 landfill: the model changes with how full it is (stage 0 … LANDFILL_STAGES − 1); the compactor and gulls are animated.
+          const stage = landfillStage(t), c = new THREE.Vector3(x + 1, 0, z + 1);
+          P[`svc0_${stage}`]?.add(this.place(c, 0));
+          this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
+        } else P[!big && (t.kind === Svc.Elementary || t.kind === Svc.Police) ? `svc${t.kind}s` : `svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
       if (t.zone && t.level > 0 && t.garbage >= G_WARN) {
@@ -661,6 +936,23 @@ export class CityRenderer {
         const g = t.garbage / G_MAX, cv = sim.cov.by[0][i];
         if (g > 0.05) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0x6b3d1f), g));
         else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84).multiplyScalar(0.5 + cv * 0.5));
+      } else if (this.overlay === 'crime') {
+        // V1.5b stage F: crime (yellow → red); police coverage tinted blue.
+        const cr = sim.safety.crime[i] ?? 0, pc = sim.cov.by[1][i];
+        if (cr > 0.03) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0xff3b30), Math.min(1, cr * 1.5)));
+        else if (pc > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3d7bdc).multiplyScalar(0.5 + pc * 0.5));
+      } else if (this.overlay === 'health') {
+        const hc = Math.min(1, sim.cov.by[2][i] + sim.cov.by[3][i]);
+        if (hc > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xff6b81).lerp(TMP.setHex(0xffffff), 1 - hc));
+      } else if (this.overlay === 'shipping') {
+        // V1.5b stage C: depot catchment (teal); businesses inside it bright, the depot gold.
+        const cv = sim.cov.by[Svc.Depot]?.[i] ?? 0;
+        if (t.structure === 'service' && t.kind === Svc.Depot) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffc23d));
+        else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0 ? 0x2fe0c8 : 0x2a7f86).multiplyScalar(0.6 + cv * 0.4));
+      } else if (this.overlay === 'education') {
+        // V1.5b stage G: education level 0..3 (none / elementary / high / college).
+        const ed = sim.cov.edu[i];
+        if (ed > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex([0, 0x9ad0ff, 0x4a8cff, 0x7a3fd1][ed]));
       } else if (this.overlay === 'landValue') {
         // V1.5 stage 11: land value 0 → LV_MAX as deep blue → green → gold.
         const v = sim.env.landValue[i] / LV_MAX;
@@ -677,6 +969,19 @@ export class CityRenderer {
         } else if (sim.env.parks[i] > 0.05) {
           P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84));
         }
+      } else if (this.overlay === 'grid') {
+        // Power & water GRID view: the roads carry the network (graphRoads.updateGrid draws it);
+        // here every building or source is tinted by what reaches it.
+        if (!t.road && (t.zone || t.structure !== 'none')) {
+          const s = sim.net.service[i];
+          const needs = !!t.zone || t.structure === 'waterTower' || t.structure === 'pumpStation';
+          const src = t.structure === 'powerPlant' || t.structure === 'nuclearPlant' || t.structure === 'windTurbine' || t.structure === 'waterTower' || t.structure === 'pumpStation';
+          if (src) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(t.structure === 'waterTower' || t.structure === 'pumpStation' ? 0x29a3ff : 0xffd21f));
+          else if (needs) {
+            const pOk = s.powerNet >= 0 && s.powered, wOk = !t.zone || (s.waterNet >= 0 && s.watered);
+            P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(pOk && wOk ? 0x3ddc84 : !pOk ? 0xff3b30 : 0xff9f1a));
+          }
+        }
       } else if (this.overlay === 'power' || this.overlay === 'water') {
         // Coverage overlay: yellow/blue = served, red = connected but in outage.
         const s = sim.net.service[i];
@@ -689,7 +994,17 @@ export class CityRenderer {
       }
     });
 
+    this.addGraphUtilities(sim);
     this.addLots(sim, seed);
+    // V1.6 A6: shade every region the player doesn't own yet.
+    {
+      const rs = regionSide();
+      if (rs > 1) for (let r = 0; r < rs * rs; r++) {
+        if (owns(sim.world, r)) continue;
+        const cx = (r % rs) * REGION + REGION / 2, cz = Math.floor(r / rs) * REGION + REGION / 2;
+        P.regionShade.add(this.place(new THREE.Vector3(cx, 0.12, cz), 0, REGION / 0.96, 1, REGION / 0.96)); // tilePlane is 0.96 wide
+      }
+    }
     for (const p of Object.values(P)) p.end();
   }
 
@@ -709,7 +1024,19 @@ export class CityRenderer {
       P.road.add(this.place(center), tint);
       [[n, 0], [w, Math.PI / 2], [s, Math.PI], [e, (3 * Math.PI) / 2]].forEach(([has_, yaw]) => !has_ && P.sidewalk.add(this.place(center, yaw as number)));
       const ring = (q: Tile) => q.roadType === 2;
-      if (has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), hash2(x, z, 515) * 6));
+      // V1.6: the ring corner (0 NW, 1 NE, 2 SW, 3 SE) is stored on the tile; the island is drawn once, from the NW tile, and is NOT rotated (its chevron boards face the four entries).
+      const corner = this.sim ? ringCorner(this.sim.world.tiles, z * GRID_SIZE + x) : 0;
+      const bx = x + (corner === 1 || corner === 3 ? 0 : 1), bz = z + (corner >= 2 ? 0 : 1); // block centre
+      if (corner === 0 && has(x + 1, z, ring) && has(x, z + 1, ring) && has(x + 1, z + 1, ring)) P.ringIsland.add(this.place(new THREE.Vector3(bx, 0, bz), 0));
+      // A painted arrow along the counter-clockwise lane (traffic.ts ringStepOk): NW→SW is south, SW→SE east, SE→NE north, NE→NW west.
+      const S = Math.SQRT1_2, ARROW: Array<[number, number]> = [[-S, S], [-S, -S], [S, S], [S, -S]]; // travel direction per corner (dx, dz)
+      const OUT: Array<[number, number]> = [[-S, -S], [S, -S], [-S, S], [S, S]]; // where that tile's arc midpoint lies from the block centre
+      const [adx, adz] = ARROW[corner], [ox, oz] = OUT[corner];
+      P.ringArrow.add(this.place(new THREE.Vector3(bx + ox * RING_LANE_R, 0, bz + oz * RING_LANE_R), Math.atan2(-adz, adx)));
+      // Give-way markings + roundabout sign on every side where a street arrives from outside the ring.
+      [[n, 0, x, z - 1], [w, Math.PI / 2, x - 1, z], [s, Math.PI, x, z + 1], [e, (3 * Math.PI) / 2, x + 1, z]].forEach(([has_, yaw, nx, nz]) => {
+        if (has_ && !has(nx as number, nz as number, ring)) P.ringYield.add(this.place(center, yaw as number));
+      });
       return;
     }
     if (t.water) {
@@ -822,7 +1149,7 @@ export class CityRenderer {
       if (!code) continue;
       const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
       const info = ZONE_CODES[code];
-      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : ZONE_COLORS[info.zone!];
+      const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : code === ZoneCode.ComOffice ? 0x3fb6c9 /* V1.5b office: teal */ : ZONE_COLORS[info.zone!];
       if (cells.owner[c] === 0) {
         this.c.setHex(col);
         if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
@@ -923,7 +1250,12 @@ export class CityRenderer {
       const food = tpl.zone === 'industrial' && tpl.kind === 2;
       // V1.5: a plain factory whose role (chains.ts) has its own model.
       const role = tpl.zone === 'industrial' && tpl.kind === 0 && b.level > 0 ? roleOf(this.sim!.world, b.host) : 'factory';
-      const special = P[`role.${role}`] ? `role.${role}` : '';
+      // V1.5b stage H: offices use their own model (officeModels.ts).
+      const OFFICE: Record<string, string> = { law_firm: 'law', cable_co: 'cable', internet_co: 'isp', data_center: 'data', cell_tower: 'cell', radio_station: 'radio' };
+      // V1.5b stage B: the six new industry types have their own models (before roles).
+      const IND: Record<string, string> = { warehouse: 'warehouse', chemical_plant: 'chemical', steel_mill: 'steel', textile_mill: 'textile', bottling_plant: 'bottling', assembly_plant: 'assembly' };
+      const NEWM: Record<string, string> = { hacienda: 'villa', terrace: 'terrace', modern_house: 'modern', garden_towers: 'gardentowers', sky_residence: 'skyresidence', supermarket: 'supermarket', petrol_station: 'petrol', pharmacy: 'pharmacy', hotel: 'hotel', cinema: 'cinema', department_store: 'department', outlet_mall: 'outlet', office_tower: 'officetower', business_park: 'bizpark', brewery: 'brewery', pharma_lab: 'pharma', clothing_factory: 'clothing', cold_store: 'coldstore', industrial_park: 'indpark', mega_factory: 'megafactory' };
+      const special = NEWM[tpl.id] ? `x.${NEWM[tpl.id]}` : OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -1027,7 +1359,7 @@ export class CityRenderer {
   private animateTraffic(): void {
     const sim = this.sim;
     const P = this.pools;
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].begin();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody', 'tankerBody', 'dumpBody']) P[k].begin();
     if (sim) {
       const tiles = sim.world.tiles;
       const pos = new THREE.Vector3();
@@ -1044,19 +1376,31 @@ export class CityRenderer {
       const one = new THREE.Vector3(1, 1, 1), wp = new THREE.Vector3();
       for (const v of sim.traffic.vehicles) {
         if (!tiles[v.path[v.seg]] || !tiles[v.path[v.seg + 1]]) continue;
+        // V1.6 B6: on freeform-road tiles the graph layer draws its own cars in
+        // proper lanes; the tile car (driving the staircase) is hidden there.
+        const gTiles = sim.world.graphTiles;
+        if (gTiles.size && (gTiles.has(v.path[v.seg]) || gTiles.has(v.path[v.seg + 1]))) continue;
         vehiclePose(v, tiles, pos, pose);
         e.set(pose.roll, pose.yaw, pose.pitch);
         this.q.setFromEuler(e);
         const m = this.m.compose(pos, this.q, one);
         if (v.kind === 'car') {
           P.car.add(m, this.c.setHex(v.color));
-          P.carRoof.add(m, this.c.setHex(roofColor(v.id, v.color))); // PR 5 two-tone roofs
+          P.carRoof.add(m, this.c.setHex(v.purpose.startsWith('police') ? 0x1d2a44 : roofColor(v.id, v.color))); // PR 5 two-tone roofs
+          if (v.purpose.startsWith('police')) P.lightBar.add(m); // V1.5b stage F
         }
         else {
           P.truckCab.add(m);
           // V1.5b: garbage trucks get a compactor body instead of a cargo box.
           if (v.purpose.startsWith('garbage')) P.garbageBody.add(m);
-          else P.truckBox.add(m, this.c.setHex(v.color));
+          else if (v.purpose.startsWith('ambulance')) { P.ambulanceBody.add(m); P.lightBar.add(m); } // V1.5b stage F
+          else {
+            // V1.5b stage B: tankers for liquids, dump trucks for stone/coal (sim/truckBodies.ts).
+            const tb = truckBody(v.purpose);
+            if (tb === 'tanker') P.tankerBody.add(m, this.c.setHex(/fuel/.test(v.purpose) ? 0xd6453a : /plastics/.test(v.purpose) ? 0xe8e8e8 : 0x8f969c));
+            else if (tb === 'dump') P.dumpBody.add(m, this.c.setHex(/coal/.test(v.purpose) ? 0x3a3a3e : 0xa9a49a));
+            else P.truckBox.add(m, this.c.setHex(v.color));
+          }
           // PR 5: construction trucks (orange) carry bricks + pipes on top.
           if (v.purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
         }
@@ -1078,8 +1422,59 @@ export class CityRenderer {
           }
         }
       }
-      if (this.wheelSpin.size > 4 * sim.traffic.vehicles.length + 64) {
+      // NEBULA: the road graph's LIVE traffic (freeform roads) uses the very same
+      // detailed models as the tile cars — body, two-tone roof, spinning wheels,
+      // tail/brake lights, headlight glow, garbage / ambulance / tanker / dump /
+      // cargo trucks — instead of the placeholder boxes it used to draw.
+      const gt = sim.traffic.graph.gt;
+      const gUp = new THREE.Vector3(0, 1, 0), gP2 = { x: 0, z: 0 };
+      if (gt) for (const v of gt.vehicles) {
+        if (v.done) continue;
+        const gp = gt.position(v), gq = gt.position({ ...v, s: v.s + 0.5 } as typeof v);
+        gP2.x = gq.x - gp.x; gP2.z = gq.z - gp.z;
+        if (Math.hypot(gP2.x, gP2.z) < 1e-6) { const gb = gt.position({ ...v, s: Math.max(0, v.s - 0.5) } as typeof v); gP2.x = gp.x - gb.x; gP2.z = gp.z - gb.z; }
+        pos.set(gp.x / TILE_M, 0.041, gp.z / TILE_M); // 0.041 = graph asphalt surface
+        this.q.setFromAxisAngle(gUp, -Math.atan2(gP2.z, gP2.x));
+        const m = this.m.compose(pos, this.q, one);
+        const trip = v.trip, purpose = trip?.purpose ?? '', isTruck = trip?.kind === 'truck';
+        const body = trip?.color ?? CAR_PAINT[v.id % CAR_PAINT.length];
+        if (!isTruck) {
+          P.car.add(m, this.c.setHex(body));
+          P.carRoof.add(m, this.c.setHex(purpose.startsWith('police') ? 0x1d2a44 : roofColor(v.id, body)));
+          if (purpose.startsWith('police')) P.lightBar.add(m);
+        } else {
+          P.truckCab.add(m);
+          if (purpose.startsWith('garbage')) P.garbageBody.add(m);
+          else if (purpose.startsWith('ambulance')) { P.ambulanceBody.add(m); P.lightBar.add(m); }
+          else {
+            const tb = truckBody(purpose);
+            if (tb === 'tanker') P.tankerBody.add(m, this.c.setHex(/fuel/.test(purpose) ? 0xd6453a : /plastics/.test(purpose) ? 0xe8e8e8 : 0x8f969c));
+            else if (tb === 'dump') P.dumpBody.add(m, this.c.setHex(/coal/.test(purpose) ? 0x3a3a3e : 0xa9a49a));
+            else P.truckBox.add(m, this.c.setHex(body));
+          }
+          if (purpose.startsWith(CREW_PURPOSE)) P.crewLoad.add(m);
+        }
+        const key = -1 - v.id; // negative: never clashes with tile-vehicle ids
+        const spin = ((this.wheelSpin.get(key) ?? 0) + ((v.v / TILE_M) * this.frameDt) / WHEELS.radius) % (Math.PI * 2);
+        this.wheelSpin.set(key, spin);
+        tmpQ.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -spin);
+        for (const [wx, wz] of isTruck ? WHEELS.truck : WHEELS.car) {
+          wp.set(wx, WHEELS.radius, wz).applyQuaternion(this.q).add(pos);
+          wq.copy(this.q).multiply(tmpQ);
+          P.wheel.add(this.m.compose(wp, wq, one));
+        }
+        if (!isTruck) {
+          const braking = v.v < 0.5 && (v.wait > 0.2 || v.stopped > 0);
+          if (braking || night) P.tailLight.add(this.m.compose(pos, this.q, one), this.c.setRGB(braking ? 1 : 0.55, braking ? 0.08 : 0.02, braking ? 0.05 : 0.02));
+          if (night) {
+            wp.set(0.2, 0.03, 0).applyQuaternion(this.q).add(pos);
+            P.headGlow.add(this.m.compose(wp, this.cameraQuat, one), this.c.setRGB(1, 0.9, 0.65));
+          }
+        }
+      }
+      if (this.wheelSpin.size > 4 * (sim.traffic.vehicles.length + (gt?.vehicles.length ?? 0)) + 64) {
         const live = new Set(sim.traffic.vehicles.map((v) => v.id));
+        if (gt) for (const v of gt.vehicles) live.add(-1 - v.id);
         for (const k of this.wheelSpin.keys()) if (!live.has(k)) this.wheelSpin.delete(k);
       }
       // PR 5: every pole has two heads × three lamps. Only the active lamp
@@ -1100,8 +1495,21 @@ export class CityRenderer {
           if (lit && glowOn) P.signalGlow.add(this.m.compose(wp, this.cameraQuat, this.s.set(1, 1, 1)), this.c);
         }
       }
+      // NEBULA: graph signal heads show the LIVE phase of their approach.
+      const gtr = sim.traffic.graph.gt;
+      if (gtr) for (const s of this.gSignals) {
+        const active = gtr.junctions.has(s.node) ? signalSlot(gtr, s.node, s.edge) : 0;
+        for (const lamp of SIGNAL_LAMPS) {
+          const lit = lamp.slot === active;
+          const wp = lamp.pos.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, s.yaw).add(s.pos);
+          this.c.setHex(SIGNAL_COLORS[lamp.slot]);
+          if (!lit) this.c.multiplyScalar(0.12);
+          P.lightHead.add(this.place(wp), this.c);
+          if (lit && glowOn) P.signalGlow.add(this.m.compose(wp, this.cameraQuat, this.s.set(1, 1, 1)), this.c);
+        }
+      }
     }
-    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody']) P[k].end();
+    for (const k of ['car', 'truckCab', 'truckBox', 'lightHead', 'signalGlow', 'wheel', 'tailLight', 'headGlow', 'carRoof', 'crewLoad', 'garbageBody', 'lightBar', 'ambulanceBody', 'tankerBody', 'dumpBody']) P[k].end();
   }
 
   /** Sidewalk yaw (N=0, W=π/2, S=π, E=3π/2) of the map side an edge tile sits on. */
@@ -1264,6 +1672,32 @@ export class CityRenderer {
     }
     jib.end();
 
+    // V1.6 landfills: the compactor drives back and forth over the working surface (it parks at the gate once the
+    // landfill is full); gulls circle above and there are more of them the fuller the pit is.
+    const dozer = this.pools.landfillDozer, gulls = this.pools.landfillGull;
+    dozer.begin(); gulls.begin();
+    for (const { c, stage, phase } of this.landfills) {
+      if (stage >= LANDFILL_STAGES - 1) {
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, 0.5);
+        dozer.add(this.m.compose(this.pv.set(c.x + 0.55, 0.012, c.z + 0.62), this.q, this.s.set(1.3, 1.3, 1.3)));
+        continue;
+      }
+      const [tw, td] = landfillTopSize(stage), t = time * 0.35 + phase;
+      const ax = tw * 0.34, az = td * 0.3, cz = c.z + LF_CZ;
+      const dx = ax * Math.cos(t), dz = az * 2 * Math.cos(2 * t + 0.8);
+      this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(-dz, dx)); // model forward is +x
+      this.pv.set(c.x + ax * Math.sin(t), landfillTopY(stage) + Math.sin(time * 9 + phase) * 0.002, cz + az * Math.sin(2 * t + 0.8));
+      dozer.add(this.m.compose(this.pv, this.q, this.s.set(1.3, 1.3, 1.3)));
+      for (let k = 0; k < 2 + stage * 2; k++) {
+        const ang = time * (0.5 + 0.07 * k) + phase + k * 2.1, r = 0.55 + 0.12 * (k % 3);
+        const vx = -Math.sin(ang), vz = Math.cos(ang) * 0.8; // tangent: the bird flies along its orbit
+        this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, Math.atan2(-vz, vx));
+        this.pv.set(c.x + r * Math.cos(ang), 0.55 + 0.15 * Math.sin(time * 0.7 + k) + 0.04 * k, cz + r * Math.sin(ang) * 0.8);
+        gulls.add(this.m.compose(this.pv, this.q, this.s.set(1.5, 1.5, 1.5 * (0.55 + 0.45 * Math.abs(Math.sin(time * 9 + k * 1.3))))));
+      }
+    }
+    dozer.end(); gulls.end();
+
     const mk = this.pools.marker;
     const ip = this.pools.iconPower, iw = this.pools.iconWater, ic = this.pools.iconCrew, ig = this.pools.iconGarbage;
     mk.begin(); ip.begin(); iw.begin(); ic.begin(); ig.begin();
@@ -1313,20 +1747,23 @@ export class PreviewRenderer {
   }
 
   /** tiles: each with a validity flag; hover-only tiles are drawn white. `outline` colours the border. */
-  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>, outline: boolean | null = null): void {
+  show(tiles: Array<{ x: number; z: number; ok: boolean | null }>, outline: boolean | null = null, tint?: number): void {
     this.pool.begin();
     this.edges.begin();
     const inSel = new Set(tiles.map((t) => t.z * GRID_SIZE + t.x));
-    const edgeColor = outline === null ? 0xffffff : outline ? 0x34c759 : 0xff3b30;
+    const edgeColor = outline === null ? 0xffffff : outline ? tint ?? 0x34c759 : 0xff3b30;
     for (const t of tiles) {
-      const color = t.ok === null ? 0xffffff : t.ok ? 0x34c759 : 0xff3b30;
-      this.m.makeTranslation(t.x + 0.5, 0.12, t.z + 0.5);
+      const color = t.ok === null ? 0xffffff : t.ok ? tint ?? 0x34c759 : 0xff3b30;
+      // NEBULA zoning-angle fix: draw at the y=0 pick plane (depthTest is off, so it still
+      // shows over roads). At 0.12 the tile highlight slid ~0.3 tile off the hovered tile at
+      // low pitch (offset = height / tan(pitch)).
+      this.m.makeTranslation(t.x + 0.5, TILE_PREVIEW_Y, t.z + 0.5);
       this.pool.add(this.m, this.c.setHex(color));
       // [dx, dz, bar centre offset x, z, rotation]: N, S, W, E edges.
       for (const [dx, dz, ox, oz, rot] of [[0, -1, 0.5, 0, 0], [0, 1, 0.5, 1, 0], [-1, 0, 0, 0.5, Math.PI / 2], [1, 0, 1, 0.5, Math.PI / 2]]) {
         if (inSel.has((t.z + dz) * GRID_SIZE + (t.x + dx)) && t.x + dx >= 0 && t.x + dx < GRID_SIZE) continue;
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rot);
-        this.m.compose(this.v.set(t.x + ox, 0.13, t.z + oz), this.q, this.one);
+        this.m.compose(this.v.set(t.x + ox, TILE_PREVIEW_Y + 0.001, t.z + oz), this.q, this.one);
         this.edges.add(this.m, this.c.setHex(edgeColor));
       }
     }

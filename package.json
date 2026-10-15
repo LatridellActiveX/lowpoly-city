@@ -1,7 +1,7 @@
 {
   "name": "lowpoly-city",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,35 @@
     "test:v15b": "esbuild tools/v15b.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-test.mjs --log-level=error && node /tmp/v15b-test.mjs",
     "test:v15": "esbuild tools/v15.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15-test.mjs --log-level=error && node /tmp/v15-test.mjs",
     "test:cells": "esbuild tools/cells.test.ts --bundle --platform=node --format=esm --outfile=/tmp/cells-test.mjs --log-level=error && node /tmp/cells-test.mjs",
-    "test:v15b-res": "esbuild tools/v15b-res.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-res-test.mjs --log-level=error && node /tmp/v15b-res-test.mjs"
+    "test:v15b-res": "esbuild tools/v15b-res.test.ts --bundle --platform=node --format=esm --outfile=/tmp/v15b-res-test.mjs --log-level=error && node /tmp/v15b-res-test.mjs",
+    "balance": "esbuild tools/balance.ts --bundle --platform=node --format=esm --outfile=/tmp/balance.mjs --log-level=error && node /tmp/balance.mjs",
+    "lint:tiles": "node tools/lint-tiles.mjs",
+    "bench": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs",
+    "bench:check": "esbuild tools/bench/bench-tick.ts --bundle --platform=node --format=esm --outfile=/tmp/bench.mjs --log-level=error && node --expose-gc /tmp/bench.mjs --check",
+    "test:mapsize": "esbuild tools/mapsize.test.ts --bundle --platform=node --format=esm --outfile=/tmp/mapsize-test.mjs --log-level=error && node /tmp/mapsize-test.mjs",
+    "test:chunks": "esbuild tools/chunks.test.ts --bundle --platform=node --format=esm --outfile=/tmp/chunks-test.mjs --log-level=error && node /tmp/chunks-test.mjs",
+    "test:incremental": "esbuild tools/incremental.test.ts --bundle --platform=node --format=esm --outfile=/tmp/incremental-test.mjs --log-level=error && node /tmp/incremental-test.mjs",
+    "test:replay": "esbuild tools/replay.test.ts --bundle --platform=node --format=esm --outfile=/tmp/replay-test.mjs --log-level=error && node /tmp/replay-test.mjs",
+    "test:regions": "esbuild tools/regions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/regions-test.mjs --log-level=error && node /tmp/regions-test.mjs",
+    "test:roadgraph": "esbuild tools/roadgraph.test.ts --bundle --platform=node --format=esm --outfile=/tmp/roadgraph-test.mjs --log-level=error && node /tmp/roadgraph-test.mjs",
+    "test:blocks": "esbuild tools/blocks.test.ts --bundle --platform=node --format=esm --outfile=/tmp/blocks-test.mjs --log-level=error && node /tmp/blocks-test.mjs",
+    "test:blockbridge": "esbuild tools/blockbridge.test.ts --bundle --platform=node --format=esm --outfile=/tmp/blockbridge-test.mjs --log-level=error && node /tmp/blockbridge-test.mjs",
+    "test:gtraffic": "esbuild tools/gtraffic.test.ts --bundle --platform=node --format=esm --outfile=/tmp/gtraffic-test.mjs --log-level=error && node /tmp/gtraffic-test.mjs",
+    "test:utilities": "esbuild tools/utilities.test.ts --bundle --platform=node --format=esm --outfile=/tmp/utilities-test.mjs --log-level=error && node /tmp/utilities-test.mjs",
+    "test:migrate": "esbuild tools/migrate.test.ts --bundle --platform=node --format=esm --outfile=/tmp/migrate-test.mjs --log-level=error && node /tmp/migrate-test.mjs",
+    "test:freeroads": "esbuild tools/freeroads.test.ts --bundle --platform=node --format=esm --outfile=/tmp/freeroads-test.mjs --log-level=error && node /tmp/freeroads-test.mjs",
+    "test:oasis": "esbuild tools/oasis.test.ts --bundle --platform=node --format=esm --outfile=/tmp/oasis-test.mjs --log-level=error && node /tmp/oasis-test.mjs",
+    "test:junctions": "esbuild tools/junctions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/junctions-test.mjs --log-level=error && node /tmp/junctions-test.mjs",
+    "test:nebula": "esbuild tools/nebula.test.ts --bundle --platform=node --format=esm --outfile=/tmp/nebula-test.mjs --log-level=error && node /tmp/nebula-test.mjs",
+    "test:models": "esbuild tools/models.test.ts --bundle --platform=node --format=esm --outfile=/tmp/models-test.mjs --log-level=error && node /tmp/models-test.mjs",
+    "test:powergraphonly": "esbuild tools/powergraphonly.test.ts --bundle --platform=node --format=esm --outfile=/tmp/powergraphonly-test.mjs --log-level=error && node /tmp/powergraphonly-test.mjs",
+    "test:powerjunctions": "esbuild tools/powerjunctions.test.ts --bundle --platform=node --format=esm --outfile=/tmp/powerjunctions-test.mjs --log-level=error && node /tmp/powerjunctions-test.mjs",
+    "test:zoneangles": "esbuild tools/zoneangles.test.ts --bundle --platform=node --format=esm --outfile=/tmp/zoneangles-test.mjs --log-level=error && node /tmp/zoneangles-test.mjs",
+    "test:debugcode": "esbuild tools/debugcode.test.ts --bundle --platform=node --format=esm --outfile=/tmp/debugcode-test.mjs --log-level=error && node /tmp/debugcode-test.mjs",
+    "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "three": "^0.169.0"
   },
   "devDependencies": {

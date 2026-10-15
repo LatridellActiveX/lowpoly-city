@@ -26,7 +26,7 @@
  * The same rules feed `buildingRequirements()` (the Inspect "Next level"
  * bars), so the panel can't disagree with what the sim checks.
  */
-import { MEDIUM_LEVEL_POP } from './footprints';
+import { MEDIUM_LEVEL_POP, resLevel } from './footprints';
 import { zonePromote } from './lots';
 import { mediumUnlocked } from './progression';
 import { occupancyDemand } from './demand';
@@ -88,7 +88,9 @@ function roll(sim: Simulation, zone: ZoneType, salt: number): boolean {
   // V1.5 mixed use (commercial host tile with kind 3): flats AND a shop, so
   // whichever of residential / commercial demand is stronger drives it.
   const mixed = zone === 'commercial' && w.tiles[salt]?.kind === 3;
-  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : sim.demandFactor(zone);
+  // V1.5b stage H: offices grow on BOTH commercial and industrial demand.
+  const office = zone === 'commercial' && w.tiles[salt]?.kind === 4;
+  const f = mixed ? Math.max(sim.demandFactor('commercial'), sim.demandFactor('residential')) : office ? (sim.demandFactor('commercial') + sim.demandFactor('industrial')) / 2 : sim.demandFactor(zone);
   return hash2(salt, w.tick, w.seed + 777) <= 0.35 * growthFactor(w.taxRates[zone]) * propertyGrowth(w.propertyRate) * f; // V1.5: property tax too
 }
 
@@ -158,7 +160,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     if (!serviced) { b.happy = 0; continue; }
     // Parking shortfall / give-ups slow growth to half speed.
     if (!(short || frustrated) || w.tick % 2 === 0) b.happy++;
-    const need = tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+    const need = (tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS) * eduSlow(sim, b);
     if (b.happy < need) continue;
     const cap = levelCap(sim, b);
     if (b.level < Math.min(cap, tpl.maxLevel)) {
@@ -167,7 +169,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
       if (!take(b.host, extraUse(tpl, b.level, b.level + 1))) continue;
       b.construct = CONSTRUCT_TICKS; // next stage; needs a crew on site again unless one is lingering
       b.happy = 0;
-    } else if (mergeReady(tpl, b, cap) && b.happy >= mergeTicks(tpl) && dem > (medRes(tpl) ? MED_MERGE_DEMAND : 0.3) && (b.id + w.tick) % (medRes(tpl) ? 5 : 10) === 0) {
+    } else if (mergeReady(tpl, b, cap) && b.happy >= mergeTicks(tpl) && dem > (medRes(tpl) ? MED_MERGE_DEMAND : 0.3) && (b.id + w.tick) % mergeEvery(tpl) === 0) {
       tryMerge(sim, b, take);
     }
   }
@@ -248,10 +250,39 @@ const desireOf2 = (sim: Simulation, i: number) => sim.env.desirability[i];
  * template level MED_MERGE_START so the street doesn't lose most of its
  * residents during the rebuild.
  */
+/**
+ * V1.5b stage G — EDUCATION AND HOME LEVELS. Homes still grow without
+ * schools, but slower: the next level L4–L5 needs elementary coverage
+ * (edu ≥ 1) and L6–L7 high-school coverage (edu ≥ 2), else growth takes
+ * EDU_SLOW_ELEM / EDU_SLOW_HIGH × as long.
+ */
+export const EDU_SLOW_ELEM = 1.4, EDU_SLOW_HIGH = 1.6;
+export function eduSlow(sim: Simulation, b: Building): number {
+  const tpl = TPL[b.tpl];
+  if (tpl.zone !== 'residential' || !sim.cov) return 1;
+  const next = resLevel(tpl, b.level + 1), e = sim.cov.edu[b.host] ?? 0;
+  if (next >= 6 && e < 2) return EDU_SLOW_HIGH;
+  if (next >= 4 && e < 1) return EDU_SLOW_ELEM;
+  return 1;
+}
 export const MED_MERGE_DEMAND = 0.1;
 export const MED_MERGE_START = 2;
 const medRes = (t: Template) => t.zone === 'residential' && t.density === 1 && !t.legacy;
-const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : MERGE_TICKS);
+/** V1.5b stage B: industry merges ~1.5× more often (shorter wait, checked more often). */
+export const IND_MERGE_RATE = 1.5;
+/**
+ * V1.6: commercial kinds (shops 0, mixed-use 3, offices 4) and industrial
+ * factories / food plants (0, 2) merge ACROSS kinds into the larger
+ * footprints — a row of corner shops and a law firm can become a mall or a
+ * business park. Farms (industrial 1) and residential stay as they were.
+ */
+export function mergeKind(zone: string, kind: number): number {
+  if (zone === 'commercial') return 0;
+  if (zone === 'industrial') return kind === 2 ? 0 : kind;
+  return kind;
+}
+const mergeTicks = (t: Template) => (medRes(t) ? MERGE_TICKS / 2 : t.zone === 'industrial' ? Math.round(MERGE_TICKS / IND_MERGE_RATE) : MERGE_TICKS);
+const mergeEvery = (t: Template) => (medRes(t) ? 5 : t.zone === 'industrial' ? Math.round(10 / IND_MERGE_RATE) : 10);
 /** Ready to merge: maxed out, or (medium homes) L6+ and at the population cap. */
 export function mergeReady(t: Template, b: Building, cap = t.maxLevel): boolean {
   if (b.level >= t.maxLevel) return true;
@@ -265,7 +296,7 @@ function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { powe
   // medium housing is unlocked (1,000 people) — no re-zoning needed. The
   // desirability gate for medium density still applies.
   const promote = tpl.zone === 'residential' && tpl.density === 0 && mediumUnlocked(w) && desireOf(sim, b) >= DENSITY_DESIRE[1];
-  const bigger = growablePool(tpl.zone, w).filter((p) => p.kind === tpl.kind && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]) && (p.density <= 1 || !promote));
+  const bigger = growablePool(tpl.zone, w).filter((p) => mergeKind(p.zone, p.kind) === mergeKind(tpl.zone, tpl.kind) && (p.density > tpl.density || area(p) > area(tpl) * 1.5) && (tpl.zone !== 'residential' || desireOf(sim, b) >= DENSITY_DESIRE[p.density]) && (p.density <= 1 || !promote));
   if (!bigger.length) return false;
   zonePromote.on = promote;
   try {
@@ -276,15 +307,28 @@ function tryMerge(sim: Simulation, b: Building, take: (host: number, use: { powe
 }
 
 /** tryMerge body (split out so the zone-promotion flag is always reset). */
+/** Largest building footprint side in cells (bounds the merge neighbour search). */
+const MAX_FOOT = Math.max(...Object.values(TPL).flatMap((t) => t.rects.map((r) => Math.max(r.u + r.w, r.v + r.d))));
 function mergeInto(sim: Simulation, b: Building, tpl: Template, bigger: Template[], take: (host: number, use: { power: number; water: number }) => boolean, promote: boolean): boolean {
   const w = sim.world, lots = w.lots;
   // Neighbours that may be swallowed: same zone/kind, finished, maxed (or fillers), near b.
+  // V1.6 T2: candidates come from the cell owners in the ±10-cell box
+  // around b's origin instead of a scan of every building (that made merges
+  // O(buildings²) per month on big cities). The box is widened by the
+  // largest footprint so a building is found even when its bounding-box
+  // corner cell isn't one of its own (L shapes); the exact old test follows.
   const replace = new Set<number>();
-  for (const o of lots.buildings.values()) {
+  const seen = new Set<number>();
+  for (let cz = Math.max(0, b.z0 - 10); cz <= Math.min(CELL_GRID - 1, b.z0 + 10 + MAX_FOOT); cz++)
+    for (let cx = Math.max(0, b.x0 - 10); cx <= Math.min(CELL_GRID - 1, b.x0 + 10 + MAX_FOOT); cx++) {
+      const id = w.cells.owner[cidx(cx, cz)];
+      if (id > 0) seen.add(id);
+    }
+  const near = [...seen].sort((p, q) => p - q).map((id) => lots.buildings.get(id)!).filter(Boolean);
+  for (const o of near) {
     const ot = TPL[o.tpl];
-    if (Math.abs(o.x0 - b.x0) > 10 || Math.abs(o.z0 - b.z0) > 10) continue;
     const done = o.level >= ot.maxLevel || (medRes(ot) && o.level >= 3); // V1.5b: L6+ medium neighbours count
-    if (isFiller(ot) || (ot.zone === tpl.zone && ot.kind === tpl.kind && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
+    if (isFiller(ot) || (ot.zone === tpl.zone && mergeKind(ot.zone, ot.kind) === mergeKind(tpl.zone, tpl.kind) && o.construct === 0 && done && ot.density <= tpl.density && !ot.legacy)) replace.add(o.id);
   }
   replace.add(b.id);
   const opts = lots.options(w, b.host, bigger, replace).filter((o) => {
@@ -521,7 +565,7 @@ export function buildingRequirements(sim: Simulation, b: Building): Requirement[
   const sp = s.powerNet >= 0 ? sim.net.power[s.powerNet].capacity - sim.net.power[s.powerNet].supplied : 0;
   const sw = s.waterNet >= 0 ? sim.net.water[s.waterNet].capacity - sim.net.water[s.waterNet].supplied : 0;
   add('Spare power & water capacity', +(sp >= use.power) + +(sw >= use.water), 2, 'Build another power plant or water tower');
-  const need = tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS;
+  const need = (tpl.zone === 'residential' && desireOf(sim, b) >= DESIRE_FAST ? GROW_TICKS / 2 : GROW_TICKS) * eduSlow(sim, b);
   add('Settled (happy ticks)', Math.min(b.happy, need), need, park.shortfall(b) > 0 ? 'Short of parking: growing at half speed' : 'Just wait — growth takes a few seconds');
   return rows;
 }

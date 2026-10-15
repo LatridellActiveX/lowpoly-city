@@ -68,7 +68,7 @@ function town(): Simulation {
 // ---------------------------------------------------------------- stage A: templates + models
 {
   const ids = ['apt_complex', 'twin_midrise', 'perimeter'];
-  check('large medium footprints exist and were appended last', ids.every((id) => TPL[id] && TEMPLATES.indexOf(TPL[id]) >= TEMPLATES.length - ids.length));
+  check('large medium footprints exist and were appended after all older templates', ids.every((id) => TPL[id] && TEMPLATES.indexOf(TPL[id]) > TEMPLATES.indexOf(TPL['mixed_corner'])));
   check('large footprints are bigger than every older medium template', ids.every((id) => TPL[id].w * TPL[id].d >= 60));
   const med = TEMPLATES.filter((t) => t.zone === 'residential' && t.density === 1);
   check('every medium template uses the mid-rise model (7) at L6/L7', med.every((t) => t.model.level[2] === 7 && t.model.level[3] === 7));

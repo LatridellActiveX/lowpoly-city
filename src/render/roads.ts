@@ -138,9 +138,10 @@ export const ROADS = {
    * lane dashes (PR 5: twice as many, shorter) and solid white edge lines.
    */
   avenueMarks: () => {
-    const parts = [part(box(1, 0.008, 0.025), YELLOW, [0, 0.04, -0.025]), part(box(1, 0.008, 0.025), YELLOW, [0, 0.04, 0.025])];
-    for (const z of [-0.24, 0.24]) for (const x of [-0.375, -0.125, 0.125, 0.375]) parts.push(part(box(0.12, 0.008, 0.03), PAINT, [x, 0.04, z]));
-    for (const z of [-0.36, 0.36]) parts.push(part(box(1, 0.008, 0.02), PAINT, [0, 0.04, z]));
+    // V1.6 B6 (Parker): thinner paint everywhere.
+    const parts = [part(box(1, 0.008, 0.014), YELLOW, [0, 0.04, -0.022]), part(box(1, 0.008, 0.014), YELLOW, [0, 0.04, 0.022])];
+    for (const z of [-0.24, 0.24]) for (const x of [-0.375, -0.125, 0.125, 0.375]) parts.push(part(box(0.12, 0.008, 0.012), PAINT, [x, 0.04, z]));
+    for (const z of [-0.36, 0.36]) parts.push(part(box(1, 0.008, 0.01), PAINT, [0, 0.04, z]));
     return merge(parts);
   },
   /**
@@ -149,8 +150,8 @@ export const ROADS = {
    */
   streetMarks: () => {
     const parts: THREE.BufferGeometry[] = [];
-    for (const x of [-0.333, 0, 0.333]) parts.push(part(box(0.16, 0.012, 0.045), 0xf2e6a0, [x, 0.04, 0]));
-    for (const z of [-0.33, 0.33]) parts.push(part(box(1, 0.008, 0.018), PAINT, [0, 0.04, z]));
+    for (const x of [-0.333, 0, 0.333]) parts.push(part(box(0.16, 0.012, 0.016), 0xf2e6a0, [x, 0.04, 0])); // V1.6 B6: thinner dashes
+    for (const z of [-0.33, 0.33]) parts.push(part(box(1, 0.008, 0.01), PAINT, [0, 0.04, z]));
     return merge(parts);
   },
   /**

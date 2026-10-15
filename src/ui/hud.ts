@@ -1,3 +1,6 @@
+import { RegionsPanel } from './regionsPanel';
+import { CELL_GRID } from '../sim/cells';
+import { DEPOT_BONUS, depotOf } from '../sim/goods';
 /**
  * ui/hud.ts — all the HTML user interface: toolbar, top stats bar, time
  * controls, overlay toggles, save/load buttons and the info panel.
@@ -22,8 +25,8 @@ import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
-import { SERVICE_DEFS, serviceAnchors, Svc } from '../sim/services';
-import { G_MAX, G_WARN } from '../sim/garbage';
+import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services';
+import { G_MAX, G_WARN, LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
@@ -31,7 +34,7 @@ import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
 import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
-import { CONSTRUCT_TICKS, FUEL_MAX } from "../sim/rules";
+import { CONSTRUCT_TICKS, FUEL_MAX, POWER_OUTPUT } from "../sim/rules";
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number, dir: number): string {
@@ -71,16 +74,21 @@ export class Hud {
   private readonly groupButtons = new Map<ToolGroupId, HTMLButtonElement>();
   private readonly flyouts = new Map<ToolGroupId, HTMLDivElement>();
   /** Last tool used in each group; the group button shows and re-selects it. */
-  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe', industry: 'industrial', services: 'garbageDump' };
+  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', utilities: 'powerLine', industry: 'industrial', services: 'garbageDump' };
   /** Which flyout is open right now (null = none). Number keys pick inside it. */
   openGroup: ToolGroupId | null = null;
   private readonly speedButtons: HTMLButtonElement[] = [];
   private readonly overlayButtons = new Map<OverlayMode, HTMLButtonElement>();
+  private viewBtn: HTMLButtonElement | null = null;
+  /** Key for the Power & water grid view (shown only while it is selected). */
+  private readonly gridLegend = el('div', 'panel grid-legend hidden', '<b>Power &amp; water grid</b><br>Along the roads: left line <span class="sw" style="background:#ffd21f"></span> power, right line <span class="sw" style="background:#29a3ff"></span> water<br><span class="sw" style="background:#ff3b30"></span> network overloaded · <span class="sw" style="background:#6b7280"></span> not connected to a source<br>Buildings: <span class="sw" style="background:#3ddc84"></span> served · <span class="sw" style="background:#ff3b30"></span> no power · <span class="sw" style="background:#ff9f1a"></span> no water');
   private readonly stats = el('div', 'stats');
   private readonly hint = el('div', 'hint');
   private readonly info = el('div', 'info hidden');
   private readonly toast = el('div', 'toast');
   private readonly budget = el('div', 'budget hidden');
+  /** V1.6 A6: region purchase panel. */
+  readonly regions = new RegionsPanel();
   /** Cost tooltip that follows the mouse (PR 3). */
   private readonly tip = el('div', 'cost-tip hidden');
   /** Graphs panel and stacked notifications (PR 3). */
@@ -112,28 +120,44 @@ export class Hud {
       time.append(b);
     });
 
-    const overlays = el('div', 'group');
+    // All map views live in one dropdown behind a round "view menu" button.
+    const overlays = el('div', 'view-menu');
+    const viewBtn = el('button', 'view-btn', '👁') as HTMLButtonElement;
+    viewBtn.title = 'View menu — pick a map view';
+    this.viewBtn = viewBtn;
+    const viewList = el('div', 'view-list hidden');
+    viewBtn.onclick = () => viewList.classList.toggle('hidden');
+    window.addEventListener('pointerdown', (e) => {
+      if (!(e.target as HTMLElement).closest('.view-menu')) viewList.classList.add('hidden');
+    });
+    overlays.append(viewBtn, viewList);
     (
       [
         ['none', 'Normal'],
         ['power', '⚡ Power'],
         ['water', '💧 Water'],
+        ['grid', '🔌 Power & water grid'],
         ['pollution', '☁️ Pollution'],
         ['resources', '🗺 Resources'],
         ['zoning', '🧱 Zoning'],
         ['parking', '🅿️ Parking'],
         ['landValue', '💎 Land value'], // V1.5 stage 11
         ['garbage', '🗑 Garbage'], // V1.5b stage E
+        ['crime', '🚓 Crime'], // V1.5b stage F
+        ['health', '🩺 Health care'], // V1.5b stage F
+        ['education', '🎓 Education'], // V1.5b stage G
+        ['shipping', '📦 Shipping'], // V1.5b stage C
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
       // screens, leaving just the icon (full name stays in the tooltip).
-      const sp = label.indexOf(' ');
-      const b = el('button', 'btn', sp > 0 ? `${label.slice(0, sp)}<span class="lbl">${label.slice(sp)}</span>` : label) as HTMLButtonElement;
-      if (!b.title) b.title = label;
-      b.onclick = () => actions.setOverlay(mode);
+      const b = el('button', 'view-item', label) as HTMLButtonElement;
+      b.onclick = () => {
+        actions.setOverlay(mode);
+        viewList.classList.add('hidden');
+      };
       this.overlayButtons.set(mode, b);
-      overlays.append(b);
+      viewList.append(b);
     });
 
     const view = el('div', 'group');
@@ -162,7 +186,7 @@ export class Hud {
       if (open && this.lastSim) this.graphs.update(this.lastSim);
     };
     const file = el('div', 'group');
-    file.append(budgetBtn, graphsBtn);
+    file.append(budgetBtn, graphsBtn, this.regions.button); // V1.6 A6: Regions (big maps only)
     for (const [label, fn] of [
       ['Save', actions.save],
       ['Load', actions.load],
@@ -202,7 +226,7 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    root.append(top, this.gridLegend, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -342,6 +366,8 @@ export class Hud {
     fly.append(el('div', 'flyout-title', `${g.icon} ${g.label}`));
     g.tools.forEach((id, n) => {
       const t = toolDef(id);
+      const sec = g.sections?.[id];
+      if (sec) fly.append(el('div', 'flyout-section', sec));
       const row = el(
         'button',
         'fly-item',
@@ -354,16 +380,6 @@ export class Hud {
       this.toolButtons.set(id, row);
       fly.append(row);
     });
-    if (gid === 'roads') {
-      // Bridges are automatic: any road dragged over water becomes a bridge.
-      const row = el('button', 'fly-item info', `<kbd>${g.tools.length + 1}</kbd><span class="icon">🌉</span><span class="name">Bridge<small>auto</small></span><span class="price">+$48</span><span class="lock"></span>`) as HTMLButtonElement;
-      row.title = 'Bridges build automatically: drag a road or avenue across water (+$48 per water tile). Selects the Road tool.';
-      row.onclick = () => {
-        actions.selectTool('road');
-        this.closeFlyout();
-      };
-      fly.append(row);
-    }
     btn.onclick = () => {
       if (this.openGroup === gid) return this.closeFlyout();
       this.openFlyout(gid);
@@ -405,7 +421,6 @@ export class Hud {
   flyoutPick(n: number): ToolId | null {
     if (!this.openGroup) return null;
     const g = TOOL_GROUPS.find((x) => x.id === this.openGroup)!;
-    if (n === g.tools.length + 1 && g.id === 'roads') return 'road'; // the Bridge info row
     return g.tools[n - 1] ?? null;
   }
 
@@ -428,6 +443,8 @@ export class Hud {
 
   setOverlay(o: OverlayMode): void {
     this.overlayButtons.forEach((b, k) => b.classList.toggle('active', k === o));
+    this.viewBtn?.classList.toggle('active', o !== 'none');
+    this.gridLegend.classList.toggle('hidden', o !== 'grid');
   }
 
   flash(msg: string): void {
@@ -506,6 +523,7 @@ export class Hud {
     }
     if (!this.budget.classList.contains('hidden')) this.refreshBudget(sim);
     this.graphs.update(sim);
+    this.regions.update(sim);
     this.demandBars.update(sim);
     this.notices.check(sim);
     void this.currentTool;
@@ -530,7 +548,7 @@ export class Hud {
     const names: Record<string, string> = {
       powerPlant: 'Coal Power Plant',
       windTurbine: 'Wind Turbine',
-      waterTower: 'Water Tower',
+      waterTower: t.kind === 1 ? 'Large Water Tower' : 'Water Tower',
       park: 'Park',
       nuclearPlant: 'Nuclear Power Plant (2×2)',
       pumpStation: 'Pump Station',
@@ -558,11 +576,11 @@ export class Hud {
     // PR 6: which building / lot / field is under the cursor cell?
     const [pcx, pcz] = this.pickCell ?? [x * 4 + 1, z * 4 + 1];
     const inTile = Math.floor(pcx / 4) === x && Math.floor(pcz / 4) === z;
-    const cellOwner = inTile ? sim.world.cells.owner[pcz * 256 + pcx] : 0;
+    const cellOwner = inTile ? sim.world.cells.owner[pcz * CELL_GRID + pcx] : 0;
     let bld = cellOwner > 0 ? sim.world.lots.buildings.get(cellOwner) : undefined;
-    const fieldOf = bld && inTile && sim.world.cells.role[pcz * 256 + pcx] === 5 ? bld : undefined;
+    const fieldOf = bld && inTile && sim.world.cells.role[pcz * CELL_GRID + pcx] === 5 ? bld : undefined;
     if (fieldOf) bld = undefined;
-    if (!bld && !fieldOf) bld = sim.world.lots.hostedOn(i).find((q) => TPL[q.tpl].capacity[0] > 0) ?? sim.world.lots.onTile(sim.world, x, z).find((q) => sim.world.cells.role[pcz * 256 + pcx] !== 5 && TPL[q.tpl].capacity[0] > 0);
+    if (!bld && !fieldOf) bld = sim.world.lots.hostedOn(i).find((q) => TPL[q.tpl].capacity[0] > 0) ?? sim.world.lots.onTile(sim.world, x, z).find((q) => sim.world.cells.role[pcz * CELL_GRID + pcx] !== 5 && TPL[q.tpl].capacity[0] > 0);
     const pubLot = cellOwner < 0 ? sim.world.parking.lots.get(-cellOwner) : [...sim.world.parking.lots.values()].find((l) => Math.floor(l.cx / 4) === x && Math.floor(l.cz / 4) === z);
     if (bld) {
       const tpl = TPL[bld.tpl];
@@ -642,6 +660,7 @@ export class Hud {
         if (hb.health === undefined) continue;
         const hp = Math.round(hb.health * 100);
         rows.push(`<div class="row">Health: <b class="${hb.health < 0.3 ? 'bad' : hb.health > 0.6 ? 'ok' : ''}">${hp}%</b>${hb.lowMonths ? ` <span class="bad">· struggling ${hb.lowMonths}/3 months — then it's redeveloped</span>` : ''}${hb.redev && hb.construct > 0 ? ' · 🏗 being redeveloped' : ''}</div>`);
+        if (hb.densified) rows.push(`<div class="row">🏙 Densified (${hb.densified}) by high housing demand</div>`); // V1.5b
         break;
       }
       const pf = sim.world.profits.get(i);
@@ -659,7 +678,7 @@ export class Hud {
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
-      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 15, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
+      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       if (t.part) rows.push('<div class="row muted">Part of a 2×2 nuclear plant (output is counted on its top-left tile).</div>');
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
@@ -681,15 +700,40 @@ export class Hud {
     // V1.5b services: the building itself, then garbage + coverage on any tile.
     if (t.structure === 'service') {
       const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
-      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${d.size === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
-      if (d.svc === Svc.Dump) rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      if (d.svc === Svc.Police || d.svc === Svc.Clinic || d.svc === Svc.Hospital) rows.push(`<div class="row">${d.svc === Svc.Police ? 'Patrol cars' : 'Ambulances'} out: <b>${sim.responders.outOf(a)} / ${d.fleet}</b></div>`);
+      if (d.svc === Svc.Dump) {
+        const lf = sim.world.tiles[a], fill = landfillFill(lf);
+        rows.push(`<div class="row">🗑 Landfill: <b class="${fill >= 0.8 ? 'bad' : ''}">${Math.round(fill * 100)}% full</b> (${Math.round(lf.stock).toLocaleString()} / ${LANDFILL_MAX.toLocaleString()})</div>`);
+        if (landfillFull(lf)) rows.push('<div class="row bad">FULL — it takes no more garbage. Build a new landfill (recycling centers slow the flow).</div>');
+        else if (fill >= 0.8) rows.push('<div class="row bad">Almost full — plan a new landfill.</div>');
+        rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+      }
+      if (d.svc === Svc.Recycling) {
+        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
+        rows.push(`<div class="row">🔥 Burns garbage for <b>${POWER_OUTPUT.powerPlant}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
+        rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
+      }
+      if (d.svc === Svc.Depot) {
+        let n = 0; sim.world.tiles.forEach((q, j) => { if ((q.zone === 'industrial' || q.zone === 'commercial') && q.level > 0 && depotOf([a], j) === a) n++; });
+        rows.push(`<div class="row">📦 Loads handled: <b>${sim.shipping.depotLoads.get(a) ?? 0}</b> · businesses in catchment: <b>${n}</b></div>`);
+        rows.push(`<div class="row muted">Exports via the depot pay +${Math.round(DEPOT_BONUS * 100)}% and leave at half a hopper; imports to the catchment start here.</div>`);
+      }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
-    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Garbage Dump nearby' : ''}</div>`);
+    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
     if (t.zone) {
       const c = sim.cov.by;
+      // V1.5b stage G: workforce education.
+      const wf = sim.demand.workforce;
+      if (t.zone === 'residential' && t.res > 0) rows.push(`<div class="row">🎓 Workers here are <b>${sim.cov.edu[i] >= 1 ? 'educated' : 'uneducated'}</b>${sim.cov.edu[i] >= 1 ? '' : ' — no elementary school in range'}</div>`);
+      if (wf && (t.zone === 'commercial' || t.zone === 'industrial')) rows.push(`<div class="row muted">City workforce: ${Math.round(wf.educated)} educated · ${Math.round(wf.uneducated)} uneducated · ${t.zone === 'commercial' ? `shops/offices need ${Math.round(wf.needEducated)} educated` : 'industry mostly hires uneducated workers'}</div>`);
+      // V1.5b stage F: crime on this tile (police coverage lowers it).
+      const cr = sim.safety.crime[i] ?? 0;
+      if (cr > 0.02) rows.push(`<div class="row">🚓 Crime: <b class="${cr > 0.4 ? 'bad' : ''}">${Math.round(cr * 100)}%</b>${c[Svc.Police][i] < 0.3 && cr > 0.2 ? ' — build a Police Station nearby' : ''}</div>`);
       const pct = (v: number) => `${Math.round(v * 100)}%`;
-      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
+      if ((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0) { const dp = depotOf(serviceAnchors(sim.world, Svc.Depot), i); if (dp >= 0) rows.push(`<div class="row">📦 Ships via the depot at ${coords(dp).join(', ')}</div>`); }
+      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · ♻️ ${pct(c[Svc.Recycling][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
     // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).
@@ -714,6 +758,6 @@ export class Hud {
 /** PR 6: zoned cells on tile (x, z) (Inspect). */
 function zonedCells(sim: Simulation, x: number, z: number): number {
   let n = 0;
-  for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (sim.world.cells.zone[(z * 4 + dz) * 256 + x * 4 + dx]) n++;
+  for (let dz = 0; dz < 4; dz++) for (let dx = 0; dx < 4; dx++) if (sim.world.cells.zone[(z * 4 + dz) * CELL_GRID + x * 4 + dx]) n++;
   return n;
 }

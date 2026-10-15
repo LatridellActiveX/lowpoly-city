@@ -42,6 +42,7 @@
  * Positions are interpolated between tile centres; the renderer adds the
  * right-hand lane offset and smooths the turn at corners.
  */
+import { LiveGraphTraffic } from './livegraph';
 import { GRID_SIZE, Tile } from './types';
 import { World } from './grid';
 import { hash2 } from './random';
@@ -349,42 +350,50 @@ class Heap {
   }
 }
 
+/** V1.6 A6: findPath scratch (see the comment inside). */
+let pathScratch = { g: new Float32Array(0), from: new Int32Array(0), seen: new Int32Array(0), closed: new Int32Array(0), gen: 0 };
+
 /** A* over road tiles. Returns the list of tile indices, or null if unreachable. */
 export function findPath(tiles: Tile[], start: number, goal: number): number[] | null {
   if (!tiles[start]?.road || !tiles[goal]?.road) return null;
   if (start === goal) return [start];
   const N = GRID_SIZE;
-  const g = new Float32Array(N * N).fill(Infinity);
-  const from = new Int32Array(N * N).fill(-1);
-  const closed = new Uint8Array(N * N);
+  // V1.6 A6: reusable scratch arrays with a generation stamp instead of
+  // three fresh N² arrays per path (330 KB of fills per call on the 192
+  // map). An entry counts only if its stamp is this call's generation;
+  // otherwise it reads as "unvisited" (g = ∞, from = −1, open).
+  if (pathScratch.g.length !== N * N) pathScratch = { g: new Float32Array(N * N), from: new Int32Array(N * N), seen: new Int32Array(N * N), closed: new Int32Array(N * N), gen: 0 };
+  const sc = pathScratch, gen = ++sc.gen, G = sc.g, F = sc.from, seen = sc.seen, cl = sc.closed;
+  const g = { get: (i: number) => (seen[i] === gen ? G[i] : Infinity) };
+  const fromOf = (i: number) => (seen[i] === gen ? F[i] : -1);
   const gx = goal % N, gz = Math.floor(goal / N);
   const h = (i: number) => (Math.abs((i % N) - gx) + Math.abs(Math.floor(i / N) - gz)) * AVENUE_COST;
   const open = new Heap();
-  g[start] = 0;
+  seen[start] = gen; G[start] = 0; F[start] = -1;
   open.push(start, h(start));
   while (open.size) {
     const i = open.pop();
     if (i === goal) {
       const path = [goal];
-      for (let k = from[goal]; k !== -1; k = from[k]) path.push(k);
+      for (let k = fromOf(goal); k !== -1; k = fromOf(k)) path.push(k);
       return path.reverse();
     }
-    if (closed[i]) continue; // a stale heap entry (we found a cheaper way earlier)
-    closed[i] = 1;
+    if (cl[i] === gen) continue; // a stale heap entry (we found a cheaper way earlier)
+    cl[i] = gen;
     const x = i % N, z = Math.floor(i / N);
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, nz = z + dz;
       if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
       const n = nz * N + nx;
       const t = tiles[n];
-      if (!t.road || closed[n]) continue;
+      if (!t.road || cl[n] === gen) continue;
       // V1.5 roundabouts circulate counter-clockwise (right-hand traffic):
       // between two ring tiles only the ring direction is allowed.
       if (isRing(tiles[i]) && isRing(t) && !ringStepOk(tiles, i, n)) continue;
-      const cost = g[i] + (t.roadType === 1 ? AVENUE_COST : STREET_COST);
-      if (cost < g[n]) {
-        g[n] = cost;
-        from[n] = i;
+      // G is a Float32Array like the old g[], so costs round exactly as before.
+      const cost = G[i] + (t.roadType === 1 ? AVENUE_COST : STREET_COST);
+      if (cost < g.get(n)) {
+        seen[n] = gen; G[n] = cost; F[n] = i;
         open.push(n, cost + h(n));
       }
     }
@@ -399,11 +408,23 @@ export function findPath(tiles: Tile[], start: number, goal: number): number[] |
  * A tile's corner in its block is found from which neighbours are ring tiles.
  */
 export function ringStepOk(tiles: Tile[], i: number, n: number): boolean {
+  const corner = ringCorner(tiles, i);
+  const d = n - i;
+  return corner === 1 ? d === -1 : corner === 0 ? d === GRID_SIZE : corner === 2 ? d === 1 : d === -GRID_SIZE;
+}
+
+/**
+ * V1.6: which corner of its 2×2 roundabout ring tile i is: 0 = NW, 1 = NE, 2 = SW, 3 = SE.
+ * New roundabouts remember it in `tile.kind` (1 + corner, written by applyRoundabout), so two
+ * roundabouts side by side can't be confused. Old saves have kind 0 on their ring tiles; for those it
+ * is worked out from which neighbours are ring tiles (fine unless two rings touch).
+ */
+export function ringCorner(tiles: Tile[], i: number): 0 | 1 | 2 | 3 {
+  const k = tiles[i].kind;
+  if (tiles[i].roadType === 2 && k >= 1 && k <= 4) return (k - 1) as 0 | 1 | 2 | 3;
   const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
   const ring = (xx: number, zz: number) => xx >= 0 && zz >= 0 && xx < GRID_SIZE && zz < GRID_SIZE && tiles[zz * GRID_SIZE + xx].roadType === 2;
-  const east = ring(x + 1, z) && ring(x, z + 1) ? 'NW' : ring(x - 1, z) && ring(x, z + 1) ? 'NE' : ring(x + 1, z) && ring(x, z - 1) ? 'SW' : 'SE';
-  const d = n - i;
-  return east === 'NE' ? d === -1 : east === 'NW' ? d === GRID_SIZE : east === 'SW' ? d === 1 : d === -GRID_SIZE;
+  return ring(x + 1, z) && ring(x, z + 1) ? 0 : ring(x - 1, z) && ring(x, z + 1) ? 1 : ring(x + 1, z) && ring(x, z - 1) ? 2 : 3;
 }
 
 /** First road tile next to tile i (where a building's driveway meets the street), or -1. */
@@ -447,9 +468,15 @@ export class Traffic {
   rightOnRed = true;
   /** PR 6 traffic-actuated signal controllers. */
   signals = new Signals();
+  /**
+   * OASIS: live trips on the ROAD GRAPH (sim/livegraph.ts). spawn() offers
+   * every trip to it first; it only accepts trips whose both ends are graph
+   * road tiles in a graph world, so pure tile worlds never touch it.
+   */
+  graph = new LiveGraphTraffic();
 
   count(kind: VehicleKind): number {
-    let n = 0;
+    let n = this.graph.count(kind); // OASIS: graph cars/trucks count toward every fleet / car cap
     for (const v of this.vehicles) if (v.kind === kind) n++;
     return n;
   }
@@ -459,6 +486,8 @@ export class Traffic {
    * if there's no route. Single-tile trips arrive immediately.
    */
   spawn(world: World, kind: VehicleKind, from: number, to: number, purpose: string, color?: number, onArrive?: () => void): boolean {
+    // OASIS: graph roads are the live network: let the graph take the trip when it can.
+    if (world.graphTiles.size && this.graph.spawn(world, kind, from, to, purpose, color ?? CAR_COLORS[(this.graph.stats.spawned + this.nextId) % CAR_COLORS.length], onArrive)) return true;
     const path = findPath(world.tiles, from, to);
     if (!path) {
       this.stats.noRoute++;
@@ -488,6 +517,7 @@ export class Traffic {
    */
   update(world: World, dt: number): void {
     if (dt <= 0) return;
+    this.graph.update(world, dt); // OASIS: live graph vehicles (no-op in tile-only worlds)
     this.signals.update(world.tiles, this.vehicles, dt); // PR 6: actuated lights read the queues once per frame
     const n = Math.ceil(dt / SUBSTEP);
     for (let k = 0; k < n; k++) this.stepOnce(world, dt / n);
@@ -520,11 +550,12 @@ export class Traffic {
     // A vehicle is physically inside junction J during the last part of the
     // segment INTO J (t > STOP_T) and the first half of the segment OUT of J.
     // We record its travel direction there (0..3 = E, W, S, N).
-    const inJunction = new Map<number, Array<{ id: number; dir: number }>>();
-    const hold = (j: number, id: number, dir: number) => {
+    // V1.5b: `out` = direction it LEAVES by, `ror` = a right-on-red car.
+    const inJunction = new Map<number, Array<{ id: number; dir: number; out: number; ror: boolean }>>();
+    const hold = (j: number, id: number, dir: number, out = -1, ror = false) => {
       let l = inJunction.get(j);
       if (!l) inJunction.set(j, (l = []));
-      l.push({ id, dir });
+      l.push({ id, dir, out, ror });
     };
     // V1.5: cars about to enter each junction (for the right-on-red gap check).
     const approaching = new Map<number, Vehicle[]>();
@@ -533,8 +564,9 @@ export class Traffic {
       if (b === undefined) continue;
       if (v.t <= 0.5 && isIntersection(tiles, b)) { let l = approaching.get(b); if (!l) approaching.set(b, (l = [])); l.push(v); }
       // (Physically inside = past the tile edge, t > 0.5 — cars waiting between the stop line and the edge don't hold it.)
-      if (v.t > 0.5 && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b));
-      if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a));
+      const c = v.path[v.seg + 2];
+      if (v.t > 0.5 && isIntersection(tiles, b)) hold(b, v.id, dirOf(a, b), c === undefined ? -1 : dirOf(b, c), v.rorSeg === v.seg);
+      if (v.t < 0.5 && v.seg > 0 && isIntersection(tiles, a)) hold(a, v.id, dirOf(v.path[v.seg - 1], a), dirOf(a, b), v.rorSeg === v.seg - 1);
     }
     /** Opposite directions: E↔W (0,1) and S↔N (2,3) — straight-through lanes that never cross. */
     const compatible = (d1: number, d2: number) => d1 === d2 || (d1 >> 1 === d2 >> 1);
@@ -659,7 +691,11 @@ export class Traffic {
             const boxFree = !(inJunction.get(jn)?.some((h) => h.id !== v.id));
             const crossing = (approaching.get(jn) ?? []).some((o) => o.id !== v.id && (Math.abs(jn - o.path[o.seg]) === 1 ? 'ew' : 'ns') === light.green && (o.t > 0.25 || o.v > 0.2));
             const exit = lanes.get(laneOf(v, v.seg + 1));
-            const room = !exit || !exit.some((o) => o.t < 0.6 && o.v < 0.3);
+            // V1.5b: a RoR car may only join an exit lane that is CLEAR (no car
+            // in its first 90 %, at any speed), not merely moving — in a
+            // saturated grid, squeezing extra cars into moving queues on red
+            // spread gridlock and cost ~7 % throughput in the v15 stress test.
+            const room = !exit || !exit.some((o) => o.t < 0.9);
             rorGo = boxFree && !crossing && room;
           }
         } else v.rorWait = 0;
@@ -685,7 +721,12 @@ export class Traffic {
         // After 8 s of waiting a driver edges in anyway (prevents rare
         // starvation/gridlock loops; the 25 s give-up stays as a last resort).
         const patient = v.stuck < 8;
-        if (patient && holders && holders.some((h) => h.id !== v.id && !compatible(h.dir, myDir))) stopAt();
+        // V1.5b RoR FIX: a right-on-red car only sweeps the near corner, so
+        // green traffic yields to it only when both leave by the same exit
+        // (before, its red-axis direction blocked ALL green cars while it was
+        // in the box — the cause of the 1,503 vs 1,702 trip drop).
+        const myOut = v.seg + 2 < v.path.length ? dirOf(jNext, v.path[v.seg + 2]) : -2;
+        if (patient && holders && holders.some((h) => h.id !== v.id && (h.ror ? h.out === myOut : !compatible(h.dir, myDir)))) stopAt();
         // PR 5 "don't block the box": only enter if there's room to get
         // all the way through — no stationary/slow car near the start of the
         // lane we'll leave the junction by. Prevents junction gridlock.

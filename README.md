@@ -16,7 +16,7 @@ npm run build    # type-check + production build into dist/
 
 ## How to play
 1. Lay a **Road**. Every building needs a road on one of its four sides.
-2. Build a **Power Plant** (120 power) or **Wind Turbine** (15, varies with the wind) and drag **Power Lines** past where you'll build.
+2. Build a **Coal Plant** (5,000 power) or **Wind Turbine** (up to 1,000, varies with the wind) and drag **Power Lines** past where you'll build.
 3. Build a **Water Tower** (80 water, needs power to pump) and drag **Pipes** past the same blocks.
 4. Paint **Homes / Shops / Industry** zones beside the road. Lots grow into buildings over time once they have road + power + water.
 5. Watch your 💵 cash. Everything costs money, bulldozing refunds 25%, and each month operating buildings pay taxes while plants, turbines and towers cost upkeep. Open **💰 Budget** to see the books and set tax rates (0–20%; higher taxes slow growth).
@@ -74,13 +74,30 @@ Version 1.5 is being built on the `version-1.5` branch. So far it includes:
 See the wiki page *Version 1.5* for details.
 
 ## Version 1.5b
-
-Version 1.5b is in progress on the same branch:
-* **Residential push:**
-  * Medium homes become mid-rise apartments at L6 and L7.
-  * Neighbours merge more often into new large footprints (apartment complex, twin mid-rise, perimeter block).
-  * Empty residential zoning cools R demand, and new homes raise industrial (and some commercial) job demand.
-* Run `npm run test:v15b-res`.
+Version 1.5b is on the same branch (`version-1.5`):
+* **Residential:**
+  * Mid-rise apartments at L6 and L7, and larger merged footprints.
+  * Detail on every side of the building.
+  * Under sustained high demand, homes densify and the zoning upgrades to match.
+  * Empty residential zoning cools R demand.
+* **Services:**
+  * A 2×2 landfill (unlocks at 1,000 people) with garbage trucks. It has a finite capacity: its model grows through six stages as it fills, a compactor and gulls work on it, and once it is full it stops taking garbage until you build a new one.
+  * Recycling center (unlocks at 2,500 people): buildings around it make up to 45% less garbage. It runs 12 garbage trucks (double a landfill) and burns the garbage for 5,000 power, like a coal plant. Landfill trucks haul stored garbage to it to be burned, freeing landfill space.
+  * Police and crime: a detailed 2×2 police station; police, the high school and crime all start at 2,500 people.
+  * In-game change log ("What's new"): add an entry to `src/changelog.ts` for each update; it opens automatically after an update and from the title screen / ☰ menu.
+  * Clinic, hospital and ambulances.
+  * Schools: elementary is available from the start. Workforce education matters.
+* **Offices:** Commercial ▸ Office zoning, with law firms, cable and internet companies, data centres, cell towers and radio stations.
+* **Industry:**
+  * A detailed 2×2 coal plant (5,000 power) and a detailed 2×2 oil plant (8,000), plus a 2×2 elementary school; crime starts when police unlock at 2,500 people.
+  * Procedurally textured industrial models.
+  * Factories reach L5, and industry merges and redevelops more often.
+  * Six new industry types: warehouse, chemical plant, steel mill, textile mill, bottling plant and assembly plant.
+  * Tanker and dump trucks.
+* **Shipping Depot:** industry and shops in its catchment ship through it.
+* **Water:** a large water tower tier (3,200 water, unlocks at 5,000 people).
+* **Traffic:** the right-on-red throughput fix.
+* Run the tests with `npm run test:v15b`, `test:v15b-res`, `test:v15`, `test:cells` and `test:industry`. `npm run balance` prints the rebalance probe.
 * See the wiki page *Version 1.5b*.
 
 ## Roadmap
@@ -89,3 +106,14 @@ Version 1.5b is in progress on the same branch:
 - ✅ **Environment:** day/night cycle, variable wind, pollution & desirability, parks.
 - ✅ **Economy:** industrial goods shipped by truck, construction system, progression.
 - **Next:** see the wiki's upcoming-features page for proposed designs.
+
+## Version 1.6
+
+* **Big maps + regions:** 64 / 128 / 192 tile maps, a starting region, buyable regions.
+* **Faster sim:** 16×16 chunks, incremental networks/coverage/land value, time-sliced periodic jobs, render chunk culling.
+* **Freeform roads (tool `C`):** straight or curved Bézier streets and avenues that snap to junctions, roads, 15° angles and an 8 m grid (Shift = free). Live preview of the zone cells a road will create, cost tip, Ctrl+Z / Ctrl+Y undo/redo.
+* **Detailed roads:** 6 m lanes (cars sit inside their lane), shoulders, gutters, raised kerbs, sidewalks, crosswalks and stop lines, manholes and drains, subtle asphalt texture, thin lane dashes.
+* **Road-generated zoning:** zone blocks along every road side (curved blocks included); zone tools paint them.
+* **Saves v10:** older saves load and their roads become graph roads; population, jobs and buildings are unchanged.
+* Tests: `test:roadgraph`, `test:blocks`, `test:blockbridge`, `test:gtraffic`, `test:utilities`, `test:freeroads`, `test:migrate`, `lint:tiles`; benches `bench:check`.
+* Wiki pages: [Road graph](docs/wiki/Road-graph.md), [Zone blocks](docs/wiki/Zone-blocks.md), [Performance](docs/wiki/Performance.md), [Release notes 1.6](docs/RELEASE-1.6.md).

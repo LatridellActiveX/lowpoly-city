@@ -1,0 +1,12 @@
+{
+  "name": "Low-Poly City",
+  "short_name": "Low-Poly City",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "theme_color": "#7ec8e3",
+  "background_color": "#7ec8e3",
+  "display": "standalone",
+  "start_url": "/"
+}

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Low-Poly City favicon: faceted isometric grass tile with a house and a pine tree.
+       Bold flat facets (light/shadow pairs) so it reads at 16px. -->
+  <rect width="64" height="64" rx="12" fill="#7ec8e3"/>
+  <!-- grass tile: top face + two shaded sides -->
+  <polygon points="32,24 60,38 32,52 4,38" fill="#6cbf4a"/>
+  <polygon points="4,38 32,52 32,60 4,46" fill="#4e9a35"/>
+  <polygon points="60,38 32,52 32,60 60,46" fill="#3d7f29"/>
+  <!-- house: walls -->
+  <polygon points="14,30 28,37 28,49 14,42" fill="#f4e3c1"/>
+  <polygon points="28,37 40,31 40,43 28,49" fill="#d9c49c"/>
+  <!-- house: roof facets -->
+  <polygon points="14,30 21,18 35,25 28,37" fill="#e2553d"/>
+  <polygon points="28,37 35,25 40,31" fill="#b23a28"/>
+  <!-- door -->
+  <polygon points="19,38 23,40 23,46 19,44" fill="#7a4a2a"/>
+  <!-- tree: trunk + two-tone faceted cone -->
+  <polygon points="47,40 49,41 49,45 47,44" fill="#7a4a2a"/>
+  <polygon points="48,12 40,40 48,43" fill="#2f9e57"/>
+  <polygon points="48,12 48,43 56,40" fill="#1f7a40"/>
+</svg>

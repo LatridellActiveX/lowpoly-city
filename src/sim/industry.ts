@@ -69,7 +69,6 @@ export const CREW_TRUCK_COLOR = 0xf28c1d;
 /** Prefix of a construction truck's `purpose` (the renderer keys off it). */
 export const CREW_PURPOSE = 'construction';
 
-const N = GRID_SIZE;
 
 /**
  * Is tile i a farm lot? PR 6: the tile's kind comes from its hosted building
@@ -183,7 +182,7 @@ export class Crews {
     const tiles = world.tiles;
     const yards: number[] = [];
     const sites: number[] = [];
-    tiles.forEach((t, i) => {
+    world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
       if (t.structure === 'constructionYard') yards.push(i);
       // Only sites that can actually be worked on (road + power + water):
       // sending a crew to a site without water would just park a truck there.
@@ -193,14 +192,20 @@ export class Crews {
     for (const y of [...this.busy.keys()]) if (tiles[y].structure !== 'constructionYard') this.busy.delete(y);
     this.unreachable.clear();
     if (!sites.length) return;
-    const dist = (a: number, b: number) => Math.abs((a % N) - (b % N)) + Math.abs(Math.floor(a / N) - Math.floor(b / N));
-    const nearestYard = (s: number) => yards.reduce((m, y) => Math.min(m, dist(s, y)), Infinity);
-    sites.sort((a, b) => nearestYard(a) - nearestYard(b));
+    const dist = (a: number, b: number) => Math.abs((a % GRID_SIZE) - (b % GRID_SIZE)) + Math.abs(Math.floor(a / GRID_SIZE) - Math.floor(b / GRID_SIZE));
+    // V1.6 T2: this used to recompute the nearest yard inside the sort
+    // comparator and re-filter the yards per site (O(sites × yards × log)),
+    // which grew quadratically with several towns. Same order, computed once.
+    const near = new Map<number, number>();
+    for (const s of sites) { let m = Infinity; for (const y of yards) m = Math.min(m, dist(s, y)); near.set(s, m); }
+    sites.sort((a, b) => near.get(a)! - near.get(b)!);
+    const roadYards = yards.filter((y) => roadNextTo(tiles, y) >= 0);
     for (const s of sites) {
       const to = roadNextTo(tiles, s);
-      const free = yards.filter((y) => this.out(y) < YARD_FLEET && roadNextTo(tiles, y) >= 0).sort((a, b) => dist(a, s) - dist(b, s));
       if (!yards.length || to < 0) { this.unreachable.add(s); continue; }
+      const free = roadYards.filter((y) => this.out(y) < YARD_FLEET);
       if (!free.length) continue; // all trucks busy: wait in the queue
+      free.sort((a, b) => dist(a, s) - dist(b, s));
       let sent = false;
       for (const y of free) {
         const from = roadNextTo(tiles, y);
@@ -224,12 +229,12 @@ export class Crews {
     // PR 6 "one visit covers the whole site": with buildings now smaller than
     // a tile, a building site is the block around the truck — the crew also
     // takes on every waiting site within one tile of where it parked.
-    const sx = site % N, sz = Math.floor(site / N);
+    const sx = site % GRID_SIZE, sz = Math.floor(site / GRID_SIZE);
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       const nx = sx + dx, nz = sz + dz;
-      if (nx < 0 || nz < 0 || nx >= N || nz >= N) continue;
-      const q = world.tiles[nz * N + nx];
-      if (q.zone && q.construct > 0 && !q.crew) { q.crew = true; q.crewLinger = CREW_LINGER; this.enRoute.delete(nz * N + nx); }
+      if (nx < 0 || nz < 0 || nx >= GRID_SIZE || nz >= GRID_SIZE) continue;
+      const q = world.tiles[nz * GRID_SIZE + nx];
+      if (q.zone && q.construct > 0 && !q.crew) { q.crew = true; q.crewLinger = CREW_LINGER; this.enRoute.delete(nz * GRID_SIZE + nx); }
     }
     this.stats.arrived++;
     // Drive back; the truck is only free again once it is home.

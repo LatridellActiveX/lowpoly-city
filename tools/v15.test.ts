@@ -18,6 +18,7 @@ import { REDEV_MAX, REDEV_MONTHS } from '../src/sim/redevelop';
 import { Resource } from '../src/sim/resources';
 import { resLevel, TPL } from '../src/sim/footprints';
 import { growablePool } from '../src/sim/lots';
+import { computeLandValue } from '../src/sim/environment';
 
 let fails = 0;
 const check = (name: string, ok: boolean, info: unknown = '') => { console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${info !== '' ? '  ' + JSON.stringify(info) : ''}`); if (!ok) fails++; };
@@ -32,7 +33,7 @@ const fresh = () => { const s = new Simulation(new World(undefined, 4242)); s.wo
   s.apply('nuclearPlant', [[14, 10], [15, 10], [14, 11], [15, 11]]);
   const w = s.world;
   const out = (x: number, z: number) => output(w.tiles[idx(x, z)], 'power', w.wind);
-  check('coal plant = 2,000', out(10, 10) === 2000, out(10, 10));
+  check('coal plant = 5,000', out(10, 10) === 5000, out(10, 10));
   check('oil plant = 8,000', out(12, 10) === 8000, out(12, 10));
   check('nuclear = 32,000 (4× oil)', out(14, 10) === 32000, out(14, 10));
   saveWorld(w);
@@ -42,7 +43,7 @@ const fresh = () => { const s = new Simulation(new World(undefined, 4242)); s.wo
   const old = JSON.parse(store.get('lowpoly-city-save')!);
   old.tiles[idx(12, 10)].kind = 0;
   store.set('lowpoly-city-save', JSON.stringify(old));
-  check('old-save plant loads as coal', output(loadWorld()!.tiles[idx(12, 10)], 'power', 0.5) === 2000);
+  check('old-save plant loads as coal', output(loadWorld()!.tiles[idx(12, 10)], 'power', 0.5) === 5000);
 }
 
 // ---------------------------------------------------------------- stage 4: parking
@@ -142,10 +143,10 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
 
 // ---------------------------------------------------------------- stage 9: right on red
 {
-  // V1.5b: summed over 6 warm-ups — one ~200-trip sample flipped with the RCI rebalance.
+  // V1.5b: summed over 14 warm-ups (the stressed grid is chaotic: ±100 trips per sample) — one ~200-trip sample flipped with the RCI rebalance.
   const res: Record<string, any> = { off: { arrived: 0, gaveUp: 0, rightOnRed: 0, wait: 0 }, ror: { arrived: 0, gaveUp: 0, rightOnRed: 0, wait: 0 } };
   // (town() ignores opts.seed, so the samples differ by warm-up length instead.)
-  for (const warm of [500, 550, 600, 650, 700, 750]) for (const ror of [false, true]) {
+  for (const warm of [500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000, 1050, 1100, 1150]) for (const ror of [false, true]) {
     const t = town({ seed: 77 });
     t.settings.maxCars = 400;
     t.traffic.rightOnRed = ror;
@@ -161,10 +162,9 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   for (const r of Object.values(res)) r.waitPerTrip = +(r.wait / Math.max(1, r.arrived + r.gaveUp)).toFixed(2);
   const rate = (r: any) => r.gaveUp / Math.max(1, r.arrived + r.gaveUp);
   check('right on red is used (only on right turns, after a stop)', res.ror.rightOnRed > 0, res);
-  check('right on red: no worse give-ups (+2 pts, 6 samples), no longer red waits', rate(res.ror) <= rate(res.off) + 0.02 && res.ror.wait <= res.off.wait * 1.05, res);
-  // V1.5b: was waitPerTrip; in the rebalanced test city RoR finishes fewer trips in the 120 s window
-  // (1503 vs 1702) so per-trip wait rose although total red-light wait fell. Logged for follow-up.
-  console.log('NUMBERS ror throughput', JSON.stringify({ off: res.off.arrived, ror: res.ror.arrived }));
+  check('right on red: no worse give-ups (+2 pts, 14 samples), no longer red waits', rate(res.ror) <= rate(res.off) + 0.02 && res.ror.waitPerTrip <= res.off.waitPerTrip * 1.05, res);
+  // V1.5b: throughput check restored after the RoR fix (clear exit lane + corner-only box hold).
+  check('right on red: no throughput loss (≥ 97 % of trips without RoR)', res.ror.arrived >= res.off.arrived * 0.97, { off: res.off.arrived, ror: res.ror.arrived });
 }
 {
   // isRightTurn geometry: heading north then east = right; north then west = left.
@@ -237,7 +237,11 @@ const run = (s: Simulation, ticks: number) => { for (let i = 0; i < ticks; i++) 
   check('processors pay for their inputs', inds.some((p) => p.inputs > 0));
   // Land value: kerbside land > land 4 tiles from any road; pollution lowers it.
   const lv = (x: number, z: number) => env.landValue[idx(x, z)];
-  check('land value: road access matters', lv(20, 13) > lv(5, 5) + 0.3, { kerb: lv(20, 13), far: lv(5, 5) });
+  // V1.5b: this town (no dump, no police) now also carries garbage and crime
+  // penalties; road access is checked on the base land value without them.
+  const g0 = w.tiles.map((t) => t.garbage); w.tiles.forEach((t) => { t.garbage = 0; });
+  const base = computeLandValue(w, env, s.net.service).landValue; w.tiles.forEach((t, k) => { t.garbage = g0[k]; });
+  check('land value: road access matters (base value, before garbage/crime)', base[idx(20, 13)] > base[idx(5, 5)] + 0.3, { kerb: base[idx(20, 13)], far: base[idx(5, 5)], withPenalties: lv(20, 13) });
   check('land value: polluted industrial land < homes', lv(40, 35) < lv(40, 13), { ind: lv(40, 35), home: lv(40, 13) });
   const before = s.projectMonth().property ?? 0;
   w.propertyRate = 0.1;

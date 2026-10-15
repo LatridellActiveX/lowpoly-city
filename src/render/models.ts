@@ -165,6 +165,38 @@ export const MODELS = {
       part(new THREE.SphereGeometry(0.03, 8, 4), 0x3f7fa8, [0, 1.0, 0]),
     ]);
   },
+  /**
+   * V1.5b large water tower (kind 1): a tall fluted pedestal column flaring
+   * into a big spheroid tank (squashed sphere), with a catwalk ring + rail,
+   * a balcony around the tank's equator, an access door/hut at the base,
+   * a ladder, aviation light finial and a painted band. ~1.9 units tall.
+   */
+  bigWaterTower: () => {
+    const steel = 0x8a8f96, rail = 0x6b7078, tank = 0x7fc0e6, band = 0x2f6f9a;
+    const flutes = Array.from({ length: 8 }, (_, k) => {
+      const a = (k / 8) * Math.PI * 2;
+      return part(box(0.02, 1.0, 0.02), 0x9aa0a8, [Math.cos(a) * 0.1, 0.1, Math.sin(a) * 0.1]);
+    });
+    return merge([
+      part(new THREE.CylinderGeometry(0.3, 0.32, 0.08, 12).translate(0, 0.04, 0), 0x9a958c), // footing
+      part(new THREE.CylinderGeometry(0.09, 0.2, 0.25, 12).translate(0, 0.125, 0), steel, [0, 0.08, 0]), // flared base
+      part(new THREE.CylinderGeometry(0.09, 0.09, 1.0, 12).translate(0, 0.5, 0), steel, [0, 0.1, 0]), // column
+      ...flutes,
+      part(new THREE.CylinderGeometry(0.34, 0.09, 0.3, 14).translate(0, 0.15, 0), steel, [0, 1.05, 0]), // cone into tank
+      part(new THREE.SphereGeometry(0.42, 16, 10).scale(1, 0.62, 1), tank, [0, 1.52, 0]), // spheroid tank
+      part(new THREE.CylinderGeometry(0.425, 0.425, 0.06, 16), band, [0, 1.52, 0]), // painted band
+      part(new THREE.TorusGeometry(0.43, 0.012, 4, 24).rotateX(Math.PI / 2), rail, [0, 1.42, 0]), // equator walk
+      part(new THREE.TorusGeometry(0.45, 0.006, 3, 24).rotateX(Math.PI / 2), rail, [0, 1.5, 0]), // its rail
+      part(new THREE.TorusGeometry(0.22, 0.01, 4, 16).rotateX(Math.PI / 2), rail, [0, 1.06, 0]), // lower catwalk
+      part(box(0.008, 1.3, 0.008), rail, [0.11, 0.1, 0.03]), // ladder rails
+      part(box(0.008, 1.3, 0.008), rail, [0.11, 0.1, -0.03]),
+      part(box(0.1, 0.12, 0.08), 0xb9b2a4, [0.16, 0.08, 0.16]), // base hut
+      part(box(0.03, 0.08, 0.005), 0x3a3a3a, [0.16, 0.08, 0.2]), // door
+      part(new THREE.CylinderGeometry(0.06, 0.08, 0.05, 10), steel, [0, 1.8, 0]), // roof hatch
+      part(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 4).translate(0, 0.06, 0), rail, [0, 1.83, 0]), // mast
+      part(new THREE.SphereGeometry(0.02, 6, 4), 0xff4030, [0, 1.96, 0]), // aviation light
+    ]);
+  },
   /** Water pipe junction + a 1-unit segment along +x (lies on the ground). */
   pipeJoint: () => merge([part(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8), 0x2f7fbf, [0, 0.05, 0])]),
   pipe: () => merge([part(new THREE.CylinderGeometry(0.04, 0.04, 1, 8).rotateZ(Math.PI / 2).translate(0.5, 0, 0), 0x3d95d9, [0, 0.05, 0])]),

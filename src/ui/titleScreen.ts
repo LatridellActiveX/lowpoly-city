@@ -23,6 +23,8 @@ export interface NewGameOptions {
   seed?: number;
   /** 'river' = default generator; 'dry' strips lakes/rivers for a flat build. */
   map: 'river' | 'dry';
+  /** V1.6 A6: map size in tiles (64 classic; 128 / 192 have buyable regions). */
+  size?: 64 | 128 | 192;
 }
 
 export interface TitleHooks {
@@ -31,6 +33,8 @@ export interface TitleHooks {
   loadSlot(slot: number): void;
   importSave(text: string): boolean;
   openSettings(): void;
+  /** Open the What's new screen. */
+  openChangelog(): void;
   /** Copy the autosaved city into slot i. */
   saveSlot(slot: number): boolean;
 }
@@ -50,10 +54,12 @@ export class TitleScreen {
           <button class="btn big" data-a="continue">Continue</button>
           <button class="btn big" data-a="load">Load</button>
           <button class="btn big" data-a="settings">Settings</button>
+          <button class="btn big" data-a="changelog">📰 What's new</button>
         </div>
         <div class="title-menu hidden" data-view="new">
           <label>Seed <input type="text" data-k="seed" placeholder="random" maxlength="10"></label>
           <label>Map <select data-k="map"><option value="river">Rivers &amp; lakes</option><option value="dry">Dry land</option></select></label>
+          <label>Size <select data-k="size"><option value="64">Classic 64×64</option><option value="128">Large 128×128 (4 regions)</option><option value="192">Huge 192×192 (9 regions)</option></select></label>
           <button class="btn primary big" data-a="start">Found city</button>
           <button class="btn" data-a="back">Back</button>
         </div>
@@ -113,13 +119,14 @@ export class TitleScreen {
       case 'load': return this.view('load');
       case 'continue': return this.hooks.continueGame();
       case 'settings': return this.hooks.openSettings();
+      case 'changelog': return this.hooks.openChangelog();
       case 'import': return this.q<HTMLInputElement>('[data-k=file]').click();
       case 'start': {
         const raw = this.q<HTMLInputElement>('[data-k=seed]').value.trim();
         // Any text works as a seed: numbers are used directly, words hashed.
         let seed: number | undefined;
         if (raw) seed = /^\d+$/.test(raw) ? Number(raw) : [...raw].reduce((h, c) => (Math.imul(h, 31) + c.charCodeAt(0)) >>> 0, 7);
-        return this.hooks.newGame({ seed, map: this.q<HTMLSelectElement>('[data-k=map]').value as NewGameOptions['map'] });
+        return this.hooks.newGame({ seed, map: this.q<HTMLSelectElement>('[data-k=map]').value as NewGameOptions['map'], size: Number(this.q<HTMLSelectElement>('[data-k=size]').value) as NewGameOptions['size'] });
       }
     }
   }

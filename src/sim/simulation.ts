@@ -25,9 +25,11 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
+import { syncGraphToTiles, absorbTileRoads } from '../roads/persist';
 import { coords, World } from './grid';
-import { computeNetworks, NetworkResult } from './networks';
-import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND } from './rules';
+import { prof } from './prof';
+import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
+import { applyTool, canPlace, OIL_PLANT_UPKEEP, PLANT_OIL, residentsOf, TICKS_PER_SECOND, BIG_TOWER_UPKEEP } from './rules';
 import { GRID_SIZE, Tile, ToolId, ZoneType } from './types';
 import { industryMix, bulldozeCells, buildingRequirements, codeForTool, growLots, paintableCells, paintTile, parkingSpot, tileHasCells, ZoneOptions, zoneTiles } from './growth';
 import { Building, tileBuildable } from './lots';
@@ -35,17 +37,20 @@ import { cidx, ZoneCode } from './cells';
 import { TPL, isFiller, residentsAt } from './footprints';
 import { BUILD_COST } from './economy';
 import { hash2 } from './random';
+import { allRegions, buyBlocker, ownedAt, regionPrice } from './regions';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
-import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS } from './services';
+import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS, serviceSize } from './services';
 import { Garbage } from './garbage';
+import { applyServiceEffects, computeSafety, Responders, Safety, serviceEffectOne } from './safety';
+import { LV_MAX } from './environment';
 import { Shipping } from './goods';
 import { Crews, jobsOf, updateFarms } from './industry';
 import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
-import { computeEnvironment, Environment } from './environment';
+import { computeEnvironment, Environment, lvFinish } from './environment';
 import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
@@ -67,6 +72,8 @@ export interface ApplyResult {
   broke: boolean;
   /** PR 4: true if the tool isn't unlocked yet. */
   locked?: boolean;
+  /** V1.6 A6: some tiles were dropped because their region isn't owned. */
+  region?: boolean;
 }
 
 export interface CityStats {
@@ -130,6 +137,9 @@ export class Simulation {
   redevelop = new Redevelopment();
   /** V1.5b stage E: garbage build-up + dump trucks. */
   garbage = new Garbage();
+  /** V1.5b stage F: crime + health care fields and responder vehicles. */
+  safety: Safety = { crime: new Float32Array(0), care: new Float32Array(0) };
+  responders = new Responders();
   /** V1.5b: service coverage (garbage, police, health, schools), recomputed every tick with the environment. */
   cov: Coverage;
   /** PR 5: construction-truck dispatcher (industry.ts). Not saved: trucks in flight are re-sent after a load. */
@@ -158,17 +168,98 @@ export class Simulation {
     this.world = world;
     this.net = computeNetworks(world);
     this.cov = computeCoverage(world);
-    this.env = computeEnvironment(world, this.net.service);
+    this.inc.cov = world.chunks.topoRev;
+    this.env = this.envWithServices(world);
     this.demand = this.computeDemand();
   }
 
+  /**
+   * V1.6 A2: after a player edit (outside the tick), rescan every chunk and
+   * recompute the networks so overlays and info panels update immediately.
+   */
+  /** (public for sim/freeroads.ts undo) */
+  refreshNet(): NetworkResult {
+    const w = this.world;
+    w.chunks.touchAll();
+    w.chunks.sync(w.tiles);
+    return computeNetworks(w);
+  }
+
+  /**
+   * V1.6 A2: allocation-free version of status(i).operating. Hot loops
+   * (demand, stats, taxes) call this thousands of times per tick; status()
+   * builds a `missing` list of strings for the info panel and is far slower.
+   */
+  operating(i: number): boolean {
+    const s = this.net.service[i], t = this.world.tiles[i];
+    if (t.zone !== null) return s.roadAccess && s.powered && s.watered;
+    if (t.structure === 'waterTower' || t.structure === 'pumpStation') return s.powered;
+    return true;
+  }
+
   /** RCI demand from the current city (average desirability over homes). */
+  /**
+   * V1.5b: environment + service effects. Coverage must be current; crime
+   * and care (safety.ts) are folded into land value here, so every caller
+   * that used to call computeEnvironment directly gets them.
+   */
+  private envWithServices(w: World): ReturnType<typeof computeEnvironment> {
+    // V1.6 A3: INCREMENTAL. Each stage is keyed on the revisions it reads
+    // (chunks.ts topo/bldg/garbage revs, networks.ts servedRev, peakPop) and
+    // is skipped when none moved. tools/incremental.test.ts checks the
+    // result against a from-scratch computation after random edits.
+    const ch = w.chunks, inc = this.inc;
+    // Coverage: anchors (services + their road links) are pure topology.
+    if (inc.cov !== ch.topoRev || !this.cov) { this.cov = computeCoverage(w); inc.cov = ch.topoRev; }
+    // Safety: coverage + residents/jobs + the city-size factor (peakPop).
+    const safeKey = `${ch.topoRev}|${ch.bldgRev}|${w.peakPop}`;
+    if (inc.safety !== safeKey) { this.safety = computeSafety(w, this.cov); inc.safety = safeKey; }
+    // Land value also reads powered/watered and the "small town" garbage factor.
+    const lvKey = `${safeKey}|${servedRev.get(w) ?? 0}|${w.peakPop < 1000}`;
+    if (inc.lv !== lvKey || !inc.env) {
+      if (inc.pre.length !== w.tiles.length) inc.pre = new Float64Array(w.tiles.length);
+      const env = computeEnvironment(w, this.net.service, inc.pre);
+      applyServiceEffects(env.landValue, this.safety, LV_MAX);
+      ch.takeGarbageDirty(); // a full recompute already used every pile
+      inc.env = env; inc.lv = lvKey;
+      return env;
+    }
+    // Only garbage moved: redo the last step of land value for those tiles.
+    const env = inc.env, lvArr = env.landValue, sf = this.safety;
+    for (const i of ch.takeGarbageDirty()) {
+      const base = Math.fround(lvFinish(w, inc.pre[i], w.tiles[i].garbage));
+      lvArr[i] = serviceEffectOne(base, sf.crime[i], sf.care[i], LV_MAX);
+    }
+    return env;
+  }
+  /** V1.6 A3: what each cached stage was computed from (see envWithServices). */
+  private inc: { cov: number; safety: string; lv: string; env: Environment | null; pre: Float64Array } = { cov: 0, safety: '', lv: '', env: null, pre: new Float64Array(0) };
+
+  /** V1.6 A3: the start-of-tick refresh on its own (sync + networks + coverage/safety/environment). Tests use it. */
+  recompute(): void {
+    const w = this.world;
+    w.chunks.sync(w.tiles);
+    this.net = computeNetworks(w);
+    this.env = this.envWithServices(w);
+  }
+
+  /** V1.6 A3: throw away every cache and rescan (tests, debugging). */
+  invalidate(): void {
+    this.inc = { cov: 0, safety: '', lv: '', env: null, pre: new Float64Array(0) };
+    this.world.chunks.touchAll(); this.world.chunks.sync(this.world.tiles);
+    this.net = computeNetworks(this.world); this.env = this.envWithServices(this.world);
+  }
+
   private computeDemand(): Demand {
+    // V1.6 A2: only active chunks can hold homes. activeTilesSorted() keeps
+    // the old 0..n order so the floating-point sum is bit-identical.
     let sum = 0, n = 0;
-    this.world.tiles.forEach((t, i) => {
-      if (t.zone === 'residential') { sum += this.env.desirability[i]; n++; }
-    });
-    const d = computeDemand(this.world, n ? sum / n : 1, (i) => this.status(i).operating);
+    const tiles = this.world.tiles, act = this.world.chunks.activeTilesSorted();
+    for (let k = 0; k < act.length; k++) {
+      const i = act[k];
+      if (tiles[i].zone === 'residential') { sum += this.env.desirability[i]; n++; }
+    }
+    const d = computeDemand(this.world, n ? sum / n : 1, (i) => this.operating(i), this.cov?.edu);
     // PR 6: say what new industry will turn into (farm / food plant / factory).
     d.industrial.driver += ` · ${industryMix(this).driver}`;
     return d;
@@ -194,11 +285,11 @@ export class Simulation {
   step(): void {
     const w = this.world;
     w.tick++;
-    stepWind(w); // weather first, so this tick's turbine output uses the new wind
-    this.net = computeNetworks(w);
-    this.cov = computeCoverage(w);
-    this.env = computeEnvironment(w, this.net.service);
-    this.demand = this.computeDemand();
+    w.chunks.sync(w.tiles); // V1.6 A2: find what changed since last tick (chunks.ts)
+    prof.begin('wind'); stepWind(w); prof.end(); // weather first, so this tick's turbine output uses the new wind
+    prof.begin('networks'); this.net = computeNetworks(w); prof.end();
+    prof.begin('environment'); this.env = this.envWithServices(w); prof.end(); // V1.6 A3: includes coverage + safety (cached)
+    prof.begin('demand'); this.demand = this.computeDemand(); prof.end();
 
     // Spare capacity per network, decremented as lots grow this tick so that
     // two lots can't both claim the last bit of supply.
@@ -207,29 +298,35 @@ export class Simulation {
 
     // V1.5: busy shopping districts grow multi-storey garages (parking.ts),
     // before lots grow so a garage can claim free frontage first.
+    prof.begin('garages');
     const grown = w.parking.growGarages(w, w.lots, (x, z) => this.garageTileFree(x, z));
     if (grown) {
       this.events.push(`🅿️ Parking was short around the shops, so a ${grown.decks}-deck garage (${grown.spaces} spaces) grew on a commercial lot.`);
       this.version++;
     }
+    prof.end();
     // PR 6: growth is per BUILDING on the cell grid (growth.ts / lots.ts).
-    growLots(this, sparePower, spareWater);
+    prof.begin('growth'); growLots(this, sparePower, spareWater); prof.end();
     // Cars park (parking.ts): occupancy for the time of day + commuter claims.
-    w.parking.tick(w, w.lots);
-    this.spawnTraffic();
+    prof.begin('parking'); w.parking.tick(w, w.lots); prof.end();
+    prof.begin('spawn'); this.spawnTraffic(); prof.end();
     // PR 5: farms claim/free their fields, then crews are dispatched.
-    updateFarms(w);
-    this.crews.tick(w, this.traffic, (i) => this.status(i).operating);
+    prof.begin('farms'); updateFarms(w); prof.end();
+    prof.begin('crews'); this.crews.tick(w, this.traffic, (i) => this.operating(i)); prof.end();
     // New-game hint: nothing grows without a Construction Yard.
-    if ((w.tick === 3 || w.tick % 240 === 0) && !w.tiles.some((t) => t.structure === 'constructionYard') && w.tiles.some((t) => t.zone !== null))
+    if ((w.tick === 3 || w.tick % 240 === 0) && !this.anyActive((t) => t.structure === 'constructionYard') && this.anyActive((t) => t.zone !== null))
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
-    this.shipping.tick(w, this.traffic, (i) => this.status(i).operating, this.settings.maxTrucks);
+    prof.begin('goods'); this.shipping.tick(w, this.traffic, (i) => this.operating(i), this.settings.maxTrucks); prof.end();
     // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
-    this.garbage.tick(w, this.traffic, (i) => this.status(i).operating);
+    prof.begin('garbage'); this.garbage.tick(w, this.traffic, (i) => this.operating(i), this.cov);
+    if (this.garbage.stageChanged) { this.garbage.stageChanged = false; this.version++; } // a landfill's model changes as it fills
+    this.events.push(...this.garbage.takeNotices()); prof.end();
+    // V1.5b stage F: police patrols + ambulance runs.
+    prof.begin('responders'); this.responders.tick(w, this.traffic, this.safety); prof.end();
     // PR 4 progression: announce new tiers (UI drains `events`).
-    this.events.push(...updateTier(w, this.stats().population));
-    if (w.tick % MONTH_TICKS === 0) this.bookMonth();
-    if (w.tick % HISTORY_EVERY_TICKS === 0) this.record();
+    prof.begin('tier'); this.events.push(...updateTier(w, this.stats().population)); prof.end();
+    prof.begin('month'); if (w.tick % MONTH_TICKS === 0) this.bookMonth(); prof.end();
+    prof.begin('record'); if (w.tick % HISTORY_EVERY_TICKS === 0) this.record(); prof.end();
     this.version++;
   }
 
@@ -260,9 +357,10 @@ export class Simulation {
   private bookProfits(): void {
     const w = this.world, sh = this.shipping;
     w.profits.clear();
-    w.tiles.forEach((t, i) => {
+    w.chunks.activeTilesSorted().forEach((i) => { // V1.6 A2
+      const t = w.tiles[i];
       if ((t.zone !== 'commercial' && t.zone !== 'industrial') || t.level === 0) return;
-      const op = this.status(i).operating;
+      const op = this.operating(i);
       const sales = (sh.sales.get(i) ?? 0) + (op ? SALES_FLOOR * t.jobs : 0);
       const inputs = sh.costs.get(i) ?? 0;
       const wages = WAGE * t.jobs;
@@ -291,30 +389,33 @@ export class Simulation {
   projectMonth(): Ledger {
     const w = this.world;
     const l = emptyLedger();
-    w.tiles.forEach((t, i) => {
-      if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.status(i).operating, w.taxRates);
+    const act = w.chunks.activeTilesSorted(); // V1.6 A2: bare tiles pay no tax and cost no upkeep
+    act.forEach((i) => {
+      const t = w.tiles[i];
+      if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.operating(i), w.taxRates);
       if (t.structure === 'service' && !t.part) l.upkeep.service += Math.round((SERVICE_DEFS[t.kind]?.upkeep ?? 0) * upkeepFactor(w.tier)); // V1.5b
-      else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
+      else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : t.structure === 'waterTower' && t.kind === 1 ? BIG_TOWER_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
     for (const k of ['residential', 'commercial', 'industrial'] as const) l.taxes[k] = Math.round(l.taxes[k]);
     // V1.5 stage 11: land-value property tax on every operating zoned building.
     let prop = 0;
-    w.tiles.forEach((t, i) => { if (t.zone) prop += propertyTax(t, t.level > 0 && this.status(i).operating, this.env.landValue[i], w.propertyRate); });
+    act.forEach((i) => { const t = w.tiles[i]; if (t.zone) prop += propertyTax(t, t.level > 0 && this.operating(i), this.env.landValue[i], w.propertyRate); });
     l.property = Math.round(prop);
     return l;
   }
 
   /** Add the rest of every 2×2 footprint touched by `tiles` (for bulldozing). */
   private expandFootprints(tiles: Array<[number, number]>): Array<[number, number]> {
-    const seen = new Set(tiles.map(([x, z]) => z * 64 + x));
+    const seen = new Set(tiles.map(([x, z]) => z * GRID_SIZE + x));
     const out = [...tiles];
     for (const [x, z] of tiles) {
       const t = this.world.at(x, z);
-      if (t.structure !== 'nuclearPlant' && !(t.structure === 'service' && SERVICE_DEFS[t.kind]?.size === 2)) continue;
-      const a = t.part ? t.part - 1 : z * 64 + x;
-      const ax = a % 64, az = Math.floor(a / 64);
+      const bigCoal = t.structure === 'powerPlant' && (t.part > 0 || isBigPlant(this.world.tiles, z * GRID_SIZE + x)); // V1.5b
+      const a = t.part ? t.part - 1 : z * GRID_SIZE + x;
+      if (t.structure !== 'nuclearPlant' && !bigCoal && !(t.structure === 'service' && serviceSize(this.world.tiles, a) === 2)) continue;
+      const ax = a % GRID_SIZE, az = Math.floor(a / GRID_SIZE);
       for (const [dx, dz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-        const k = (az + dz) * 64 + ax + dx;
+        const k = (az + dz) * GRID_SIZE + ax + dx;
         if (!seen.has(k)) { seen.add(k); out.push([ax + dx, az + dz]); }
       }
     }
@@ -330,14 +431,14 @@ export class Simulation {
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    const anchor = tiles[0][1] * 64 + tiles[0][0];
+    const anchor = tiles[0][1] * GRID_SIZE + tiles[0][0];
     tiles.forEach(([x, z], k) => {
       const t = w.at(x, z);
       applyTool(tool, t);
       t.part = k === 0 ? 0 : anchor + 1;
     });
-    this.net = computeNetworks(w);
-    this.env = computeEnvironment(w, this.net.service);
+    this.net = this.refreshNet();
+    this.env = this.envWithServices(w);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -345,8 +446,8 @@ export class Simulation {
   /** Total cost to apply `tool` to these tiles (only tiles where it's valid). */
   quote(tool: ToolId, tiles: Array<[number, number]>): number {
     let cost = 0;
-    // 2×2 plant: one price for the whole footprint.
-    if (tool === 'nuclearPlant') return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
+    // 2×2 plant or service (landfill, hospital, college, depot): one price for the whole footprint.
+    if (tool === 'nuclearPlant' || tool === 'powerPlant' || tool === 'oilPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return tiles.every(([x, z]) => canPlace(tool, this.world.at(x, z))) ? placementCost(tool, this.world.at(tiles[0][0], tiles[0][1])) : 0;
     if (ZONE_TOOLS.has(tool)) return this.zoneQuote(tool, tiles).cost;
     if (tool === 'parkingLot' || tool === 'parkingGarage') return BUILD_COST[tool];
     for (const [x, z] of tiles) {
@@ -388,7 +489,7 @@ export class Simulation {
       paintTile(this, x, z, code);
       res.changed += n;
     }
-    if (res.changed) { this.net = computeNetworks(w); this.env = computeEnvironment(w, this.net.service); this.version++; }
+    if (res.changed) { this.net = this.refreshNet(); this.env = this.envWithServices(w); this.version++; }
     return res;
   }
 
@@ -419,9 +520,9 @@ export class Simulation {
     if (cost > w.cash) return { ...res, broke: true };
     w.cash -= cost;
     w.ledger.construction += cost;
-    for (const [x, z] of tiles) { applyTool('roundabout', w.at(x, z)); w.lots.markAround(x, z); }
-    this.net = computeNetworks(w);
-    this.env = computeEnvironment(w, this.net.service);
+    tiles.forEach(([x, z], k) => { applyTool('roundabout', w.at(x, z)); w.at(x, z).kind = 1 + k; w.lots.markAround(x, z); }); // V1.6: kind remembers the ring corner (traffic.ts ringCorner)
+    this.net = this.refreshNet();
+    this.env = this.envWithServices(w);
     this.version++;
     return { ...res, changed: 4, spent: cost };
   }
@@ -467,14 +568,42 @@ export class Simulation {
    * Tiles are built in drag order until the money runs out, so a road you
    * can only half afford gets built halfway rather than not at all.
    */
+  /** OASIS: set while sim/freeroads.ts lays the raster tiles of a free road (no re-absorbing them). */
+  noAbsorb = false;
+  /** V1.6 B8: apply a tile tool, then drop graph roads whose tiles it removed (roads/persist.ts). */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
+    const r = this.applyTiles(tool, tiles);
+    if (r.changed && (this.world.graphTiles.size || this.world.graphRoads)) {
+      syncGraphToTiles(this.world);
+      // OASIS: in a graph world the tile road tools feed the graph too, so the
+      // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
+      if (!this.noAbsorb && (tool === 'road' || tool === 'avenue' || tool === 'roundabout')) {
+        const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
+        if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
+      }
+    }
+    return r;
+  }
+  private applyTiles(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
     // (tiles is reassigned for bulldozing 2×2 footprints)
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
+    // V1.6 A6: only owned regions can be built on (regions.ts).
+    if (tool !== 'inspect' && w.regionsOwned !== allRegions()) {
+      const kept = tiles.filter(([x, z]) => ownedAt(w, x, z));
+      if (kept.length < tiles.length) res.region = true;
+      if (!kept.length) return res;
+      tiles = kept;
+    }
     // PR 4: tools above the city's tier are locked (progression.ts).
     if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
-    if (tool === 'nuclearPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
+    // V1.5b: coal is 2×2 too. The UI's 2×2 tool sends all four tiles; a
+    // single tile (scripts, tests, old API) still builds the legacy 1×1
+    // coal plant (same output), so nothing next to it gets swallowed.
+    if ((tool === 'powerPlant' || tool === 'oilPlant') && tiles.length === 1) {
+      /* fall through to the 1×1 path below */
+    } else if (tool === 'nuclearPlant' || tool === 'powerPlant' || tool === 'oilPlant' || SERVICE_BY_TOOL[tool]?.size === 2) return this.applyBig(tool, tiles, res); // V1.5b: hospital, college
     if (tool === 'roundabout') return this.applyRoundabout(tiles, res);
     // PR 6: zoning paints cells, public parking places a cell lot.
     if (ZONE_TOOLS.has(tool)) return this.applyZone(tool, tiles, res);
@@ -510,9 +639,8 @@ export class Simulation {
     if (changed && tool === 'bulldoze') this.fixRings();
     if (changed) {
       // Recompute utilities right away so overlays/info update without waiting a tick.
-      this.net = computeNetworks(this.world);
-      this.cov = computeCoverage(this.world);
-      this.env = computeEnvironment(this.world, this.net.service);
+      this.net = this.refreshNet();
+      this.env = this.envWithServices(this.world);
       this.version++;
     }
     return res;
@@ -621,8 +749,17 @@ export class Simulation {
     const needsRoad = t.zone !== null;
     const missing: string[] = [];
     if (needsRoad && !s.roadAccess) missing.push('road access');
-    if (needsPower && !s.powered) missing.push(s.powerNet < 0 ? 'power connection' : 'power (outage: not enough capacity)');
-    if (needsWater && !s.watered) missing.push(s.waterNet < 0 ? 'water connection' : 'water (outage: not enough capacity)');
+    // NEBULA fix: only blame CAPACITY when the network really is short (it
+    // counted an outage or wants more than it makes). Otherwise a connected
+    // but unserved lot is a bookkeeping fault, and saying "not enough
+    // capacity" next to a turbine at 16/645 sent Parker hunting the wrong bug.
+    const why = (kind: 'power' | 'water', id: number): string => {
+      if (id < 0) return `${kind} connection`;
+      const n = this.net[kind][id];
+      return n && (n.outages > 0 || n.demand > n.capacity) ? `${kind} (outage: not enough capacity)` : `${kind} (connected but not delivered)`;
+    };
+    if (needsPower && !s.powered) missing.push(why('power', s.powerNet));
+    if (needsWater && !s.watered) missing.push(why('water', s.waterNet));
     return {
       roadAccess: s.roadAccess,
       powered: s.powered,
@@ -634,10 +771,13 @@ export class Simulation {
 
   stats(): CityStats {
     let population = 0, jobs = 0, buildings = 0, inactive = 0;
-    this.world.tiles.forEach((t: Tile, i) => {
+    // V1.6 A2: active chunks only, allocation-free operating() check.
+    const tl = this.world.tiles;
+    this.world.chunks.activeTilesSorted().forEach((i) => {
+      const t: Tile = tl[i];
       if (t.zone === null || t.level === 0) return;
       buildings++;
-      if (!this.status(i).operating) {
+      if (!this.operating(i)) {
         inactive++;
         return;
       }
@@ -656,10 +796,33 @@ export class Simulation {
     };
   }
 
+  /** V1.6 A2: Array.some over the tiles of active chunks only. */
+  anyActive(pred: (t: Tile) => boolean): boolean {
+    const tl = this.world.tiles;
+    for (const i of this.world.chunks.activeTilesSorted()) if (pred(tl[i])) return true;
+    return false;
+  }
+
+  /**
+   * V1.6 A6: buy region r (regions.ts rules). Returns null on success or
+   * the reason it can't be bought.
+   */
+  buyRegion(r: number): string | null {
+    const w = this.world, why = buyBlocker(w, r);
+    if (why) return why;
+    const price = regionPrice(w);
+    w.cash -= price;
+    w.ledger.construction += price;
+    w.regionsOwned |= 1 << r;
+    this.events.push(`🗺️ New land! Region ${r + 1} is yours ($${price.toLocaleString()}).`);
+    this.version++;
+    return null;
+  }
+
   /** Convenience for debugging: tile coordinates of every tile matching a predicate. */
   find(pred: (t: Tile) => boolean): Array<[number, number]> {
     const out: Array<[number, number]> = [];
-    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i)));
+    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i))); // lint-allow: debug/test helper, never per tick
     return out;
   }
 }

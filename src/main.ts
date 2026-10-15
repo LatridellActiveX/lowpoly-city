@@ -1,3 +1,4 @@
+import { TPL } from './sim/footprints';
 /**
  * main.ts — wires the three layers together and runs the game loop.
  *
@@ -22,8 +23,11 @@ import { clearSave, downloadSave, importSaveText, hasSave, loadWorld, saveWorld 
 import { Simulation } from './sim/simulation';
 import { GRID_SIZE, ToolId } from './sim/types';
 import { IsoCamera } from './render/camera';
-import { CityRenderer, OverlayMode, PreviewRenderer } from './render/cityRenderer';
-import { createScene } from './render/scene';
+import { setGridSize } from './sim/mapsize';
+import { REGION, regionSide, startRegion } from './sim/regions';
+import { CityRenderer, OverlayMode, PreviewRenderer, zoneCodeColor } from './render/cityRenderer';
+import { ZONE_CODES } from './sim/cells';
+import { createScene, resizeScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
 import { attachInput, pointer } from './ui/input';
@@ -34,20 +38,31 @@ import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
 import { gameLog } from './ui/gameLog';
 import { GameMenu } from './ui/menu';
+import { ChangelogPanel } from './ui/changelogPanel';
 import { RESUME_KEY, UpdateChecker } from './ui/updateCheck';
 import { NewGameOptions, TitleScreen } from './ui/titleScreen';
 import { buildBackdrop } from './ui/titleBackdrop';
 import { loadSlotIntoMain, saveToSlot } from './sim/slots';
 import { World } from './sim/grid';
+import { GraphRoadLayer } from './render/graphRoads';
+import { migrateToGraph } from './roads/persist';
+import { placeFreeRoad, paintBlocks, undo, redo, zoneDryRun } from './sim/freeroads';
+import { quadCubic, lineCubic } from './roads/bezier';
+import type { V2 } from './roads/bezier';
+import { FreeRoadTool, dragCells, paintDragged, toMetres } from './ui/freeRoadTool';
+import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
 gameLog.install();
 
 const app = document.getElementById('app')!;
-const { renderer, scene, ground, sun, hemi } = createScene(app);
+const sceneBundle = createScene(app);
+const { renderer, scene, ground, sun, hemi } = sceneBundle;
 const cam = new IsoCamera();
 const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
+// V1.6 B6/B7: freeform roads (graph mesh, zone-block overlay, preview grid, lane cars) and their tool.
+const graphLayer = new GraphRoadLayer(scene);
 // Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
 const dayNight = new DayNight(scene, sun, hemi);
 
@@ -72,6 +87,10 @@ gameLog.gameDate = () => {
 gameLog.event(hasSave() ? 'Game started — saved city loaded' : 'Game started — new city');
 let tool: ToolId = 'inspect';
 let dragFrom: [number, number] | null = null;
+/** Zoning on freeform-road blocks: metres where the drag began (null = ordinary tile zoning). */
+let blockDragFrom: V2 | null = null;
+let cellsShown = false;
+
 let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
 /** Last mouse position in screen pixels (for the cost tooltip). */
@@ -127,6 +146,7 @@ const hud = new Hud(app, {
  * a road-side drag reaches back). Shown only while a zone tool is active.
  * Residential High is locked until the 10,000 tier.
  */
+const freeTool = new FreeRoadTool(graphLayer, () => sim, (m) => hud.flash(m));
 const zoneBar = document.createElement('div');
 zoneBar.id = 'zonebar';
 zoneBar.className = 'panel hidden';
@@ -135,7 +155,7 @@ function renderZoneBar(): void {
   const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant';
   zoneBar.classList.toggle('hidden', !show);
   if (!show) return;
-  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed'] : ['Light', 'Heavy'];
+  const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed', 'Office'] : ['Light', 'Heavy'];
   const d = Math.min(sim.zoneOpt.density, names.length - 1);
   zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
     <span class="muted" style="margin-left:10px">Depth</span> ${[1, 2, 3, 4].map((k) => `<button class="btn${k === sim.zoneOpt.depth ? ' active' : ''}" data-depth="${k}">${k}</button>`).join('')} <span class="muted">tiles</span>`;
@@ -146,6 +166,7 @@ function renderZoneBar(): void {
 function setTool(id: ToolId): void {
   if (id !== tool) sound.play('tool');
   tool = id;
+  freeTool.show(id === 'freeRoad');
   renderZoneBar();
   hud.setTool(id);
   // Pipes are underground: only show them while placing pipes (or via the water overlay).
@@ -168,6 +189,29 @@ function setOverlay(o: OverlayMode): void {
  * click, and while dragging a zone rectangle it shows its size and total.
  */
 function updatePreview(): void {
+  // Zone tools over a freeform road's block: highlight the small squares under the drag (or cursor).
+  if (ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant') {
+    const pm = toMetres(pointer.x, pointer.z), a = blockDragFrom ?? pm;
+    if (blockDragFrom || sim.world.blocks.cellAt(pm)) {
+      const cells = dragCells(sim, a, pm, sim.zoneOpt.depth);
+      const zc = codeForTool(sim, tool, idx(Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.x))), Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.z)))), sim.zoneOpt);
+      // NEBULA: also draw the kerb-row fill squares mouse-up will zone (zoneDryRun),
+      // so the highlight is exactly what gets zoned; the tip counts those squares.
+      const dry = zoneDryRun(sim, cells, zc);
+      graphLayer.showCells(cells.length ? [...cells, ...dry.fill.map((quad) => ({ quad }))] : [], cells.length ? zoneCodeColor(zc) : 0xe5484d);
+      cellsShown = true;
+      preview.show([]);
+      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${dry.keys.length} square${dry.keys.length !== 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
+      return;
+    }
+  }
+  if (cellsShown) { graphLayer.showCells(null); cellsShown = false; }
+  if (tool === 'freeRoad') {
+    preview.show([]);
+    freeTool.hover(toMetres(pointer.x, pointer.z));
+    hud.showTip(freeTool.tip, mouse[0], mouse[1]);
+    return;
+  }
   if (!hoverTile) {
     hud.showTip(null);
     return preview.show([]);
@@ -203,16 +247,20 @@ function updatePreview(): void {
   const valid = tiles.filter(([x, z]) => canPlace(tool, sim.world.at(x, z))).length;
   renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
   hud.showCost(tool, cost, affordable, sim.world.cash);
+  // Zoning shows WHAT is being zoned: the preview takes the zone's own ground colour
+  // (residential green, shops blue, industry yellow, darker for denser zones).
+  const zcode = zq ? codeForTool(sim, tool, idx(hoverTile[0], hoverTile[1]), sim.zoneOpt) : 0;
   preview.show(
     tiles.map(([x, z]) => ({ x, z, ok: affordable && canPlace(tool, sim.world.at(x, z)) })),
     affordable && valid > 0,
+    zcode ? zoneCodeColor(zcode) : undefined,
   );
   if (tool === 'park' && hoverTile) {
     // PR 6: show the park's 10×10 desirability square (offsets −5..+4).
     const area: Array<{ x: number; z: number; ok: boolean | null }> = [];
     for (let dz = -5; dz <= 4; dz++) for (let dx = -5; dx <= 4; dx++) {
       const x = hoverTile[0] + dx, z = hoverTile[1] + dz;
-      if (x >= 0 && z >= 0 && x < 64 && z < 64) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
+      if (x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
     }
     preview.show(area, affordable && valid > 0);
   }
@@ -231,7 +279,8 @@ function updatePreview(): void {
     const refund = tiles.reduce((a, [x, z]) => a + (canPlace(tool, sim.world.at(x, z)) ? bulldozeRefund(sim.world.at(x, z)) : 0), 0);
     html = `${size}${valid} tile${valid > 1 ? 's' : ''} · <span class="ok">refund ${money(refund)}</span>${cost ? ` · clearing ${money(cost)}` : ''}`;
   } else if (zq) {
-    html = zq.cells ? `${size}${zq.tiles.length} tiles · <b>${zq.cells} cells</b> zoned · <b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>` : `<span class="muted">Already zoned</span>`;
+    const zl = ZONE_CODES[zcode]?.label ?? '';
+    html = zq.cells ? `<b style="color:#${zoneCodeColor(zcode).toString(16).padStart(6, '0')}">${zl}</b> · ${size}${zq.tiles.length} tiles · <b>${zq.cells} cells</b> zoned · <b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>` : `<span class="muted">Already zoned</span>`;
   } else {
     const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
     html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
@@ -281,6 +330,8 @@ attachInput(renderer.domElement, cam, ground, {
   },
   dragStart(t) {
     dragFrom = t;
+    const pm0 = toMetres(pointer.x, pointer.z);
+    blockDragFrom = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant' && sim.world.blocks.cellAt(pm0) ? pm0 : null;
     hoverTile = t;
     updatePreview();
   },
@@ -292,9 +343,17 @@ attachInput(renderer.domElement, cam, ground, {
     const end = t ?? hoverTile;
     if (dragFrom && end) {
       sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
-      hud.pickCell = [Math.max(0, Math.min(255, Math.floor(pointer.x * 4))), Math.max(0, Math.min(255, Math.floor(pointer.z * 4)))];
+      hud.pickCell = [Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.x * 4))), Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.z * 4)))];
+      const pm = toMetres(pointer.x, pointer.z);
       if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
-      else {
+      else if (tool === 'freeRoad') {
+        const msg = freeTool.click(pm);
+        if (msg) { hud.flash(msg); sound.play(msg.startsWith('-$') ? toolSound('road') : 'error'); }
+      } else if (blockDragFrom) {
+        // Drag over a freeform road's block: zone the small squares inside the dragged rectangle.
+        const n = paintDragged(sim, blockDragFrom, pm, codeForTool(sim, tool, idx(end[0], end[1]), sim.zoneOpt), sim.zoneOpt.depth);
+        hud.flash(n ? `Zoned ${n} square${n > 1 ? 's' : ''}` : 'Already zoned');
+      } else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
         // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
         if (r.locked || r.changed === 0) sound.play('error');
@@ -307,12 +366,12 @@ attachInput(renderer.domElement, cam, ground, {
         else hud.flash(`-$${r.spent.toLocaleString()}`);
       }
     }
-    dragFrom = null;
+    dragFrom = null; blockDragFrom = null;
     updatePreview();
     hud.refresh(sim);
   },
   dragCancel() {
-    dragFrom = null;
+    dragFrom = null; blockDragFrom = null;
     updatePreview();
   },
   key(k) {
@@ -330,6 +389,9 @@ attachInput(renderer.domElement, cam, ground, {
       }
       return true;
     }
+    if (k === 'ctrl+z') { freeTool.undo(); return true; }
+    if (k === 'ctrl+y') { freeTool.redo(); return true; }
+    if (k === 'escape' && tool === 'freeRoad' && freeTool.pts.length) { freeTool.cancel(); updatePreview(); return true; }
     if (k === 'escape') {
       if (hud.openGroup) {
         hud.closeFlyout();
@@ -356,6 +418,18 @@ resize();
 const menu = new GameMenu(() => sim);
 document.querySelector('.topbar')!.prepend(menu.button);
 app.append(menu.el);
+// V1.6: the What's new (change log) screen — opens by itself after an update, and from the title screen / ☰ menu.
+const changelog = new ChangelogPanel();
+document.body.append(changelog.el);
+menu.onChangelog = () => changelog.open();
+// Back to the title screen: save the city first (Continue picks it up), then reload clean.
+menu.onMainMenu = () => {
+  if (!inTitle) saveWorld(sim.world);
+  window.location.reload();
+};
+// NEBULA debug code: a pasted code was written to the save — load it in place
+// (no page reload, so the beforeunload autosave can't overwrite it).
+menu.onDebugLoaded = () => startGame('continue');
 
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);
@@ -379,6 +453,7 @@ renderer.setAnimationLoop(() => {
     dayNight.override = ((performance.now() / 1000) / 90 + 0.3) % 1;
   }
   sim.update(dt);
+  if (tool === 'freeRoad') freeTool.tick(dt); // eased snapping
   cam.update(dt);
   dayNight.update(sim);
   city.setNight(dayNight.night, dayNight.time);
@@ -388,9 +463,14 @@ renderer.setAnimationLoop(() => {
   cam.rotateSpeed = sim.settings.camRotate;
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
+  city.setWireLod(cam.zoom < LOD_ZOOM * 0.5); // NEBULA: wires off when far out
   city.cameraQuat.copy(cam.camera.quaternion);
+  city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
+  graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
+  graphLayer.updateGrid(city.overlay === 'grid' ? sim : null); // power & water grid ribbons along the roads
+  graphLayer.sync(sim.world.roads, sim.world.blocks);
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
@@ -423,7 +503,13 @@ if (resume === 'continue') hud.flash('Updated — welcome back');
 function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'river' }): void {
   if (kind === 'new') {
     clearSave();
+    setGridSize(opts.size ?? 64); // V1.6 A6: map size chosen on the title screen
     sim = new Simulation(new World(undefined, opts.seed, { dry: opts.map === 'dry' }));
+    // OASIS: new games are GRAPH WORLDS from the start — the generated roads
+    // (highway connection) are traced into the road graph, drawn by the graph
+    // renderer, and every road built afterwards (tile or free tool) joins it.
+    migrateToGraph(sim.world);
+    sim.version++;
     gameLog.event(`New city founded (seed ${sim.world.seed}${opts.map === 'dry' ? ', dry land' : ''})`);
   } else {
     const w = loadWorld();
@@ -433,7 +519,11 @@ function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'rive
   inTitle = false;
   title.hide();
   dayNight.override = null;
-  cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+  // V1.6 A6: the map may have changed size (new big map, or a save of another size).
+  resizeScene(sceneBundle, GRID_SIZE);
+  const sr = startRegion(), rs = regionSide();
+  if (rs > 1) cam.target.set((sr % rs) * REGION + REGION / 2, 0, Math.floor(sr / rs) * REGION + REGION / 2);
+  else cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
   cam.zoomBy(1 / 1.5);
   sim.speed = lastSpeed;
   hud.inspect(null);
@@ -452,6 +542,7 @@ const title = new TitleScreen({
     return true;
   },
   openSettings: () => menu.toggle(true),
+  openChangelog: () => changelog.open(),
   saveSlot: (i) => saveToSlot(i),
 });
 if (inTitle) {
@@ -462,8 +553,11 @@ if (inTitle) {
   gameLog.event('Title screen');
 }
 
+// First start after an update: show what changed (once per change-log entry).
+changelog.openIfUnseen();
+
 // ---- V1.5: update prompt ----
-// Polls /version.json (every 5 min + on focus) and offers to update.
+// Polls /version.json (every minute + on focus) and offers to update.
 const updater = new UpdateChecker({
   save: autosave,
   exportSave: () => { saveWorld(sim.world); return downloadSave(); },
@@ -479,12 +573,22 @@ updater.start();
     return sim;
   },
   cam,
+  /** V1.6 A5: the city renderer (chunk culling toggle + render stats for the render bench). */
+  renderer: city,
+  /** V1.6 B6/B7: free-road layer + tool + helpers (Playwright screenshots/flows). */
+  graphLayer,
+  freeTool,
+  free: { placeFreeRoad, paintBlocks, quadCubic, lineCubic, undo, redo },
+  /** NEBULA testing: trace a tile-road world into the graph (as loading a v9 save does). */
+  migrateToGraph,
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */
   useSim: (s: Simulation) => {
     sim = s;
     hud.notices.reset(sim);
   },
   setTool,
+  /** V1.5b: template table (screenshots place showcase buildings). */
+  TPL,
   updater,
   /** V1.5: leave the title screen (tests/screenshots). */
   startGame,
@@ -498,6 +602,7 @@ updater.start();
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
   openGraphs: () => hud.graphs.toggle(true),
   menu,
+  changelog,
   gameLog,
   get timeOfDay() {
     return dayNight.time;

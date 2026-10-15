@@ -40,6 +40,7 @@ export class DemandBars {
   update(sim: Simulation): void {
     for (const [zone] of ZONES) {
       const { value, driver } = sim.demand[zone];
+      const wf = sim.demand.workforce; // V1.5b stage G
       const { fill, col } = this.bars.get(zone)!;
       // Track is 60 px: 30 above the centre line, 30 below.
       const h = Math.round(Math.abs(value) * 30);
@@ -48,7 +49,7 @@ export class DemandBars {
       fill.style.opacity = value >= 0 ? '1' : '0.45';
       const name = zone === 'residential' ? 'Residential' : zone === 'commercial' ? 'Commercial' : 'Industrial';
       const pct = Math.round(value * 100);
-      col.title = `${name} demand: ${pct > 0 ? '+' : ''}${pct}%\n${driver}${value <= -0.6 ? '\n(Growth stopped)' : ''}`;
+      col.title = `${name} demand: ${pct > 0 ? '+' : ''}${pct}%\n${driver}${value <= -0.6 ? '\n(Growth stopped)' : ''}${wf && zone !== 'residential' ? `\nWorkforce: ${Math.round(wf.educated)} educated · ${Math.round(wf.uneducated)} uneducated (shops/offices need ${Math.round(wf.needEducated)} educated)` : ''}`;
       col.dataset.value = String(pct);
     }
   }

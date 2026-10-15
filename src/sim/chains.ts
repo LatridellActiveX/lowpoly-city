@@ -31,6 +31,7 @@
  * dropped when the tile stops being industrial. Roles are a cache (not
  * saved): after loading, the same rules re-derive them.
  */
+import { due, PHASE } from './schedule';
 import { GRID_SIZE } from './types';
 import { World } from './grid';
 import { Resource } from './resources';
@@ -38,11 +39,12 @@ import { hash2 } from './random';
 import { isFarmLot, isFoodPlant } from './industry';
 import type { GoodType } from './goods';
 
-export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics';
+export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery';
 
 export const ROLE_NAMES: Record<Role, string> = {
   factory: 'Factory', farm: 'Farm', foodPlant: 'Food processing plant', logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry',
   lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
+  tailor: 'Clothing factory', pharma: 'Pharmaceutical lab', brewery: 'Brewery & bottler',
 };
 
 /** Processor recipes (1 unit in → 1 unit out). outputs[0] is the "main" product. */
@@ -53,9 +55,12 @@ export const RECIPES: Partial<Record<Role, { inputs: GoodType[]; outputs: GoodTy
   materials: { inputs: ['lumber', 'stone'], outputs: ['materials'] },
   furniture: { inputs: ['lumber'], outputs: ['furniture'] },
   electronics: { inputs: ['plastics'], outputs: ['electronics'] },
+  tailor: { inputs: ['plastics'], outputs: ['apparel'] },
+  pharma: { inputs: ['oil'], outputs: ['medicine'] },
+  brewery: { inputs: ['food'], outputs: ['beverages'] },
 };
 /** Recipes a plain factory may adopt (the food plant comes from its own zone kind). */
-const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics'];
+const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery'];
 /** Extractor role and product per resource patch. */
 const EXTRACT: Partial<Record<Resource, [Role, GoodType]>> = {
   [Resource.Logging]: ['logging', 'wood'],
@@ -91,7 +96,7 @@ export function roleOutput(world: World, i: number, role: Role): GoodType {
 /** Every good some building in the city makes (all outputs, refinery's both). */
 export function cityMakes(world: World): Set<GoodType> {
   const out = new Set<GoodType>();
-  world.tiles.forEach((t, i) => {
+  world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0) return;
     const r = roleOf(world, i);
     const rec = RECIPES[r];
@@ -106,9 +111,9 @@ export function refreshRoles(world: World, operating: (i: number) => boolean): v
   const m = memo(world);
   // Drop roles of tiles that are no longer built industry.
   for (const i of [...m.keys()]) { const t = world.tiles[i]; if (t.zone !== 'industrial' || t.level === 0) m.delete(i); }
-  if (world.tick % ROLE_REFRESH !== 0) return;
+  if (!due(world.tick, ROLE_REFRESH, PHASE.roles)) return; // V1.6 A4: staggered (schedule.ts)
   const makes = cityMakes(world);
-  world.tiles.forEach((t, i) => {
+  world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0 || !operating(i) || roleOf(world, i) !== 'factory') return;
     const options = ADOPTABLE.filter((r) => RECIPES[r]!.inputs.some((g) => makes.has(g)));
     if (!options.length) return;
