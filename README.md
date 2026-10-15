@@ -82,8 +82,9 @@ Version 1.5b is on the same branch (`version-1.5`):
   * Empty residential zoning cools R demand.
 * **Services:**
   * A 2×2 landfill (unlocks at 1,000 people) with garbage trucks. It has a finite capacity: its model grows through six stages as it fills, a compactor and gulls work on it, and once it is full it stops taking garbage until you build a new one.
-  * Recycling center (unlocks at 2,500 people): buildings around it make up to 45% less garbage, so landfills last longer.
-  * Police and crime (police and the high school unlock at 2,500 people).
+  * Recycling center (unlocks at 2,500 people): buildings around it make up to 45% less garbage. It runs 12 garbage trucks (double a landfill) and burns the garbage for 5,000 power, like a coal plant. Landfill trucks haul stored garbage to it to be burned, freeing landfill space.
+  * Police and crime: a detailed 2×2 police station; police, the high school and crime all start at 2,500 people.
+  * In-game change log ("What's new"): add an entry to `src/changelog.ts` for each update; it opens automatically after an update and from the title screen / ☰ menu.
   * Clinic, hospital and ambulances.
   * Schools: elementary is available from the start. Workforce education matters.
 * **Offices:** Commercial ▸ Office zoning, with law firms, cable and internet companies, data centres, cell towers and radio stations.

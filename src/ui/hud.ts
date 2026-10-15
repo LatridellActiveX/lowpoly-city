@@ -34,7 +34,7 @@ import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
 import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
-import { CONSTRUCT_TICKS, FUEL_MAX } from "../sim/rules";
+import { CONSTRUCT_TICKS, FUEL_MAX, POWER_OUTPUT } from "../sim/rules";
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number, dir: number): string {
@@ -701,7 +701,11 @@ export class Hud {
         else if (fill >= 0.8) rows.push('<div class="row bad">Almost full — plan a new landfill.</div>');
         rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
       }
-      if (d.svc === Svc.Recycling) rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
+      if (d.svc === Svc.Recycling) {
+        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
+        rows.push(`<div class="row">🔥 Burns garbage for <b>${POWER_OUTPUT.powerPlant}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
+        rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
+      }
       if (d.svc === Svc.Depot) {
         let n = 0; sim.world.tiles.forEach((q, j) => { if ((q.zone === 'industrial' || q.zone === 'commercial') && q.level > 0 && depotOf([a], j) === a) n++; });
         rows.push(`<div class="row">📦 Loads handled: <b>${sim.shipping.depotLoads.get(a) ?? 0}</b> · businesses in catchment: <b>${n}</b></div>`);

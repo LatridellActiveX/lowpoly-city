@@ -18,39 +18,94 @@ import { hash2 } from '../sim/random';
 
 const LANE = 0.17;
 const GLASS = 0x2a3440;
+const cyl = (r: number, h: number, seg = 8) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
 
 export const VEHICLES = {
-  /** Car along +x. Body is white so the instance colour paints it. */
-  car: () =>
-    merge([
-      part(box(0.24, 0.06, 0.12), 0xffffff, [0, 0.025, 0]),
-      part(box(0.12, 0.05, 0.105), GLASS, [-0.02, 0.085, 0]),
-      part(box(0.02, 0.02, 0.1), 0xfff3c4, [0.12, 0.045, 0]), // headlights
-      // (PR 5: wheels are a separate instanced pool so they can spin — see WHEELS.)
-    ]),
   /**
-   * PR 5 wheel: tyre + a light hub bar across it, so the rotation is
+   * Car along +x. Body is white so the instance colour paints it; the dark
+   * parts (bumpers, grille, glass, mirrors, door lines) stay dark under any colour.
+   * V1.6: lower body with a separate hood, belt line and trunk, glass greenhouse with
+   * slanted A/C pillars and a B pillar, door cut lines and handles, mirrors, bumpers,
+   * grille, headlight pair, exhaust and a side sill.
+   */
+  car: () => {
+    const W = 0xffffff, DARK = 0x2b2e33;
+    const p: THREE.BufferGeometry[] = [
+      part(box(0.24, 0.045, 0.12), W, [0, 0.025, 0]), // lower body
+      part(box(0.08, 0.015, 0.112), W, [0.08, 0.07, 0]), // hood
+      part(box(0.07, 0.015, 0.112), W, [-0.085, 0.07, 0]), // trunk deck
+      part(box(0.1, 0.015, 0.116), W, [-0.005, 0.07, 0]), // belt line under the glass
+      part(box(0.12, 0.05, 0.098), GLASS, [-0.02, 0.085, 0]), // greenhouse glass
+      part(box(0.01, 0.054, 0.01), W, [0.045, 0.085, 0.052], [0, 0, 0.55]), part(box(0.01, 0.054, 0.01), W, [0.045, 0.085, -0.052], [0, 0, 0.55]), // A pillars
+      part(box(0.01, 0.05, 0.01), W, [-0.02, 0.085, 0.052]), part(box(0.01, 0.05, 0.01), W, [-0.02, 0.085, -0.052]), // B pillars
+      part(box(0.01, 0.054, 0.01), W, [-0.085, 0.085, 0.052], [0, 0, -0.55]), part(box(0.01, 0.054, 0.01), W, [-0.085, 0.085, -0.052], [0, 0, -0.55]), // C pillars
+      part(box(0.014, 0.022, 0.126), DARK, [0.125, 0.04, 0]), part(box(0.014, 0.022, 0.126), DARK, [-0.125, 0.04, 0]), // bumpers
+      part(box(0.004, 0.016, 0.064), DARK, [0.122, 0.055, 0]), // grille
+      part(box(0.2, 0.008, 0.124), DARK, [0, 0.016, 0]), // sill / undertray
+      part(box(0.02, 0.01, 0.01), DARK, [0.045, 0.092, 0.066]), part(box(0.02, 0.01, 0.01), DARK, [0.045, 0.092, -0.066]), // mirrors
+      part(cyl(0.005, 0.016, 6).rotateZ(Math.PI / 2), DARK, [-0.13, 0.02, 0.04]), // exhaust tip
+    ];
+    for (const s of [-1, 1]) {
+      p.push(part(box(0.002, 0.045, 0.002), DARK, [0.03, 0.05, s * 0.061]), part(box(0.002, 0.045, 0.002), DARK, [-0.05, 0.05, s * 0.061])); // door lines
+      p.push(part(box(0.014, 0.004, 0.003), 0xc9ced4, [0.01, 0.065, s * 0.062]), part(box(0.014, 0.004, 0.003), 0xc9ced4, [-0.07, 0.065, s * 0.062])); // handles
+      p.push(part(box(0.026, 0.02, 0.014), 0xfff3c4, [0.12, 0.045, s * 0.042])); // headlights
+    }
+    return merge(p);
+  },
+  /**
+   * PR 5 wheel: tyre + alloy rim, five spokes and a hub, so the rotation is
    * visible. Axis along z; the renderer spins it about z by distance/radius.
    */
   wheel: () =>
     merge([
-      part(new THREE.CylinderGeometry(0.025, 0.025, 0.022, 10).rotateX(Math.PI / 2), 0x1b1b1b),
-      part(box(0.03, 0.008, 0.024).translate(0, -0.004, 0), 0xb9bec4),
+      part(new THREE.CylinderGeometry(0.025, 0.025, 0.022, 14).rotateX(Math.PI / 2), 0x1b1b1b),
+      part(new THREE.CylinderGeometry(0.0175, 0.0175, 0.0235, 12).rotateX(Math.PI / 2), 0xc9ced4), // rim
+      part(new THREE.CylinderGeometry(0.0065, 0.0065, 0.026, 8).rotateX(Math.PI / 2), 0x8d949c), // hub
+      ...[0, 1, 2, 3, 4].map((k) => part(box(0.034, 0.004, 0.025).translate(0, -0.002, 0), 0xe3e6ea, [0, 0, 0], [0, 0, (k * Math.PI) / 5])),
     ]),
   /**
    * PR 5 car roof panel: sits on top of the glass cabin. White geometry so
    * the per-instance colour paints it (roofColor() picks it per car).
+   * V1.6: plus a windscreen header, a rear spoiler lip, roof rails and a shark-fin antenna.
    */
-  carRoof: () => merge([part(box(0.125, 0.014, 0.109), 0xffffff, [-0.02, 0.135, 0]), part(box(0.01, 0.01, 0.1), 0xffffff, [0.045, 0.128, 0], [0, 0, 0.5])]),
+  carRoof: () => merge([
+    part(box(0.125, 0.014, 0.109), 0xffffff, [-0.02, 0.135, 0]), part(box(0.01, 0.01, 0.1), 0xffffff, [0.045, 0.128, 0], [0, 0, 0.5]),
+    part(box(0.01, 0.01, 0.1), 0xffffff, [-0.085, 0.128, 0], [0, 0, -0.5]),
+    part(box(0.09, 0.005, 0.005), 0x2b2e33, [-0.02, 0.149, 0.045]), part(box(0.09, 0.005, 0.005), 0x2b2e33, [-0.02, 0.149, -0.045]),
+    part(box(0.016, 0.012, 0.004), 0x2b2e33, [-0.06, 0.149, 0]),
+  ]),
   /** PR 5 rear light pair (red, coloured per frame: off / tail-light / brake). Car rear is −x. */
-  tailLights: () => merge([part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, -0.04]), part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, 0.04])]),
-  /** Truck cab (fixed colours) along +x. */
-  truckCab: () =>
-    merge([
-      part(box(0.1, 0.11, 0.13), 0xe8e8e8, [0.15, 0.025, 0]),
+  tailLights: () => merge([part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, -0.04]), part(box(0.008, 0.016, 0.026), 0xffffff, [-0.121, 0.045, 0.04]), part(box(0.006, 0.008, 0.05), 0xffffff, [-0.122, 0.06, 0])]),
+  /**
+   * Truck cab (fixed colours) along +x. V1.6: cab-over cab with a slanted windscreen, side
+   * windows, grille, bumper, headlights, mirrors, roof lamp bar, exhaust stacks, fuel tanks,
+   * mud flaps, a fifth-wheel plate and chassis rails.
+   */
+  truckCab: () => {
+    const CAB = 0xe8e8e8, DK = 0x2b2e33;
+    const p: THREE.BufferGeometry[] = [
+      part(box(0.1, 0.11, 0.13), CAB, [0.15, 0.025, 0]),
       part(box(0.02, 0.05, 0.11), GLASS, [0.2, 0.08, 0]),
+      part(box(0.01, 0.052, 0.112), GLASS, [0.196, 0.083, 0], [0, 0, 0.2]), // slanted windscreen
       part(box(0.36, 0.025, 0.1), 0x3a3a3a, [0.02, 0.02, 0]), // chassis
-    ]),
+      part(box(0.1, 0.012, 0.134), 0xcfd2d6, [0.15, 0.135, 0]), // roof cap
+      part(box(0.03, 0.01, 0.1), 0xf2a12e, [0.16, 0.147, 0]), // roof lamp bar
+      part(box(0.006, 0.04, 0.09), DK, [0.2, 0.035, 0]), // grille
+      part(box(0.016, 0.022, 0.138), DK, [0.208, 0.022, 0]), // bumper
+      part(box(0.28, 0.012, 0.012), 0x55595e, [0.02, 0.015, 0.05]), part(box(0.28, 0.012, 0.012), 0x55595e, [0.02, 0.015, -0.05]), // chassis rails
+      part(box(0.08, 0.008, 0.1), 0x6d757b, [0.0, 0.045, 0]), // fifth-wheel plate
+    ];
+    for (const s of [-1, 1]) {
+      p.push(part(box(0.05, 0.04, 0.004), GLASS, [0.15, 0.085, s * 0.066])); // side window
+      p.push(part(box(0.002, 0.1, 0.004), DK, [0.125, 0.03, s * 0.066])); // door line
+      p.push(part(box(0.008, 0.016, 0.026), 0xfff3c4, [0.206, 0.04, s * 0.05])); // headlights
+      p.push(part(box(0.012, 0.045, 0.012), DK, [0.19, 0.09, s * 0.076])); // mirror arms
+      p.push(part(cyl(0.006, 0.12, 6), 0x9aa0a6, [0.098, 0.04, s * 0.06])); // exhaust stacks
+      p.push(part(new THREE.CylinderGeometry(0.022, 0.022, 0.07, 10).rotateZ(Math.PI / 2), 0xb8bec4, [0.06, 0.03, s * 0.065])); // fuel tank
+      p.push(part(box(0.002, 0.026, 0.022), DK, [-0.11, 0.0, s * 0.06])); // mud flap
+    }
+    return merge(p);
+  },
   /**
    * V1.5b stage B: TANKER body (oil, fuel, plastics, chemicals) — a horizontal
    * cylinder with end caps, a top walkway + hatches, a rear valve cabinet and
@@ -80,7 +135,14 @@ export const VEHICLES = {
       part(new THREE.ConeGeometry(0.06, 0.05, 6).scale(1.8, 1, 1), 0xffffff, [-0.05, 0.15, 0]),
     ]),
   /** Truck cargo box: white, tinted per cargo type by the instance colour. */
-  truckBox: () => merge([part(box(0.24, 0.13, 0.13), 0xffffff, [-0.05, 0.045, 0])]),
+  truckBox: () => merge([
+    part(box(0.24, 0.13, 0.13), 0xffffff, [-0.05, 0.045, 0]),
+    ...[-0.14, -0.1, -0.06, -0.02, 0.02].flatMap((x) => [part(box(0.006, 0.12, 0.002), 0xe2e2e2, [x, 0.05, 0.066]), part(box(0.006, 0.12, 0.002), 0xe2e2e2, [x, 0.05, -0.066])]), // side ribs
+    part(box(0.24, 0.012, 0.134), 0xd0d0d0, [-0.05, 0.175, 0]), // roof cap
+    part(box(0.004, 0.11, 0.002), 0x3a3a3a, [-0.171, 0.055, 0]), // rear door seam
+    part(box(0.012, 0.016, 0.13), 0x3a3a3a, [-0.172, 0.02, 0]), // rear bumper
+    part(box(0.24, 0.012, 0.134), 0x3a3a3a, [-0.05, 0.03, 0]), // skirt
+  ]),
   /**
    * PR 5 traffic signal pole (replaces PR 4's stick + cube). Local frame:
    * the pole stands at the origin, the MAST ARM reaches along +x over the

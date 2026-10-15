@@ -33,6 +33,8 @@ export interface TitleHooks {
   loadSlot(slot: number): void;
   importSave(text: string): boolean;
   openSettings(): void;
+  /** Open the What's new screen. */
+  openChangelog(): void;
   /** Copy the autosaved city into slot i. */
   saveSlot(slot: number): boolean;
 }
@@ -52,6 +54,7 @@ export class TitleScreen {
           <button class="btn big" data-a="continue">Continue</button>
           <button class="btn big" data-a="load">Load</button>
           <button class="btn big" data-a="settings">Settings</button>
+          <button class="btn big" data-a="changelog">📰 What's new</button>
         </div>
         <div class="title-menu hidden" data-view="new">
           <label>Seed <input type="text" data-k="seed" placeholder="random" maxlength="10"></label>
@@ -116,6 +119,7 @@ export class TitleScreen {
       case 'load': return this.view('load');
       case 'continue': return this.hooks.continueGame();
       case 'settings': return this.hooks.openSettings();
+      case 'changelog': return this.hooks.openChangelog();
       case 'import': return this.q<HTMLInputElement>('[data-k=file]').click();
       case 'start': {
         const raw = this.q<HTMLInputElement>('[data-k=seed]').value.trim();

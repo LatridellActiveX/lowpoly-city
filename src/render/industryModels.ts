@@ -24,44 +24,113 @@ const dome = (r: number) => new THREE.SphereGeometry(r, 14, 6, 0, Math.PI * 2, 0
  * bales and a fenced yard. Fields are separate instances (fieldSoil/Crops).
  */
 export function farmModel(): THREE.BufferGeometry {
+  const RED = 0xb23a2e, TRIM = 0xf1ece2, ROOFC = 0x4d4a48, GRN = 0x3f8f3a;
   const p: THREE.BufferGeometry[] = [
     part(box(0.96, 0.012, 0.96), 0x9c8a62), // packed-earth yard
     // Barn: walls + gable roof (ridge along x) + white door frame and X brace.
-    part(box(0.46, 0.22, 0.34), 0xb23a2e, [-0.12, 0.012, 0.1]),
-    part(gable(0.5, 0.14, 0.38), 0x4d4a48, [-0.12, 0.232, 0.1]),
-    part(box(0.18, 0.16, 0.006), 0xf1ece2, [-0.12, 0.012, 0.272]),
+    part(box(0.46, 0.22, 0.34), RED, [-0.12, 0.012, 0.1]),
+    part(gable(0.5, 0.14, 0.38), ROOFC, [-0.12, 0.232, 0.1]),
+    part(box(0.52, 0.012, 0.022), 0x35332f, [-0.12, 0.366, 0.1]), // ridge cap
+    part(box(0.18, 0.16, 0.006), TRIM, [-0.12, 0.012, 0.272]),
     part(box(0.16, 0.14, 0.008), 0x8e2b22, [-0.12, 0.02, 0.274]),
-    part(box(0.012, 0.19, 0.006), 0xf1ece2, [-0.12, 0.012, 0.279], [0, 0, 0.72]),
-    part(box(0.012, 0.19, 0.006), 0xf1ece2, [-0.12, 0.012, 0.279], [0, 0, -0.72]),
-    part(box(0.08, 0.06, 0.006), 0xf1ece2, [-0.12, 0.25, 0.272]), // hay-loft door
-    // Silo: corrugated look from stacked rings + dome cap.
+    part(box(0.012, 0.19, 0.006), TRIM, [-0.12, 0.012, 0.279], [0, 0, 0.72]),
+    part(box(0.012, 0.19, 0.006), TRIM, [-0.12, 0.012, 0.279], [0, 0, -0.72]),
+    part(box(0.08, 0.06, 0.006), TRIM, [-0.12, 0.25, 0.272]), // hay-loft door
+    part(box(0.06, 0.05, 0.004), 0x3a2a22, [-0.12, 0.255, 0.275]),
+    // Barn cupola with a little gable roof, side windows and a lean-to shed.
+    part(box(0.06, 0.05, 0.06), TRIM, [-0.12, 0.35, 0.1]),
+    part(gable(0.07, 0.035, 0.07), ROOFC, [-0.12, 0.4, 0.1]),
+    part(box(0.004, 0.025, 0.03), 0x2f3a44, [-0.12, 0.362, 0.131]),
+    part(box(0.12, 0.1, 0.26), 0xa5362b, [-0.41, 0.012, 0.1]),
+    part(box(0.15, 0.01, 0.29), ROOFC, [-0.415, 0.108, 0.1], [0, 0, 0.18]),
+    part(box(0.004, 0.06, 0.07), 0xf1ece2, [-0.472, 0.03, 0.1]),
+    // Silo: corrugated look from stacked rings + dome cap, ladder with cage hoops, filler pipe.
     part(cyl(0.085, 0.5), 0xd8dde2, [0.27, 0.012, -0.12]),
     part(dome(0.085), 0x9aa3ab, [0.27, 0.512, -0.12]),
     part(new THREE.CylinderGeometry(0.089, 0.089, 0.012, 14), 0xaab2ba, [0.27, 0.14, -0.12]),
     part(new THREE.CylinderGeometry(0.089, 0.089, 0.012, 14), 0xaab2ba, [0.27, 0.3, -0.12]),
     part(new THREE.CylinderGeometry(0.089, 0.089, 0.012, 14), 0xaab2ba, [0.27, 0.44, -0.12]),
+    part(new THREE.CylinderGeometry(0.089, 0.089, 0.012, 14), 0xaab2ba, [0.27, 0.07, -0.12]),
     part(box(0.012, 0.5, 0.02), 0x6d747b, [0.36, 0.012, -0.12]), // ladder
-    // Tool shed + small tractor.
+    part(cyl(0.012, 0.04, 6), 0x555c63, [0.27, 0.598, -0.12]), // vent
+    part(box(0.012, 0.012, 0.15), 0x6d747b, [0.27, 0.45, -0.025], [0, 0, 0]), // pipe from silo toward the barn
+    // Tool shed.
     part(box(0.18, 0.12, 0.16), 0xe7dcc4, [0.27, 0.012, 0.22]),
     part(gable(0.2, 0.06, 0.18), 0x6b5444, [0.27, 0.132, 0.22]),
-    part(box(0.09, 0.05, 0.06), 0x3f8f3a, [0.05, 0.03, 0.36]),
-    part(box(0.04, 0.04, 0.05), 0x2f2f2f, [0.07, 0.08, 0.36]),
-    part(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10).rotateX(Math.PI / 2), 0x222222, [0.025, 0.03, 0.39]),
-    part(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10).rotateX(Math.PI / 2), 0x222222, [0.025, 0.03, 0.33]),
+    part(box(0.07, 0.09, 0.005), 0x8a6440, [0.27, 0.012, 0.302]),
   ];
-  // Water trough, feed sacks by the barn door, a weather vane on the roof.
+  for (let k = 0; k < 4; k++) p.push(part(new THREE.TorusGeometry(0.089, 0.003, 3, 14).rotateX(Math.PI / 2), 0x6d747b, [0.27, 0.2 + k * 0.1, -0.12])); // ladder-cage hoops
+  // Farmhouse (front-left): walls, gable roof, chimney, door, windows with shutters, porch.
+  p.push(part(box(0.22, 0.1, 0.14), 0xefe6cf, [-0.3, 0.012, 0.4]));
+  p.push(part(gable(0.25, 0.07, 0.17), 0x7a3b2e, [-0.3, 0.112, 0.4]));
+  p.push(part(box(0.025, 0.07, 0.025), 0x8a4331, [-0.37, 0.14, 0.38]));
+  p.push(part(box(0.04, 0.07, 0.006), 0x6b4a2b, [-0.3, 0.012, 0.471]));
+  for (const x of [-0.37, -0.23]) { p.push(part(box(0.035, 0.04, 0.006), 0x9fd7ff, [x, 0.04, 0.471])); p.push(part(box(0.01, 0.04, 0.007), 0x3f6fa0, [x - 0.025, 0.04, 0.471])); p.push(part(box(0.01, 0.04, 0.007), 0x3f6fa0, [x + 0.025, 0.04, 0.471])); }
+  p.push(part(box(0.1, 0.012, 0.04), 0x8a6440, [-0.3, 0.05, 0.488]), part(box(0.006, 0.04, 0.006), 0x8a6440, [-0.34, 0.012, 0.5]), part(box(0.006, 0.04, 0.006), 0x8a6440, [-0.26, 0.012, 0.5]));
+  // Tractor (+x forward): hood, cab with glass and roof, exhaust, big rear and small front wheels.
+  const tractor = (x: number, z: number, yaw: number) => {
+    const t: THREE.BufferGeometry[] = [
+      part(box(0.05, 0.035, 0.04), GRN, [0.035, 0.03, 0]), part(box(0.04, 0.04, 0.05), GRN, [-0.02, 0.03, 0]),
+      part(box(0.036, 0.036, 0.046), 0x9fd7ff, [-0.02, 0.07, 0]), part(box(0.042, 0.006, 0.054), 0x2f2f2f, [-0.02, 0.106, 0]),
+      part(cyl(0.004, 0.04, 5), 0x333333, [0.045, 0.062, 0.012]),
+      part(box(0.01, 0.02, 0.04), 0x555c63, [0.062, 0.03, 0]), // grille/weights
+    ];
+    for (const s of [-1, 1]) {
+      t.push(part(new THREE.CylinderGeometry(0.03, 0.03, 0.02, 10).rotateX(Math.PI / 2), 0x222222, [-0.03, 0.03, s * 0.036]));
+      t.push(part(new THREE.CylinderGeometry(0.016, 0.016, 0.022, 8).rotateX(Math.PI / 2), 0xe0b52a, [-0.03, 0.03, s * 0.036]));
+      t.push(part(new THREE.CylinderGeometry(0.02, 0.02, 0.014, 8).rotateX(Math.PI / 2), 0x222222, [0.05, 0.02, s * 0.03]));
+    }
+    for (const g of t) g.rotateY(yaw).translate(x, 0.012, z);
+    return t;
+  };
+  p.push(...tractor(0.1, 0.4, 0.3));
+  // Windmill water pump (back-left): lattice tower, hub, eight blades, tail vane, tank.
+  const WX = 0.42, WZ = -0.4;
+  for (const [dx, dz] of [[-0.03, -0.03], [0.03, -0.03], [-0.03, 0.03], [0.03, 0.03]]) p.push(slab([WX + dx, 0.012, WZ + dz], [WX + dx * 0.4, 0.38, WZ + dz * 0.4], 0.008, 0.008, 0x8d949c));
+  for (const y of [0.1, 0.2, 0.3]) p.push(part(box(0.06 - y * 0.05, 0.005, 0.06 - y * 0.05), 0x8d949c, [WX, y, WZ]));
+  p.push(part(new THREE.CylinderGeometry(0.012, 0.012, 0.03, 8).rotateZ(Math.PI / 2), 0x6d747b, [WX, 0.39, WZ]));
+  for (let k = 0; k < 8; k++) p.push(part(box(0.012, 0.075, 0.003), k % 2 ? 0xd8dde2 : 0xc9ced4, [WX + 0.014, 0.39, WZ], [(k * Math.PI) / 4, 0, 0]).translate(0, 0, 0));
+  p.push(part(box(0.1, 0.003, 0.02), 0xb23a2e, [WX - 0.06, 0.39, WZ]), part(box(0.07, 0.008, 0.008), 0x6d747b, [WX - 0.03, 0.39, WZ]));
+  p.push(part(cyl(0.025, 0.04, 10), 0x8a6a3a, [WX, 0.012, WZ + 0.08])); // wooden tank
+  // Cows (white with black patches), chicken coop, haystack, trough, feed sacks, bales.
+  const cow = (x: number, z: number, yaw: number) => {
+    const c: THREE.BufferGeometry[] = [
+      part(box(0.07, 0.035, 0.032), 0xf4f1ea, [0, 0.032, 0]), part(box(0.02, 0.02, 0.022), 0xf4f1ea, [0.042, 0.048, 0]), part(box(0.022, 0.014, 0.024), 0x3a3a3a, [0.0, 0.052, 0]),
+      part(box(0.012, 0.012, 0.016), 0xe9c0b0, [0.054, 0.042, 0]), part(box(0.006, 0.014, 0.006), 0x333333, [-0.038, 0.04, 0]),
+    ];
+    for (const [lx, lz] of [[-0.025, -0.011], [-0.025, 0.011], [0.025, -0.011], [0.025, 0.011]]) c.push(part(box(0.007, 0.03, 0.007), 0xeae6dc, [lx, 0.012, lz]));
+    for (const g of c) g.rotateY(yaw).translate(x, 0.012, z);
+    return c;
+  };
+  p.push(...cow(0.42, 0.06, 0.4), ...cow(0.4, 0.2, -0.5));
+  p.push(part(box(0.1, 0.05, 0.002), 0x7b6a4a, [0.43, 0.012, 0.12])); // paddock rail fragment
+  p.push(part(box(0.08, 0.05, 0.07), 0xe8d9b5, [0.4, 0.04, 0.4]), part(gable(0.09, 0.03, 0.08), 0xb23a2e, [0.4, 0.09, 0.4])); // chicken coop
+  for (const x of [0.37, 0.43]) p.push(part(box(0.006, 0.03, 0.006), 0x6b4a2b, [x, 0.012, 0.4]));
+  p.push(part(box(0.04, 0.003, 0.05), 0x8a6440, [0.4, 0.04, 0.45], [0.5, 0, 0]));
+  p.push(part(new THREE.ConeGeometry(0.07, 0.11, 8).translate(0, 0.055, 0), 0xd8b85a, [-0.41, 0.012, -0.12])); // haystack
   p.push(part(box(0.12, 0.05, 0.05), 0x8d949c, [0.12, 0.012, -0.32]));
   p.push(part(box(0.11, 0.006, 0.04), 0x3d95d9, [0.12, 0.055, -0.32]));
-  p.push(part(box(0.07, 0.05, 0.05), 0xd9c9a3, [-0.34, 0.012, 0.18]));
-  p.push(part(box(0.06, 0.04, 0.045), 0xcbb98f, [-0.27, 0.012, 0.2], [0, 0.4, 0]));
-  p.push(part(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 6).translate(0, 0.05, 0), 0x555c63, [-0.12, 0.372, 0.1]));
-  p.push(part(box(0.09, 0.008, 0.008), 0x555c63, [-0.12, 0.46, 0.1]));
-  p.push(part(box(0.02, 0.03, 0.004), 0x555c63, [-0.165, 0.46, 0.1]));
-  // Hay bales (round, lying on their side).
-  for (const [x, z] of [[-0.38, -0.3], [-0.28, -0.32], [-0.33, -0.22]]) p.push(part(new THREE.CylinderGeometry(0.045, 0.045, 0.06, 10).rotateZ(Math.PI / 2), 0xe0c46a, [x, 0.057, z]));
+  p.push(part(box(0.07, 0.05, 0.05), 0xd9c9a3, [-0.06, 0.012, 0.32]));
+  p.push(part(box(0.06, 0.04, 0.045), 0xcbb98f, [0.01, 0.012, 0.31], [0, 0.4, 0]));
+  p.push(part(new THREE.CylinderGeometry(0.004, 0.004, 0.1, 6).translate(0, 0.05, 0), 0x555c63, [-0.12, 0.4, 0.1]));
+  p.push(part(box(0.09, 0.008, 0.008), 0x555c63, [-0.12, 0.49, 0.1]));
+  p.push(part(box(0.02, 0.03, 0.004), 0x555c63, [-0.165, 0.49, 0.1]));
+  // Hay bales (round, lying on their side) with a binding strap.
+  for (const [x, z] of [[-0.38, -0.3], [-0.28, -0.32], [-0.33, -0.22]]) {
+    p.push(part(new THREE.CylinderGeometry(0.045, 0.045, 0.06, 10).rotateZ(Math.PI / 2), 0xe0c46a, [x, 0.057, z]));
+    p.push(part(new THREE.CylinderGeometry(0.047, 0.047, 0.006, 10).rotateZ(Math.PI / 2), 0xb08c3a, [x, 0.057, z]));
+  }
+  // Trees, vegetable rows and a mailbox.
+  for (const [x, z, r] of [[0.05, -0.4, 0.08], [-0.46, -0.45, 0.07]] as const) { p.push(part(cyl(0.014, 0.1, 6), 0x6b4a2b, [x, 0.012, z])); p.push(part(new THREE.IcosahedronGeometry(r, 0).translate(0, 0.16, 0), 0x4f9e45, [x, 0, z])); }
+  for (let k = 0; k < 3; k++) { p.push(part(box(0.12, 0.012, 0.014), 0x5f442b, [-0.12, 0.012, 0.42 + k * 0.03])); for (let j = 0; j < 4; j++) p.push(part(new THREE.IcosahedronGeometry(0.01, 0).translate(0, 0.012, 0), 0x6cc551, [-0.17 + j * 0.034, 0.02, 0.42 + k * 0.03])); }
+  p.push(part(box(0.006, 0.05, 0.006), 0x6b4a2b, [0.44, 0.012, 0.465]), part(box(0.03, 0.02, 0.02), 0x2b4fa6, [0.44, 0.062, 0.465]));
   // Yard fence along the back and the sides (front stays open to the road).
   for (const x of [-0.46, -0.23, 0, 0.23, 0.46]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [x, 0.012, -0.46]));
   p.push(part(box(0.94, 0.012, 0.01), WOOD, [0, 0.06, -0.46]), part(box(0.94, 0.012, 0.01), WOOD, [0, 0.035, -0.46]));
+  for (const x of [-0.465, 0.465]) {
+    for (const z of [-0.3, -0.15, 0, 0.15]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [x, 0.012, z]));
+    p.push(part(box(0.01, 0.012, 0.62), WOOD, [x, 0.06, -0.075]), part(box(0.01, 0.012, 0.62), WOOD, [x, 0.035, -0.075]));
+  }
   return merge(p);
 }
 
@@ -78,14 +147,17 @@ export function fieldCrops(): THREE.BufferGeometry {
     const z = -0.36 + k * 0.12;
     p.push(part(box(0.92, 0.035, 0.05), 0xffffff, [0, 0.014, z]));
     // Bumps along the ridge so rows read as plants, not stripes.
-    for (let j = 0; j < 6; j++) p.push(part(new THREE.SphereGeometry(0.028, 6, 3), 0xffffff, [-0.4 + j * 0.16, 0.05, z]));
+    for (let j = 0; j < 6; j++) {
+      p.push(part(new THREE.SphereGeometry(0.028, 6, 3), 0xffffff, [-0.4 + j * 0.16, 0.05, z]));
+      p.push(part(new THREE.ConeGeometry(0.014, 0.05, 5).translate(0, 0.025, 0), 0xffffff, [-0.32 + j * 0.16, 0.05, z + 0.012])); // leaf tuft between plants
+    }
   }
   return merge(p);
 }
 /** Wooden post-and-rail fence along the NORTH (−z) edge of a field tile. */
 export function fieldFence(): THREE.BufferGeometry {
   const p = [part(box(1, 0.01, 0.01), WOOD, [0, 0.06, -0.485]), part(box(1, 0.01, 0.01), WOOD, [0, 0.032, -0.485])];
-  for (const x of [-0.5, -0.25, 0, 0.25]) p.push(part(box(0.018, 0.08, 0.018), 0x6d4f33, [x, 0, -0.485]));
+  for (const x of [-0.5, -0.375, -0.25, -0.125, 0, 0.125, 0.25, 0.375]) p.push(part(box(0.018, 0.08, 0.018), 0x6d4f33, [x, 0, -0.485]));
   return merge(p);
 }
 

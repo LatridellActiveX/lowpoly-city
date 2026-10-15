@@ -37,6 +37,7 @@ import { bulldozeRefund } from './sim/economy';
 import { installDesktopNotice } from './ui/desktopOnly';
 import { gameLog } from './ui/gameLog';
 import { GameMenu } from './ui/menu';
+import { ChangelogPanel } from './ui/changelogPanel';
 import { RESUME_KEY, UpdateChecker } from './ui/updateCheck';
 import { NewGameOptions, TitleScreen } from './ui/titleScreen';
 import { buildBackdrop } from './ui/titleBackdrop';
@@ -360,6 +361,10 @@ resize();
 const menu = new GameMenu(() => sim);
 document.querySelector('.topbar')!.prepend(menu.button);
 app.append(menu.el);
+// V1.6: the What's new (change log) screen — opens by itself after an update, and from the title screen / ☰ menu.
+const changelog = new ChangelogPanel();
+document.body.append(changelog.el);
+menu.onChangelog = () => changelog.open();
 
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);
@@ -462,6 +467,7 @@ const title = new TitleScreen({
     return true;
   },
   openSettings: () => menu.toggle(true),
+  openChangelog: () => changelog.open(),
   saveSlot: (i) => saveToSlot(i),
 });
 if (inTitle) {
@@ -471,6 +477,9 @@ if (inTitle) {
   title.show();
   gameLog.event('Title screen');
 }
+
+// First start after an update: show what changed (once per change-log entry).
+changelog.openIfUnseen();
 
 // ---- V1.5: update prompt ----
 // Polls /version.json (every 5 min + on focus) and offers to update.
@@ -512,6 +521,7 @@ updater.start();
   /** Force a time of day for screenshots (0 = midnight, 0.5 = noon); null = follow the sim. */
   openGraphs: () => hud.graphs.toggle(true),
   menu,
+  changelog,
   gameLog,
   get timeOfDay() {
     return dayNight.time;

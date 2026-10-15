@@ -232,6 +232,90 @@ function elementaryModel(): THREE.BufferGeometry {
   return merge(p);
 }
 
+/**
+ * V1.6: POLICE STATION (2×2, svc1). A precinct house with a blue band, columned
+ * entrance and sign, a three-bay patrol garage on the left, a holding block with
+ * a helipad roof on the right, radio mast and dish, a front car park with patrol
+ * cars and a motorcycle, flag poles, lamp posts, bollards, planters and a fence.
+ * Front faces +z. (The old single-tile station is kept as svc1s for legacy saves.)
+ */
+function policeModel(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), 0xb9b6ad)];
+  const BLUE_P = 0x24529e, PALE = 0xeef1f5, STONE = 0xd9d6cc;
+  /** Patrol car (white body, blue stripe, light bar) at (x, z) turned by yaw. */
+  const car = (x: number, z: number, yaw: number) => {
+    const c: THREE.BufferGeometry[] = [
+      part(box(0.2, 0.04, 0.09), 0xf4f6f8, [0, 0.02, 0]),
+      part(box(0.11, 0.035, 0.08), 0xf4f6f8, [-0.01, 0.06, 0]),
+      part(box(0.112, 0.012, 0.082), 0x2b2e31, [-0.01, 0.07, 0]),
+      part(box(0.205, 0.012, 0.092), BLUE_P, [0, 0.032, 0]),
+      part(box(0.03, 0.01, 0.07), 0xff3b30, [-0.02, 0.098, -0.016]), part(box(0.03, 0.01, 0.07), 0x2f6bff, [-0.02, 0.098, 0.016]),
+    ];
+    for (const wx of [-0.065, 0.065]) for (const s of [-1, 1]) c.push(part(new THREE.CylinderGeometry(0.02, 0.02, 0.014, 8).rotateX(Math.PI / 2), 0x222222, [wx, 0.02, s * 0.047]));
+    c.push(part(box(0.004, 0.015, 0.02), 0xfff3b0, [0.101, 0.03, 0.028]), part(box(0.004, 0.015, 0.02), 0xfff3b0, [0.101, 0.03, -0.028]));
+    for (const g of c) g.rotateY(yaw).translate(x, 0.012, z);
+    return c;
+  };
+  // ---- Precinct house (back centre) ----
+  p.push(part(box(0.84, 0.4, 0.5), PALE, [0, 0.012, -0.62]));
+  p.push(part(box(0.88, 0.05, 0.54), BLUE_P, [0, 0.38, -0.62])); // blue cornice band
+  p.push(part(box(0.9, 0.02, 0.56), 0x4d555d, [0, 0.43, -0.62])); // roof slab
+  p.push(part(box(0.86, 0.03, 0.02), STONE, [0, 0.45, -0.88]), part(box(0.86, 0.03, 0.02), STONE, [0, 0.45, -0.36])); // parapet
+  p.push(...windows(6, 0.74, 0.1, -0.366, 0, 0xcfe6ff), ...windows(6, 0.74, 0.25, -0.366, 0, 0xcfe6ff));
+  p.push(...windows(6, 0.74, 0.1, -0.874, 0), ...windows(6, 0.74, 0.25, -0.874, 0));
+  for (let k = 0; k < 4; k++) p.push(part(box(0.012, 0.36, 0.012), STONE, [-0.4 + k * 0.267, 0.02, -0.366])); // pilasters
+  // Entrance portico
+  p.push(part(box(0.3, 0.012, 0.14), STONE, [0, 0.012, -0.3]));
+  p.push(part(box(0.26, 0.012, 0.04), STONE, [0, 0.012, -0.22]));
+  for (const x of [-0.12, 0.12]) p.push(part(cyl(0.014, 0.2, 8), 0xf4efe4, [x, 0.024, -0.27]));
+  p.push(part(box(0.3, 0.03, 0.15), BLUE_P, [0, 0.224, -0.3]));
+  p.push(part(box(0.12, 0.17, 0.008), 0x3a5a7a, [0, 0.024, -0.366])); // glass doors
+  p.push(part(box(0.004, 0.17, 0.01), 0xffffff, [0, 0.024, -0.364]));
+  p.push(part(box(0.34, 0.07, 0.01), BLUE_P, [0, 0.28, -0.356]), part(box(0.28, 0.02, 0.012), 0xffffff, [0, 0.305, -0.352])); // POLICE sign
+  for (const x of [-0.19, 0.19]) { p.push(part(cyl(0.008, 0.1, 6), 0x555c63, [x, 0.024, -0.3])); p.push(part(new THREE.SphereGeometry(0.02, 8, 6), 0x3f7fff, [x, 0.13, -0.3])); } // blue lamps
+  // Roof: mast, dish, AC units
+  p.push(part(cyl(0.006, 0.34, 5), 0x555c63, [0.3, 0.45, -0.7]), part(box(0.06, 0.004, 0.004), 0x555c63, [0.3, 0.72, -0.7]), part(box(0.004, 0.004, 0.06), 0x555c63, [0.3, 0.7, -0.7]));
+  p.push(part(new THREE.SphereGeometry(0.04, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(-1.2), 0xdadde0, [-0.28, 0.5, -0.72]));
+  p.push(part(box(0.1, 0.05, 0.08), 0x9aa0a6, [-0.05, 0.45, -0.78]), part(box(0.1, 0.05, 0.08), 0x9aa0a6, [0.1, 0.45, -0.78]));
+  // ---- Patrol garage (left wing): three roller doors ----
+  p.push(part(box(0.5, 0.22, 0.5), 0xcfd5db, [-0.7, 0.012, -0.62]));
+  p.push(part(box(0.54, 0.02, 0.54), 0x4d555d, [-0.7, 0.232, -0.62]));
+  for (let k = 0; k < 3; k++) {
+    p.push(part(box(0.12, 0.15, 0.008), 0xb8bec4, [-0.84 + k * 0.14, 0.012, -0.366]));
+    for (let r = 0; r < 4; r++) p.push(part(box(0.12, 0.004, 0.01), 0x8d949c, [-0.84 + k * 0.14, 0.04 + r * 0.035, -0.364]));
+  }
+  p.push(part(box(0.5, 0.025, 0.012), BLUE_P, [-0.7, 0.19, -0.366]));
+  // ---- Holding block (right wing) with helipad ----
+  p.push(part(box(0.5, 0.3, 0.5), 0xbfc4ca, [0.7, 0.012, -0.62]));
+  p.push(part(box(0.54, 0.02, 0.54), 0x4d555d, [0.7, 0.312, -0.62]));
+  for (let k = 0; k < 4; k++) for (const y of [0.1, 0.22]) p.push(part(box(0.03, 0.05, 0.008), 0x2b2e31, [0.55 + k * 0.1, y, -0.366])); // barred slit windows
+  p.push(part(new THREE.CylinderGeometry(0.2, 0.2, 0.01, 18), 0x6d757b, [0.7, 0.33, -0.62])); // helipad
+  p.push(part(new THREE.TorusGeometry(0.17, 0.006, 4, 18).rotateX(Math.PI / 2), 0xf2c230, [0.7, 0.34, -0.62]));
+  p.push(part(box(0.016, 0.003, 0.1), 0xffffff, [0.65, 0.341, -0.62]), part(box(0.016, 0.003, 0.1), 0xffffff, [0.75, 0.341, -0.62]), part(box(0.1, 0.003, 0.016), 0xffffff, [0.7, 0.341, -0.62]));
+  // ---- Car park, cars, motorcycle ----
+  p.push(part(box(1.6, 0.006, 0.55), 0x55575a, [0, 0.012, 0.02]));
+  for (let k = 0; k <= 6; k++) p.push(part(box(0.006, 0.002, 0.15), 0xffffff, [-0.6 + k * 0.2, 0.019, -0.04]));
+  p.push(...car(-0.5, -0.04, Math.PI / 2), ...car(-0.1, -0.04, -Math.PI / 2), ...car(0.3, 0.3, 0.0));
+  p.push(part(box(0.1, 0.03, 0.03), 0x23262a, [0.58, 0.012, -0.02]), part(box(0.035, 0.03, 0.03), 0xf4f6f8, [0.62, 0.03, -0.02]));
+  for (const x of [0.54, 0.62]) p.push(part(new THREE.CylinderGeometry(0.016, 0.016, 0.01, 8).rotateX(Math.PI / 2), 0x222222, [x, 0.028, -0.02]));
+  // ---- Front yard: flag poles, lamp posts, bollards, planters, hedge, fence ----
+  for (const [x, c] of [[-0.2, 0xd63a3a], [0.2, BLUE_P]] as const) {
+    p.push(part(cyl(0.006, 0.42, 6), 0xd0d0d0, [x, 0.012, 0.5]), part(new THREE.SphereGeometry(0.012, 6, 4), 0xc9971a, [x, 0.44, 0.5]));
+    p.push(part(box(0.1, 0.06, 0.004), c, [x + 0.05, 0.36, 0.5]));
+  }
+  for (const [x, z] of [[-0.9, 0.3], [0.9, 0.3], [-0.9, 0.85], [0.9, 0.85]] as const) {
+    p.push(part(cyl(0.006, 0.3, 6), 0x555c63, [x, 0.012, z]), part(box(0.05, 0.012, 0.03), 0xfff3c4, [x, 0.31, z]));
+  }
+  for (let k = 0; k < 9; k++) p.push(part(cyl(0.012, 0.045, 6), 0xf2c230, [-0.4 + k * 0.1, 0.012, 0.3])); // bollards
+  for (const x of [-0.45, 0.45]) { p.push(part(box(0.2, 0.05, 0.07), 0x8a8f94, [x, 0.012, 0.58])); p.push(part(new THREE.IcosahedronGeometry(0.05, 0).translate(0, 0.08, 0), 0x3f8f3a, [x, 0.012, 0.58])); }
+  p.push(part(box(0.44, 0.05, 0.05), 0x3f8f3a, [0.6, 0.012, 0.95]), part(box(0.44, 0.05, 0.05), 0x3f8f3a, [-0.6, 0.012, 0.95]));
+  for (let k = 0; k < 8; k++) p.push(part(box(0.008, 0.07, 0.008), 0x3a3f46, [-0.95 + k * 0.27, 0.012, -0.96]));
+  p.push(part(box(1.9, 0.006, 0.006), 0x3a3f46, [0, 0.06, -0.96]));
+  p.push(part(box(0.3, 0.1, 0.008), BLUE_P, [0, 0.07, 0.96]), part(box(0.26, 0.014, 0.01), 0xffffff, [0, 0.12, 0.96])); // street sign
+  for (const x of [-0.12, 0.12]) p.push(part(box(0.01, 0.07, 0.01), 0x6b4a2b, [x, 0.012, 0.96]));
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
@@ -248,8 +332,9 @@ export function serviceModels(): Record<string, THREE.BufferGeometry> {
       part(box(0.3, 0.2, 0.22), 0x9aa0a6, [0.22, 0.012, 0.2]), part(box(0.32, 0.03, 0.24), 0x3d7a3a, [0.22, 0.212, 0.2]),
       part(box(0.26, 0.1, 0.12), 0x3c8d40, [-0.2, 0.012, 0.3]), part(box(0.08, 0.1, 0.12), 0xe8e8e8, [-0.05, 0.012, 0.3]),
     ]),
-    // Police station: two-storey white/blue block, flag pole, blue lamp, parked patrol cars.
-    svc1: merge([
+    svc1: policeModel(), // V1.6: the 2×2 station
+    // LEGACY 1×1 police station (old saves where it couldn't grow): two-storey white/blue block, flag pole, blue lamp, parked patrol cars.
+    svc1s: merge([
       part(box(0.96, 0.012, 0.96), CONC),
       part(box(0.66, 0.36, 0.42), 0xeef1f5, [0, 0.012, -0.12]), part(box(0.68, 0.06, 0.44), 0x24529e, [0, 0.33, -0.12]),
       ...windows(5, 0.6, 0.12, 0.095), ...windows(5, 0.6, 0.24, 0.095),

@@ -788,7 +788,7 @@ export class CityRenderer {
           const stage = landfillStage(t), c = new THREE.Vector3(x + 1, 0, z + 1);
           P[`svc0_${stage}`]?.add(this.place(c, 0));
           this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
-        } else P[!big && t.kind === Svc.Elementary ? 'svc4s' : `svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+        } else P[!big && (t.kind === Svc.Elementary || t.kind === Svc.Police) ? `svc${t.kind}s` : `svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
       if (t.zone && t.level > 0 && t.garbage >= G_WARN) {

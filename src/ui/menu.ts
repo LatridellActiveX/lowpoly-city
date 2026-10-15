@@ -24,6 +24,9 @@ export class GameMenu {
   private view: 'main' | 'settings' | 'log' = 'main';
   private readonly filter = new Set<Severity>(['info', 'event', 'warn', 'error']);
 
+  /** Opens the What's new screen (set by main.ts). */
+  onChangelog: () => void = () => {};
+
   constructor(private readonly getSim: () => Simulation) {
     this.button.className = 'btn menu-btn';
     this.button.innerHTML = '☰';
@@ -47,8 +50,11 @@ export class GameMenu {
     if (view === 'main') {
       this.el.innerHTML = `${close}<h3>Menu</h3>
         <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
-        <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>`;
-      this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => this.show(b.dataset.go as 'settings' | 'log')));
+        <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
+        <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>`;
+      this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
+        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else this.show(b.dataset.go as 'settings' | 'log');
+      }));
     } else if (view === 'settings') {
       const s = this.getSim().settings;
       this.el.innerHTML = `${close}${back}<h3>Settings</h3>

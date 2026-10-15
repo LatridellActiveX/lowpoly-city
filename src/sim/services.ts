@@ -43,7 +43,7 @@ export interface ServiceDef {
 export const SERVICE_DEFS: ServiceDef[] = [
   // V1.6: the dump is now a 2×2 LANDFILL with a finite capacity (garbage.ts LANDFILL_MAX); the tool id stays 'garbageDump' so saves and keybinds keep working.
   { svc: Svc.Dump, tool: 'garbageDump', label: 'Landfill (2×2)', size: 2, cost: 10000, upkeep: 400, unlockPop: 1000, radius: 16, fleet: 6 },
-  { svc: Svc.Police, tool: 'policeStation', label: 'Police Station', size: 1, cost: 5000, upkeep: 250, unlockPop: POLICE_UNLOCK_POP, radius: 10, fleet: 2 },
+  { svc: Svc.Police, tool: 'policeStation', label: 'Police Station (2×2)', size: 2, cost: 5000, upkeep: 250, unlockPop: POLICE_UNLOCK_POP, radius: 10, fleet: 2 },
   { svc: Svc.Clinic, tool: 'clinic', label: 'Health Clinic', size: 1, cost: 6000, upkeep: 300, unlockPop: 2500, radius: 8, fleet: 1 },
   { svc: Svc.Hospital, tool: 'hospital', label: 'Hospital (2×2)', size: 2, cost: 24000, upkeep: 1100, unlockPop: 2500, radius: 18, fleet: 3 },
   { svc: Svc.Elementary, tool: 'elementarySchool', label: 'Elementary School (2×2)', size: 2, cost: 4000, upkeep: 200, unlockPop: 0, radius: 9, fleet: 0 },
@@ -54,7 +54,7 @@ export const SERVICE_DEFS: ServiceDef[] = [
   // the depot (goods.ts) instead of driving to the highway edge.
   { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 15000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
   // V1.6: RECYCLING CENTER. Its coverage cuts garbage build-up on every building in its radius (garbage.ts RECYCLE_CUT), so landfills last longer.
-  { svc: Svc.Recycling, tool: 'recyclingCenter', label: 'Recycling Center', size: 1, cost: 8000, upkeep: 350, unlockPop: 2500, radius: 12, fleet: 0 },
+  { svc: Svc.Recycling, tool: 'recyclingCenter', label: 'Recycling Center', size: 1, cost: 8000, upkeep: 350, unlockPop: 2500, radius: 12, fleet: 12 }, // V1.6: 12 garbage trucks = 2× a landfill's 6; also burns garbage for 5,000 power (networks.ts)
 ];
 export const SERVICE_BY_TOOL: Partial<Record<ToolId, ServiceDef>> = Object.fromEntries(SERVICE_DEFS.map((d) => [d.tool, d]));
 export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;
@@ -67,7 +67,7 @@ export const serviceOf = (t: Tile): ServiceDef | null => (t.structure === 'servi
  * part tile linked to it.
  */
 /** Services that used to be 1×1 and so may still exist as legacy 1×1 buildings in old saves. */
-export const GREW_FROM_1X1: Svc[] = [Svc.Dump, Svc.Elementary];
+export const GREW_FROM_1X1: Svc[] = [Svc.Dump, Svc.Elementary, Svc.Police];
 export function serviceSize(tiles: Tile[], i: number): 1 | 2 {
   const d = SERVICE_DEFS[tiles[i]?.kind];
   if (!d || d.size === 1) return 1;
@@ -93,6 +93,18 @@ function connected(world: World, i: number, size: number): boolean {
     if (x >= 0 && z >= 0 && x < N && z < N && world.tiles[z * N + x].road) return true;
   }
   return false;
+}
+
+/** The road tile where the service anchored at i meets the street (any side of its footprint), or -1. */
+export function serviceRoad(tiles: Tile[], i: number): number {
+  const N = GRID_SIZE, size = serviceSize(tiles, i), x0 = i % N, z0 = Math.floor(i / N);
+  for (let dz = -1; dz <= size; dz++) for (let dx = -1; dx <= size; dx++) {
+    const inside = dx >= 0 && dz >= 0 && dx < size && dz < size;
+    if (inside || (dx < 0 || dx >= size) && (dz < 0 || dz >= size)) continue; // skip own tiles + corners
+    const x = x0 + dx, z = z0 + dz;
+    if (x >= 0 && z >= 0 && x < N && z < N && tiles[z * N + x].road) return z * N + x;
+  }
+  return -1;
 }
 
 /** Anchor tiles of every operating (road-connected) service building of `svc`. */

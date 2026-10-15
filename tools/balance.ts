@@ -28,7 +28,7 @@ s.apply('elementarySchool', [[20, 17], [21, 17], [20, 18], [21, 18]]);
 const later: Array<[number, () => void]> = [
   [1000, () => { s.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); }], // V1.6: 2×2 landfill
   [2000, () => { s.apply('shippingDepot', [[24, 38], [25, 38], [24, 39], [25, 39]]); }],
-  [2500, () => { s.apply('clinic', [[40, 30]]); s.apply('policeStation', [[40, 17]]); s.apply('highSchool', [[20, 30]]); s.apply('recyclingCenter', [[24, 17]]); }], // V1.6: police + high school + recycling unlock at 2,500
+  [2500, () => { s.apply('clinic', [[40, 30]]); s.apply('policeStation', [[40, 17], [41, 17], [40, 18], [41, 18]]); s.apply('highSchool', [[20, 30]]); s.apply('recyclingCenter', [[24, 17]]); }], // V1.6: police + high school + recycling unlock at 2,500
 ];
 let lastCash = s.world.cash;
 console.log('tick   pop   cash/1k-ticks   R      C      I     jobs  workers health garbage crime  exports');

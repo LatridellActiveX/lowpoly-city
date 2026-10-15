@@ -127,7 +127,7 @@ import { CRIME_START } from '../src/sim/safety';
   for (const mode of ['none', 'police', 'clinic']) {
     const s = town({ seed: 23 });
     s.world.peakPop = 3000;
-    if (mode === 'police') s.apply('policeStation', [[31, 17]]);
+    if (mode === 'police') s.apply('policeStation', [[31, 17], [32, 17], [31, 18], [32, 18]]);
     if (mode === 'clinic') s.apply('clinic', [[31, 17]]);
     run(s, 700);
     let cr = 0, n = 0, lv = 0, h = 0, hn = 0;
@@ -310,6 +310,26 @@ import { POLICE_UNLOCK_POP } from '../src/sim/services';
   check('elementary school is 2×2', serviceSize(e.world.tiles, idx(20, 17)) === 2 && e.world.at(21, 18).part === idx(20, 17) + 1);
   const o = fresh(); const oa = idx(12, 12); o.world.tiles[oa].structure = 'service'; o.world.tiles[oa].kind = Svc.Elementary;
   check('a legacy 1×1 school grows to 2×2', serviceSize(o.world.tiles, oa) === 1 && migrateGrown(o.world) === 1 && serviceSize(o.world.tiles, oa) === 2);
+}
+
+// ---------------------------------------------------------------- V1.6: 2×2 police, recycling center power + trucks + landfill hauling
+{
+  const s = town({ seed: 26 }); s.world.peakPop = 3000;
+  s.apply('policeStation', [[31, 17], [32, 17], [31, 18], [32, 18]]);
+  check('police station is 2×2', serviceSize(s.world.tiles, idx(31, 17)) === 2 && s.world.at(32, 18).part === idx(31, 17) + 1);
+  const o = fresh(); const pa = idx(12, 12); o.world.tiles[pa].structure = 'service'; o.world.tiles[pa].kind = Svc.Police;
+  check('a legacy 1×1 police station grows to 2×2', serviceSize(o.world.tiles, pa) === 1 && migrateGrown(o.world) === 1 && serviceSize(o.world.tiles, pa) === 2);
+  check('a recycling center owns 12 garbage trucks, double the landfill', SERVICE_DEFS[Svc.Recycling].fleet === 12 && SERVICE_DEFS[Svc.Recycling].fleet === 2 * SERVICE_DEFS[Svc.Dump].fleet);
+  // Power: a recycling center on a road is a 5,000 source like coal.
+  const p = town({ seed: 27 }); p.world.peakPop = 3000;
+  p.apply('recyclingCenter', [[31, 17]]); run(p, 3);
+  check('a recycling center produces coal-plant power', output(p.world.at(31, 17), 'power', 0.5) === POWER_OUTPUT.powerPlant && p.net.power.some((n) => n.capacity >= (POWER_OUTPUT.powerPlant ?? 0)));
+  // Landfill trucks haul stored garbage to the recycling center to be burned.
+  const h = town({ seed: 28 }); h.world.peakPop = 3000;
+  h.apply('garbageDump', [[31, 17], [32, 17], [31, 18], [32, 18]]); h.apply('recyclingCenter', [[24, 17]]);
+  const la = idx(31, 17); h.world.tiles[la].stock = 6000;
+  run(h, 1500);
+  check('landfill trucks haul garbage to the recycling center and it is burned', h.garbage.stats.hauled > 0 && h.garbage.burnedBy(idx(24, 17)) > 0 && h.world.tiles[la].stock < 6000, { hauled: h.garbage.stats.hauled, burned: h.garbage.burnedBy(idx(24, 17)), stock: h.world.tiles[la].stock });
 }
 
 console.log(fails ? `${fails} FAILED` : 'ALL PASS');

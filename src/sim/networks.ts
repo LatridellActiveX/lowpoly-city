@@ -34,12 +34,16 @@ import { GRID_SIZE } from './types';
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
 import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
+import { Svc } from './services';
 
 type Kind = 'power' | 'water';
 
+/** V1.6: a recycling center burns garbage for power, so it is a power source like a plant. */
+const isRecycler = (t: Tile) => t.structure === 'service' && t.kind === Svc.Recycling;
+
 function isSource(t: Tile, kind: Kind): boolean {
   return kind === 'power'
-    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant'
+    ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant' || isRecycler(t)
     : t.structure === 'waterTower' || t.structure === 'pumpStation';
 }
 
@@ -77,6 +81,7 @@ export function isBigPlant(tiles: Tile[], i: number, N = GRID_SIZE): boolean {
 export function output(t: Tile, kind: Kind, wind: number): number {
   if (kind === 'water') return t.structure === 'pumpStation' ? PUMP_STATION_OUTPUT : t.kind === 1 ? BIG_TOWER_OUTPUT : WATER_OUTPUT; // V1.5b big tower
   if (t.part) return 0; // non-anchor tile of a 2×2 plant: the anchor counts the output
+  if (isRecycler(t)) return POWER_OUTPUT.powerPlant ?? 0; // V1.6: same as a coal plant
   if (t.structure === 'windTurbine') return Math.round((POWER_OUTPUT.windTurbine ?? 0) * wind);
   // PR 4: a coal/oil plant with an empty fuel bunker limps along at reduced output (goods.ts).
   if (t.structure === 'powerPlant' && t.stock <= 0) return UNFUELLED_OUTPUT;
