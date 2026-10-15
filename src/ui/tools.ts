@@ -26,7 +26,7 @@ export interface ToolDef {
 }
 
 /** PR 5: the three grouped toolbar buttons. */
-export type ToolGroupId = 'roads' | 'power' | 'water' | 'industry' | 'services';
+export type ToolGroupId = 'roads' | 'utilities' | 'industry' | 'services';
 
 export interface ToolGroupDef {
   id: ToolGroupId;
@@ -34,6 +34,8 @@ export interface ToolGroupDef {
   icon: string;
   /** Tools shown in the flyout, in order — number keys 1..n pick them while it's open. */
   tools: ToolId[];
+  /** Optional section headings shown in the flyout before the given tool. */
+  sections?: Partial<Record<ToolId, string>>;
 }
 
 /**
@@ -41,14 +43,12 @@ export interface ToolGroupDef {
  * opens a small flyout menu listing its tools with icon, price and lock badge.
  * The group button shows (and re-selects) whichever tool you used last.
  *
- * "Bridge" isn't a separate tool in the sim — dragging a road across water
- * builds a bridge automatically — so the flyout entry for it is an info row
- * that selects the Road tool (see hud.ts).
+ * Bridges are not a menu entry at all: dragging a road across water builds
+ * one automatically.
  */
 export const TOOL_GROUPS: ToolGroupDef[] = [
-  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'roundabout', 'parkingLot', 'parkingGarage'] },
-  { id: 'power', label: 'Power', icon: '⚡', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant'] },
-  { id: 'water', label: 'Water', icon: '💧', tools: ['waterPipe', 'waterTower', 'bigWaterTower', 'pumpStation'] },
+  { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'freeRoad', 'roundabout', 'parkingLot', 'parkingGarage'] },
+  { id: 'utilities', label: 'Utilities', icon: '🔌', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant', 'waterPipe', 'waterTower', 'bigWaterTower', 'pumpStation'], sections: { powerLine: '⚡ Power', waterPipe: '💧 Water' } },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
   { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard', 'shippingDepot'] },
   // V1.5b city services (sim/services.ts).
@@ -63,16 +63,16 @@ export const TOOLS: ToolDef[] = [
   { id: 'commercial', label: 'Shops', icon: '🏪', key: '2', shape: 'area', hint: 'Drag along a road to zone shops (low: corner shops; high: strip malls and shopping centres; mixed: a shop on the ground floor with flats above — 10 residents + 1 business; office: law firms, cable / internet companies, data centres, cell towers and radio stations — they grow on commercial AND industrial demand and need educated workers). Shops need 1 parking space per 3 jobs.' },
   { id: 'industrial', label: 'Industry', icon: '🏭', key: '3', shape: 'area', hint: 'Drag to zone industry. Factories, FARMS and FOOD PLANTS grow here on their own, weighted by what the city needs (food demand, farms waiting for processing). Farms favour farmland patches and need room behind for fields.', group: 'industry' },
   { id: 'constructionYard', label: 'Construction Yard', icon: '🏗️', key: 'y', shape: 'point', hint: 'Build this first! Houses 8 construction trucks (one visit covers every building on a site); new buildings only start once a truck reaches them by road. More yards = faster growth. $2,500 + $120/month.', group: 'industry' },
-  { id: 'powerPlant', label: 'Coal Plant', icon: '⚡', key: 'p', shape: 'point', hint: '2×2 plant (V1.5b). Output 5,000 (about 5,000 people incl. their shops and factories). Burns coal delivered by truck. $4,000 + $250/month.', group: 'power' },
+  { id: 'powerPlant', label: 'Coal Plant', icon: '⚡', key: 'p', shape: 'point', hint: '2×2 plant (V1.5b). Output 5,000 (about 5,000 people incl. their shops and factories). Burns coal delivered by truck. $4,000 + $250/month.', group: 'utilities' },
   // V1.5 power tiers: same tier as coal (below nuclear), 4× its output.
-  { id: 'oilPlant', label: 'Oil Plant (2×2)', icon: '🛢️', key: 'g', shape: 'point', hint: 'A 2×2 refinery-style plant. Output 8,000 (about 8,000 people). Burns oil delivered by truck. $15,000 + $1,000/month. Unlocks at 2,000 people.', group: 'power' },
-  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 32,000 (about 32,000 people), no fuel or pollution. $60,000 + $3,000/month. Unlocks at 10,000 people.', group: 'power' },
-  { id: 'bigWaterTower', label: 'Large Water Tower', icon: '🛢️', key: 'z', shape: 'point', hint: 'Tall spheroid tower: 3,200 water (4× a water tower, about 4,000 people). Needs 4 power. $12,000 + $600/month. Unlocks at 5,000 people.', group: 'water' },
-  { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'water' },
-  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '1,000 × wind power: ~500 people at average wind, up to ~1,000 in a gale, nothing when calm. $1,500 + $60/month.', group: 'power' },
-  { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'power' },
-  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'water' },
-  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'water' },
+  { id: 'oilPlant', label: 'Oil Plant (2×2)', icon: '🛢️', key: 'g', shape: 'point', hint: 'A 2×2 refinery-style plant. Output 8,000 (about 8,000 people). Burns oil delivered by truck. $15,000 + $1,000/month. Unlocks at 2,000 people.', group: 'utilities' },
+  { id: 'nuclearPlant', label: 'Nuclear', icon: '☢️', key: 'u', shape: 'point', hint: '2×2 plant. Output 32,000 (about 32,000 people), no fuel or pollution. $60,000 + $3,000/month. Unlocks at 10,000 people.', group: 'utilities' },
+  { id: 'bigWaterTower', label: 'Large Water Tower', icon: '🛢️', key: 'z', shape: 'point', hint: 'Tall spheroid tower: 3,200 water (4× a water tower, about 4,000 people). Needs 4 power. $12,000 + $600/month. Unlocks at 5,000 people.', group: 'utilities' },
+  { id: 'pumpStation', label: 'Pump Station', icon: '⛲', key: 'j', shape: 'point', hint: 'High-capacity water (4,000). Needs 20 power. $16,000 + $850/month. Unlocks at 10,000 people.', group: 'utilities' },
+  { id: 'windTurbine', label: 'Wind', icon: '🌬️', key: 'n', shape: 'point', hint: '1,000 × wind power: ~500 people at average wind, up to ~1,000 in a gale, nothing when calm. $1,500 + $60/month.', group: 'utilities' },
+  { id: 'powerLine', label: 'Power Line', icon: '🔌', key: 'l', shape: 'line', hint: 'Run power across land with no road (roads already carry power).', group: 'utilities' },
+  { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'utilities' },
+  { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'utilities' },
   { id: 'shippingDepot', label: 'Shipping Depot', icon: '📦', key: 'f', shape: 'point', hint: '2×2. Industry and shops within 20 tiles ship through it: exports pay +15% and leave sooner, imports come from the depot instead of the highway (shorter trips). $15,000 + $500/month. Unlocks at 2,000 people.', group: 'industry' },
   { id: 'garbageDump', label: 'Landfill', icon: '🗑️', key: '4', shape: 'point', hint: '2×2. Sends 6 garbage trucks along the roads to empty bins within 16 tiles. Holds a limited amount of garbage — it fills up (the model grows) and once full it stops taking garbage until you build a new one. $10,000 + $400/month. Unlocks at 1,000 people.', group: 'services' },
   { id: 'recyclingCenter', label: 'Recycling Center', icon: '♻️', key: 'c', shape: 'point', hint: 'Burns garbage to make 5,000 power (like a coal plant). Runs 12 garbage trucks (2× a landfill) and cuts how much garbage buildings within 12 tiles make (up to −45%). Landfill trucks haul stored garbage here to be burned, freeing landfill space. $8,000 + $350/month. Unlocks at 2,500 people.', group: 'services' },
@@ -84,6 +84,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'college', label: 'College', icon: '🏛️', key: '0', shape: 'point', hint: '2×2. Education level 3 within 24 tiles: boosts offices, electronics and the top housing levels. $30,000 + $1,400/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   // V1.5: 2×2 roundabout, available from the start.
+  { id: 'freeRoad', label: 'Free road', icon: '〰️', key: 'c', shape: 'point', hint: 'V1.6 freeform roads: click start and end (Straight) or start, bend and end (Curve). Snaps to junctions, roads, 15° angles (Angle) and the 8 m grid (Grid); hold Shift to place freely. Zone cells are previewed while you draw. Ctrl+Z / Ctrl+Y undo and redo. Esc cancels.', group: 'roads' },
   { id: 'roundabout', label: 'Roundabout', icon: '⭕', key: 'h', shape: 'point', hint: '2×2 roundabout ($260): traffic circulates counter-clockwise and entering cars yield — no lights. Click its top-left tile; it joins the roads, power and water mains on every side. Can replace an existing junction.', group: 'roads' },
   { id: 'parkingLot', label: 'Parking Lot', icon: '🅿️', key: 'b', shape: 'point', hint: 'Public surface lot filling the whole tile (16 spaces, $480). Serves buildings within 6 tiles that are short of parking.', group: 'roads' },
   { id: 'parkingGarage', label: 'Parking Garage', icon: '🏢', key: 'm', shape: 'point', hint: 'Public 3-deck garage filling one tile (40 spaces, $1,600). Serves buildings within 9 tiles and earns parking fees. Busy shopping streets also grow their own garages.', group: 'roads' },

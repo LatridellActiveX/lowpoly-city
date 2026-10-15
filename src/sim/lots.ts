@@ -196,8 +196,26 @@ export class Lots {
   /** Buildings hosted on tile i. */
   hostedOn(i: number): Building[] {
     const out: Building[] = [];
-    for (const b of this.buildings.values()) if (b.host === i) out.push(b);
-    return out;
+    const ids = this.hostIndex().get(i);
+    if (ids) for (const id of ids) { const b = this.buildings.get(id); if (b && b.host === i) out.push(b); }
+    return out.sort((a, b) => a.id - b.id); // same order as the old full scan (insertion = id order)
+  }
+  /**
+   * V1.6 T2: host tile → building ids. fits() and hostedOn() used to scan
+   * every building (O(buildings) per placement test, O(n²) per city).
+   * place()/remove() keep it current; anything that edits `buildings`
+   * directly (save loading, tests) changes its size, which triggers a
+   * rebuild. Entries are re-checked against the building on read.
+   */
+  private hostIdx: Map<number, Set<number>> | null = null;
+  private hostIdxCount = 0;
+  private hostIndex(): Map<number, Set<number>> {
+    if (!this.hostIdx || this.hostIdxCount !== this.buildings.size) {
+      this.hostIdx = new Map();
+      for (const b of this.buildings.values()) (this.hostIdx.get(b.host) ?? this.hostIdx.set(b.host, new Set()).get(b.host)!).add(b.id);
+      this.hostIdxCount = this.buildings.size;
+    }
+    return this.hostIdx;
   }
   /** Buildings with any cell on tile (x, z) (fields included). */
   onTile(world: World, x: number, z: number): Building[] {
@@ -238,8 +256,8 @@ export class Lots {
     const [hx, hz] = localToCell(ox, oz, face, Math.floor((tpl.w - 1) / 2), 0);
     const host = tileOfCell(hx, hz);
     // One zone + kind per host tile (see header).
-    for (const b of this.buildings.values()) {
-      if (b.host !== host || replace?.has(b.id)) continue;
+    for (const b of this.hostedOn(host)) {
+      if (replace?.has(b.id)) continue;
       if (hostKey(TPL[b.tpl]) !== hostKey(tpl) && !isFiller(TPL[b.tpl]) && !isFiller(tpl)) return -1;
     }
     return host;
@@ -249,7 +267,9 @@ export class Lots {
   place(world: World, tpl: Template, ox: number, oz: number, face: number, host: number, level: number, construct: number): Building {
     const [x0, z0, x1, z1] = rectAABB(ox, oz, face, 0, 0, tpl.w, tpl.d);
     const b: Building = { id: this.nextId++, tpl: tpl.id, ox, oz, face, x0, z0, x1, z1, host, level, construct, happy: 0, unhappy: 0, movingIn: false, fields: 0, publicShare: 0, parked: 0, arrivals: 0, gaveUp: 0 };
+    const idx = this.hostIndex();
     this.buildings.set(b.id, b);
+    (idx.get(host) ?? idx.set(host, new Set()).get(host)!).add(b.id); this.hostIdxCount = this.buildings.size;
     this.stamp(world, b);
     return b;
   }
@@ -281,7 +301,9 @@ export class Lots {
         role[c] = CellRole.None;
         this.markDirty(tileOfCell(cx, cz));
       }
+    const idx = this.hostIndex();
     this.buildings.delete(b.id);
+    idx.get(b.host)?.delete(b.id); this.hostIdxCount = this.buildings.size;
     this.markDirty(b.host);
   }
 

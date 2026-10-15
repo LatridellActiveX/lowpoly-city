@@ -35,6 +35,7 @@ import { GREW_FROM_1X1 } from './services';
 import { localToCell } from './lots';
 import { MAP_SIZES, setGridSize } from './mapsize';
 import { allRegions } from './regions';
+import { loadGraph, migrateToGraph, rebuildBlocks, saveGraph } from '../roads/persist';
 
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
@@ -54,7 +55,7 @@ const KEY = 'lowpoly-city-save';
  * v1–v8 saves are always 64 maps; they load unchanged as 64 maps with every
  * region owned.
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10; // V1.6 B8: freeform road graph + graph tiles
 
 /* ---- V1.6 A6: run-length encoding ---- */
 /** [value, count, value, count, …] — consecutive equal values collapse. */
@@ -125,6 +126,11 @@ export function serializeWorld(world: World): string {
     nextBuilding: world.lots.nextId,
     lots: [...world.parking.lots.values()],
     nextLot: world.parking.nextId,
+    // v10 (B8): the freeform road graph and the tiles it owns. Blocks are
+    // regenerated on load (deterministic) and read their codes from cells.
+    roadGraph: saveGraph(world.roads),
+    graphTiles: [...world.graphTiles].sort((a, b) => a - b),
+    graphRoads: world.graphRoads, // OASIS (optional field: older v10 saves derive it from graphTiles)
   };
   return JSON.stringify(data);
 }
@@ -229,6 +235,24 @@ export function deserializeWorld(raw: string): World | null {
       w.parking.nextId = data.nextLot ?? w.parking.lots.size + 1;
     }
     if (version < 8) migrateCoal(w);
+    // ---- v10 (B8): road graph. Older saves trace their tile roads. ----
+    if (version < 10) migrateToGraph(w);
+    else {
+      w.roads = loadGraph(data.roadGraph);
+      w.graphTiles = new Set<number>((data.graphTiles ?? []).filter((i: number) => w.tiles[i]?.road));
+      rebuildBlocks(w);
+      w.graphRoads = data.graphRoads ?? w.graphTiles.size > 0; // OASIS
+      // NEBULA repair: saves made before the syncGraphToTiles fix can hold
+      // stale LONE road nodes (no edges) where a junction was edited; they
+      // would capture the next road built there (see roads/persist.ts).
+      for (const m of w.roads.liveNodes()) if (!w.roads.nEdges[m].length) w.roads.tidyNode(m);
+    }
+    // ---- oasis merge (1.6 + models) ----
+    // 1.6 (above) restores/migrates the road graph; the models branch adds
+    // two idempotent footprint migrations (1x1 dumps/schools -> 2x2 landfill/
+    // school, 1x1 oil plants -> 2x2). They only claim empty, non-road tiles,
+    // so they never invalidate the road graph and run safely after it. They
+    // need no save-version bump because re-running them is a no-op.
     migrateLandfills(w); // V1.6: idempotent (only touches 1×1 dumps / schools), so no version bump is needed
     migrateOil(w); // V1.6: idempotent too (only touches 1×1 oil plants)
     // Every zoned tile goes back on the growth queue; aggregates are rebuilt.

@@ -14,7 +14,7 @@
 export const PHASE = {
   month: 0,
   garages: 15, // parking.ts measure()
-  roles: 10,   // chains.ts refreshRoles adoption pass
+  roles: 0,    // chains.ts refreshRoles adoption pass. R: back on phase 0 — phase 10 shifted factory roles vs. growth and raised balance-town pop 1930→2330 (I demand pegged at 1.0)
   patrol: 20,  // safety.ts police patrol dispatch
   ambulance: 5, // safety.ts ambulance runs
 } as const;

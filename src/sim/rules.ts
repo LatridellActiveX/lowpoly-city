@@ -180,6 +180,7 @@ export function canPlace(tool: ToolId, t: Tile): boolean {
   // PR 4: water only takes roads (bridges). Nothing else may be built on it.
   if (t.water && tool !== 'road' && tool !== 'avenue' && tool !== 'bulldoze' && tool !== 'inspect') return false;
   switch (tool) {
+    case 'freeRoad': // V1.6 B7: validated by sim/freeroads.ts per rasterised tile
     case 'road':
       return noBuilding && !t.road;
     case 'roundabout':

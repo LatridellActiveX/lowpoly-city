@@ -25,6 +25,7 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
+import { syncGraphToTiles, absorbTileRoads } from '../roads/persist';
 import { coords, World } from './grid';
 import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
@@ -176,7 +177,8 @@ export class Simulation {
    * V1.6 A2: after a player edit (outside the tick), rescan every chunk and
    * recompute the networks so overlays and info panels update immediately.
    */
-  private refreshNet(): NetworkResult {
+  /** (public for sim/freeroads.ts undo) */
+  refreshNet(): NetworkResult {
     const w = this.world;
     w.chunks.touchAll();
     w.chunks.sync(w.tiles);
@@ -566,7 +568,23 @@ export class Simulation {
    * Tiles are built in drag order until the money runs out, so a road you
    * can only half afford gets built halfway rather than not at all.
    */
+  /** OASIS: set while sim/freeroads.ts lays the raster tiles of a free road (no re-absorbing them). */
+  noAbsorb = false;
+  /** V1.6 B8: apply a tile tool, then drop graph roads whose tiles it removed (roads/persist.ts). */
   apply(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
+    const r = this.applyTiles(tool, tiles);
+    if (r.changed && (this.world.graphTiles.size || this.world.graphRoads)) {
+      syncGraphToTiles(this.world);
+      // OASIS: in a graph world the tile road tools feed the graph too, so the
+      // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
+      if (!this.noAbsorb && (tool === 'road' || tool === 'avenue' || tool === 'roundabout')) {
+        const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
+        if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
+      }
+    }
+    return r;
+  }
+  private applyTiles(tool: ToolId, tiles: Array<[number, number]>): ApplyResult {
     // (tiles is reassigned for bulldozing 2×2 footprints)
     const w = this.world;
     const res: ApplyResult = { changed: 0, spent: 0, refunded: 0, broke: false };
@@ -795,7 +813,7 @@ export class Simulation {
   /** Convenience for debugging: tile coordinates of every tile matching a predicate. */
   find(pred: (t: Tile) => boolean): Array<[number, number]> {
     const out: Array<[number, number]> = [];
-    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i)));
+    this.world.tiles.forEach((t, i) => pred(t) && out.push(coords(i))); // lint-allow: debug/test helper, never per tick
     return out;
   }
 }

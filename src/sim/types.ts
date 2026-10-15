@@ -151,6 +151,7 @@ export type ToolId =
   | 'road'
   | 'avenue'
   | 'roundabout' // V1.5: 2×2 ring (roadType 2)
+  | 'freeRoad' // V1.6 B7: freeform roads on the road graph (sim/freeroads.ts)
   | 'residential'
   | 'commercial'
   | 'industrial'

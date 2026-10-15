@@ -34,6 +34,7 @@ import { GRID_SIZE } from './types';
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
 import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
+import { applyGraphUtilities, graphOnly } from './graphutil';
 import { Svc } from './services';
 
 type Kind = 'power' | 'water';
@@ -41,7 +42,7 @@ type Kind = 'power' | 'water';
 /** V1.6: a recycling center burns garbage for power, so it is a power source like a plant. */
 const isRecycler = (t: Tile) => t.structure === 'service' && t.kind === Svc.Recycling;
 
-function isSource(t: Tile, kind: Kind): boolean {
+export function isSource(t: Tile, kind: Kind): boolean {
   return kind === 'power'
     ? t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant' || isRecycler(t)
     : t.structure === 'waterTower' || t.structure === 'pumpStation';
@@ -350,12 +351,19 @@ export function computeNetworks(world: World): NetworkResult {
   const water = allocate(world, 'water', topo.water, servedW, servedP);
   const tiles = world.tiles;
   let flipped = false;
+  const gOnly = world.graphRoads ? graphOnly(world) : undefined; // OASIS: served by sim/graphutil.ts instead
   for (const i of topo.watch) {
+    if (gOnly?.has(i)) continue;
     const s = topo.service[i], t = tiles[i];
     const p = servedP[i] === 1 || (topo.powerNet[i] >= 0 && isSource(t, 'power'));
     const w = servedW[i] === 1 || (topo.waterNet[i] >= 0 && isSource(t, 'water'));
     if (p !== s.powered || w !== s.watered) { s.powered = p; s.watered = w; flipped = true; }
   }
   if (flipped) servedRev.set(world, (servedRev.get(world) ?? 0) + 1);
-  return { service: topo.service, power, water };
+  const res = { service: topo.service, power, water };
+  // OASIS: graph worlds also connect buildings that only the free road's real
+  // geometry reaches (sim/graphutil.ts). Bump servedRev when it connects any,
+  // so served-dependent caches refresh.
+  if (world.graphRoads && applyGraphUtilities(world, res)) servedRev.set(world, (servedRev.get(world) ?? 0) + 1);
+  return res;
 }

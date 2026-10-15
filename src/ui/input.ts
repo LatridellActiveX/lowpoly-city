@@ -140,7 +140,7 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     else if (k === 'e') cam.rotate(1);
     else if (k === '+' || k === '=') cam.zoomBy(1.15);
     else if (k === '-') cam.zoomBy(1 / 1.15);
-    else if (cb.key(k)) e.preventDefault();
+    else if (cb.key((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'y') ? `ctrl+${k}` : k)) e.preventDefault(); // V1.6 B7: undo/redo
   });
   window.addEventListener('keyup', (e) => held.delete(e.key.toLowerCase()));
   // A key released while the window had no focus never sends keyup, so the

@@ -68,5 +68,66 @@ if (stage === "big") {
   await page.waitForTimeout(800);
   await page.screenshot({ path: "/workspace/city-v16-big-map-regions.png", timeout: 240000 });
 }
+if (stage === "roads") {
+  // B6/B7: freeform roads next to the grid town — S-curve street, curved avenue,
+  // block zoning, growth; screenshots: preview grid, curved roads + zoning, road detail with cars.
+  await page.evaluate(() => window.city.startGame("new", { seed: 4242, map: "river" }));
+  out.pop = await page.evaluate((T) => { const c = window.city; const s = new c.sim.constructor(new c.sim.world.constructor(undefined, 4242)); const p = eval(T)(s, 0, 0); c.useSim(s); return p; }, TOWN);
+  out.place = await page.evaluate(() => {
+    const c = window.city, s = c.sim, F = c.free, M = (x, z) => ({ x: x * 32, z: z * 32 });
+    s.world.cash = 1e7;
+    const r = [];
+    // S-curve street from the grid road end at (50,40) out to the east and north
+    r.push(F.placeFreeRoad(s, F.quadCubic(M(50.5, 40.5), M(56, 46), M(58.5, 37)), "street", {}, true, true));
+    r.push(F.placeFreeRoad(s, F.quadCubic(M(58.5, 37), M(61, 28), M(56.5, 24)), "street", {}, true, true));
+    // curved avenue below the town
+    r.push(F.placeFreeRoad(s, F.quadCubic(M(20.5, 40.5), M(28, 52), M(47, 52)), "avenue", {}, true, true));
+    r.push(F.placeFreeRoad(s, F.lineCubic(M(47, 52), M(60, 54)), "avenue", {}, true, true));
+    // zone the blocks: homes along the street, shops along the avenue
+    let n = 0;
+    for (const cell of [...s.world.blocks.cells]) if (cell.row < 8) n += F.paintBlocks(s, { x: cell.cx, z: cell.cz }, s.world.roads.eType[cell.edge] === "avenue" ? 5 : 1, 1, 8);
+    for (let i = 0; i < 1500; i++) { s.step(); s.traffic.update(s.world, 1); s.world.clock += 1; }
+    return { results: r.map((x) => x.ok ? `ok ${x.tiles.length} tiles $${x.cost}` : x.reason), zoned: n, edges: s.world.roads.edgeCount(), cells: s.world.blocks.cells.length, pop: s.stats().population, bldgs: s.world.lots.buildings.size };
+  });
+  const shot = async (name, x, z, zm, setup) => {
+    await page.evaluate(([x, z, zm]) => { const c = window.city; c.setTimeOfDay(0.45); c.setOverlay("none"); c.cam.zoomBy(zm / c.cam.zoom); c.cam.target.set(x, 0, z); c.sim.version++; }, [x, z, zm]);
+    if (setup) await setup();
+    await page.waitForTimeout(3500);
+    await page.screenshot({ path: `/workspace/city-v16-${name}.png`, timeout: 240000 });
+  };
+  // 1. curved roads with zoning overlay (Homes tool on)
+  await shot("curved-roads-zoning", 52, 44, 1.3, async () => page.evaluate(() => window.city.setTool("residential")));
+  // 2. preview grid while drawing a new curve: tool on, two points set, mouse over the end point
+  await shot("road-preview-grid", 50, 46, 1.6, async () => {
+    await page.evaluate(() => { const c = window.city; c.setTool("freeRoad"); c.freeTool.mode = "curve"; c.freeTool.pts = [{ x: 40 * 32, z: 46 * 32 }, { x: 44 * 32, z: 60 * 32 }]; });
+    const xy = await page.evaluate(() => { const c = window.city, v = new c.cam.camera.position.constructor(54, 0, 47); v.project(c.cam.camera); return [(v.x + 1) / 2 * innerWidth, (1 - v.y) / 2 * innerHeight]; });
+    await page.mouse.move(xy[0], xy[1]);
+    await page.waitForTimeout(600);
+    out.previewTip = await page.evaluate(() => window.city.freeTool.tip);
+    // fps while dragging the preview around
+    out.previewFps = await page.evaluate(() => new Promise((ok) => { let n = 0; const t0 = performance.now(); const f = () => { n++; window.city.freeTool.hover({ x: (54 + Math.sin(n / 10)) * 32, z: 47 * 32 }); if (performance.now() - t0 < 3000) requestAnimationFrame(f); else ok(+(n / 3).toFixed(1)); }; requestAnimationFrame(f); }));
+  });
+  await page.evaluate(() => { window.city.setTool("inspect"); window.city.freeTool.cancel(); });
+  // 3. close-up road detail with cars in lanes (avenue + street junction)
+  await page.evaluate(() => window.city.setSpeed?.(1));
+  await shot("roads-detail", 47, 52, 5, async () => page.waitForTimeout(4000));
+  out.cars = await page.evaluate(() => window.city.graphLayer.traffic?.vehicles.length ?? 0);
+}
+if (stage === "migrate") {
+  // B8: a v9 (1.5b-format) fixture loaded through the normal Continue path
+  // is migrated to v10: its tile roads become graph roads.
+  const { readFileSync } = await import("node:fs");
+  const raw = readFileSync("/workspace/lowpoly-city/tools/fixtures/small.json", "utf8");
+  out.migrated = await page.evaluate((raw) => {
+    localStorage.setItem("lowpoly-city-save", raw);
+    window.city.startGame("continue");
+    const w = window.city.sim.world;
+    return { version: JSON.parse(raw).version, edges: w.roads.edgeCount(), graphTiles: w.graphTiles.size, pop: window.city.sim.stats().population };
+  }, raw);
+  await page.waitForFunction(() => window.city && window.city.graphLayer);
+  await page.evaluate(() => { const c = window.city; c.setTimeOfDay(0.45); c.setOverlay("none"); c.cam.zoomBy(1.8 / c.cam.zoom); c.cam.target.set(30, 0, 24); c.sim.version++; });
+  await page.waitForTimeout(5000);
+  await page.screenshot({ path: "/workspace/city-v16-migrated-save.png", timeout: 240000 });
+}
 console.log(JSON.stringify({ stage, ...out, errs }));
 await browser.close();

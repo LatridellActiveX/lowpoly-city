@@ -74,11 +74,14 @@ export class Hud {
   private readonly groupButtons = new Map<ToolGroupId, HTMLButtonElement>();
   private readonly flyouts = new Map<ToolGroupId, HTMLDivElement>();
   /** Last tool used in each group; the group button shows and re-selects it. */
-  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', power: 'powerLine', water: 'waterPipe', industry: 'industrial', services: 'garbageDump' };
+  private readonly lastInGroup: Record<ToolGroupId, ToolId> = { roads: 'road', utilities: 'powerLine', industry: 'industrial', services: 'garbageDump' };
   /** Which flyout is open right now (null = none). Number keys pick inside it. */
   openGroup: ToolGroupId | null = null;
   private readonly speedButtons: HTMLButtonElement[] = [];
   private readonly overlayButtons = new Map<OverlayMode, HTMLButtonElement>();
+  private viewBtn: HTMLButtonElement | null = null;
+  /** Key for the Power & water grid view (shown only while it is selected). */
+  private readonly gridLegend = el('div', 'panel grid-legend hidden', '<b>Power &amp; water grid</b><br>Along the roads: left line <span class="sw" style="background:#ffd21f"></span> power, right line <span class="sw" style="background:#29a3ff"></span> water<br><span class="sw" style="background:#ff3b30"></span> network overloaded · <span class="sw" style="background:#6b7280"></span> not connected to a source<br>Buildings: <span class="sw" style="background:#3ddc84"></span> served · <span class="sw" style="background:#ff3b30"></span> no power · <span class="sw" style="background:#ff9f1a"></span> no water');
   private readonly stats = el('div', 'stats');
   private readonly hint = el('div', 'hint');
   private readonly info = el('div', 'info hidden');
@@ -117,12 +120,23 @@ export class Hud {
       time.append(b);
     });
 
-    const overlays = el('div', 'group');
+    // All map views live in one dropdown behind a round "view menu" button.
+    const overlays = el('div', 'view-menu');
+    const viewBtn = el('button', 'view-btn', '👁') as HTMLButtonElement;
+    viewBtn.title = 'View menu — pick a map view';
+    this.viewBtn = viewBtn;
+    const viewList = el('div', 'view-list hidden');
+    viewBtn.onclick = () => viewList.classList.toggle('hidden');
+    window.addEventListener('pointerdown', (e) => {
+      if (!(e.target as HTMLElement).closest('.view-menu')) viewList.classList.add('hidden');
+    });
+    overlays.append(viewBtn, viewList);
     (
       [
         ['none', 'Normal'],
         ['power', '⚡ Power'],
         ['water', '💧 Water'],
+        ['grid', '🔌 Power & water grid'],
         ['pollution', '☁️ Pollution'],
         ['resources', '🗺 Resources'],
         ['zoning', '🧱 Zoning'],
@@ -137,12 +151,13 @@ export class Hud {
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)
       // screens, leaving just the icon (full name stays in the tooltip).
-      const sp = label.indexOf(' ');
-      const b = el('button', 'btn', sp > 0 ? `${label.slice(0, sp)}<span class="lbl">${label.slice(sp)}</span>` : label) as HTMLButtonElement;
-      if (!b.title) b.title = label;
-      b.onclick = () => actions.setOverlay(mode);
+      const b = el('button', 'view-item', label) as HTMLButtonElement;
+      b.onclick = () => {
+        actions.setOverlay(mode);
+        viewList.classList.add('hidden');
+      };
       this.overlayButtons.set(mode, b);
-      overlays.append(b);
+      viewList.append(b);
     });
 
     const view = el('div', 'group');
@@ -211,7 +226,7 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    root.append(top, this.gridLegend, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -351,6 +366,8 @@ export class Hud {
     fly.append(el('div', 'flyout-title', `${g.icon} ${g.label}`));
     g.tools.forEach((id, n) => {
       const t = toolDef(id);
+      const sec = g.sections?.[id];
+      if (sec) fly.append(el('div', 'flyout-section', sec));
       const row = el(
         'button',
         'fly-item',
@@ -363,16 +380,6 @@ export class Hud {
       this.toolButtons.set(id, row);
       fly.append(row);
     });
-    if (gid === 'roads') {
-      // Bridges are automatic: any road dragged over water becomes a bridge.
-      const row = el('button', 'fly-item info', `<kbd>${g.tools.length + 1}</kbd><span class="icon">🌉</span><span class="name">Bridge<small>auto</small></span><span class="price">+$48</span><span class="lock"></span>`) as HTMLButtonElement;
-      row.title = 'Bridges build automatically: drag a road or avenue across water (+$48 per water tile). Selects the Road tool.';
-      row.onclick = () => {
-        actions.selectTool('road');
-        this.closeFlyout();
-      };
-      fly.append(row);
-    }
     btn.onclick = () => {
       if (this.openGroup === gid) return this.closeFlyout();
       this.openFlyout(gid);
@@ -414,7 +421,6 @@ export class Hud {
   flyoutPick(n: number): ToolId | null {
     if (!this.openGroup) return null;
     const g = TOOL_GROUPS.find((x) => x.id === this.openGroup)!;
-    if (n === g.tools.length + 1 && g.id === 'roads') return 'road'; // the Bridge info row
     return g.tools[n - 1] ?? null;
   }
 
@@ -437,6 +443,8 @@ export class Hud {
 
   setOverlay(o: OverlayMode): void {
     this.overlayButtons.forEach((b, k) => b.classList.toggle('active', k === o));
+    this.viewBtn?.classList.toggle('active', o !== 'none');
+    this.gridLegend.classList.toggle('hidden', o !== 'grid');
   }
 
   flash(msg: string): void {

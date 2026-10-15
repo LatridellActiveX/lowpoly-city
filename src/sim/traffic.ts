@@ -42,6 +42,7 @@
  * Positions are interpolated between tile centres; the renderer adds the
  * right-hand lane offset and smooths the turn at corners.
  */
+import { LiveGraphTraffic } from './livegraph';
 import { GRID_SIZE, Tile } from './types';
 import { World } from './grid';
 import { hash2 } from './random';
@@ -467,9 +468,15 @@ export class Traffic {
   rightOnRed = true;
   /** PR 6 traffic-actuated signal controllers. */
   signals = new Signals();
+  /**
+   * OASIS: live trips on the ROAD GRAPH (sim/livegraph.ts). spawn() offers
+   * every trip to it first; it only accepts trips whose both ends are graph
+   * road tiles in a graph world, so pure tile worlds never touch it.
+   */
+  graph = new LiveGraphTraffic();
 
   count(kind: VehicleKind): number {
-    let n = 0;
+    let n = this.graph.count(kind); // OASIS: graph cars/trucks count toward every fleet / car cap
     for (const v of this.vehicles) if (v.kind === kind) n++;
     return n;
   }
@@ -479,6 +486,8 @@ export class Traffic {
    * if there's no route. Single-tile trips arrive immediately.
    */
   spawn(world: World, kind: VehicleKind, from: number, to: number, purpose: string, color?: number, onArrive?: () => void): boolean {
+    // OASIS: graph roads are the live network: let the graph take the trip when it can.
+    if (world.graphTiles.size && this.graph.spawn(world, kind, from, to, purpose, color ?? CAR_COLORS[(this.graph.stats.spawned + this.nextId) % CAR_COLORS.length], onArrive)) return true;
     const path = findPath(world.tiles, from, to);
     if (!path) {
       this.stats.noRoute++;
@@ -508,6 +517,7 @@ export class Traffic {
    */
   update(world: World, dt: number): void {
     if (dt <= 0) return;
+    this.graph.update(world, dt); // OASIS: live graph vehicles (no-op in tile-only worlds)
     this.signals.update(world.tiles, this.vehicles, dt); // PR 6: actuated lights read the queues once per frame
     const n = Math.ceil(dt / SUBSTEP);
     for (let k = 0; k < n; k++) this.stepOnce(world, dt / n);

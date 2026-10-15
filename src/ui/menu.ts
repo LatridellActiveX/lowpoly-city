@@ -26,11 +26,13 @@ export class GameMenu {
 
   /** Opens the What's new screen (set by main.ts). */
   onChangelog: () => void = () => {};
+  /** Saves and returns to the title screen (set by main.ts). */
+  onMainMenu: () => void = () => {};
 
   constructor(private readonly getSim: () => Simulation) {
     this.button.className = 'btn menu-btn';
     this.button.innerHTML = '☰';
-    this.button.title = 'Menu: settings and game log';
+    this.button.title = 'Menu: settings, game log and main menu';
     this.button.onclick = () => this.toggle();
     this.el.className = 'menu-panel hidden';
     gameLog.onChange = () => this.view === 'log' && !this.el.classList.contains('hidden') && this.renderLogList();
@@ -51,9 +53,10 @@ export class GameMenu {
       this.el.innerHTML = `${close}<h3>Menu</h3>
         <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
-        <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>`;
+        <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>
+        <button class="menu-item" data-go="mainmenu">🏠 Main menu<span>Save this city and return to the title screen</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
-        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else this.show(b.dataset.go as 'settings' | 'log');
+        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log');
       }));
     } else if (view === 'settings') {
       const s = this.getSim().settings;
