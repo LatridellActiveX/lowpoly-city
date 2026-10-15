@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA favicon. Descriptive id so it can't collide with other workers' ids.
+    id: '2026-10-15-favicon',
+    title: 'Browser tab icon',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'The game now has its own low-poly icon (a house and a pine tree on a grass tile) in browser tabs, bookmarks and on phone home screens.' },
+    ],
+  },
+  {
     // NEBULA zoning highlight fix (descriptive id: can't collide with letter ids).
     id: '2026-10-15-zoneangles',
     title: 'Zoning highlight matches what you zone',
