@@ -196,11 +196,14 @@ export class RoadGraph {
   /** Split with the ids of both halves: lo covers t ∈ [0, t], hi covers [t, 1]. */
   splitEdgeFull(e: number, t: number): { node: number; lo: number; hi: number } {
     const [c1, c2] = split(this.eCurve[e], t);
-    const a = this.eA[e], b = this.eB[e], type = this.eType[e];
+    const a = this.eA[e], b = this.eB[e], type = this.eType[e], born = this.eBorn[e];
     this.removeEdge(e);
     const node = this.addNode({ x: c1[6], z: c1[7] });
     const lo = this.addEdge(a, node, c1, type);
     const hi = this.addEdge(node, b, c2, type);
+    // The halves keep the old road's age: zone-block conflicts favour older
+    // roads, and a split must not make a road lose land it already had.
+    this.eBorn[lo] = this.eBorn[hi] = born;
     return { node, lo, hi };
   }
   /**
@@ -226,9 +229,11 @@ export class RoadGraph {
     if (d1.x * d2.x + d1.z * d2.z > -0.9999) return; // not collinear (opposite directions)
     const a = this.other(e1, n), b = this.other(e2, n), type = this.eType[e1];
     if (a === b) return;
+    const born = Math.min(this.eBorn[e1], this.eBorn[e2]);
     this.removeEdge(e1); this.removeEdge(e2);
     this.killNode(n);
-    this.addEdge(a, b, lineCubic(this.nodePos(a), this.nodePos(b)), type);
+    const m = this.addEdge(a, b, lineCubic(this.nodePos(a), this.nodePos(b)), type);
+    this.eBorn[m] = born; // merged road keeps the older age (see splitEdgeFull)
   }
 
   /* ================= validation ================= */
