@@ -15,6 +15,7 @@
  */
 import { RoadGraph, NodeKind, RoadType } from './graph';
 import { ZoneBlocks } from './blocks';
+import { at, tAtLength } from './bezier';
 import { edgeTiles, gridCellOf, readBlockCodes, tileCentre, traceRoads } from './bridge';
 import { isIntersection } from '../sim/traffic';
 import { GRID_SIZE } from '../sim/types';
@@ -98,6 +99,12 @@ export function markJunctionKinds(w: World, only?: Iterable<number>): void {
     const t = w.tiles[i];
     if (t.roadType === 2) g.nKind[n] = 'roundabout';
     else if (g.nEdges[n].length >= 3 && isIntersection(w.tiles, i)) g.nKind[n] = 'signal';
+    // OASIS-AVENUE fix #2: a node can only be a junction while it HAS three
+    // or more roads. When an edit takes an arm away, the old code above left
+    // the 'signal' kind behind, so a plain straight road kept a traffic light
+    // (Parker's save: node 9 at tile (64,106), a 2-phase light 32 m from the
+    // real junction at (64,105), halving the through road's capacity).
+    else if (g.nEdges[n].length < 3 && (g.nKind[n] === 'signal' || g.nKind[n] === 'stop')) g.nKind[n] = 'plain';
   }
 }
 
@@ -222,3 +229,103 @@ export function syncGraphToTiles(w: World): number {
   w.blocks.regenerate(w.roads);
   return n;
 }
+
+/**
+ * OASIS-AVENUE fix #2 (load repair): drop traffic lights / stop signs left on
+ * nodes that are no longer junctions (fewer than three roads). Saves made
+ * before markJunctionKinds demoted such nodes still carry them. Only ever
+ * DEMOTES (never invents a light), so it is safe to run on every load.
+ * Returns how many nodes changed.
+ */
+export function demoteStaleJunctions(g: RoadGraph): number {
+  let n = 0;
+  for (const m of g.liveNodes()) {
+    if ((g.nKind[m] === 'signal' || g.nKind[m] === 'stop') && g.nEdges[m].length < 3) {
+      g.nKind[m] = 'plain'; n++;
+      g.tidyNode(m); // a straight road through it becomes one edge again (no needless junction box)
+    }
+  }
+  if (n) g.version++;
+  return n;
+}
+
+/**
+ * OASIS-AVENUE fix #1: AVENUE UPGRADE OF A GRAPH ROAD.
+ *
+ * The Avenue tool upgrades a street in place (rules.applyTool sets
+ * tile.roadType = 1). In a graph world the tiles are only the footprint: the
+ * vehicles drive the GRAPH (roads/gtraffic.ts), whose lane count comes from
+ * the edge's eType. absorbTileRoads() only looks at tiles NOT yet in the
+ * graph, so an upgraded tile was silently ignored: the player paid, the tile
+ * said "avenue", and traffic kept driving one lane per direction (and the
+ * graph renderer kept drawing a street). That is Parker's "upgraded the
+ * road to an avenue and traffic got stuck".
+ *
+ * Here, for every graph edge that runs over an upgraded tile:
+ *  1. walk the edge in 1 m steps and find where the tiles under it change
+ *     between avenue and street (a drag usually covers only part of a road);
+ *  2. split the edge at those changes (only where both pieces stay ≥ 8 m, so
+ *     we never create slivers at a junction tile the drag merely touched);
+ *  3. retype each piece whose tiles are mostly avenue to 'avenue'.
+ * Junction tiles are shared by several edges; the majority rule decides per
+ * piece, so dragging over a junction does not retype the cross road.
+ * Bumps roads.version so live traffic rebuilds its lanes (sim/livegraph.ts
+ * completes trips on the old graph, exactly like any other road edit), then
+ * re-marks junction kinds on the touched nodes and regenerates the blocks.
+ * Returns how many edges were retyped.
+ */
+export function upgradeGraphRoads(w: World, tiles: number[]): number {
+  const g = w.roads, T = w.tiles, N = GRID_SIZE;
+  const up = new Set(tiles.filter((i) => T[i]?.road && T[i].roadType === 1 && w.graphTiles.has(i)));
+  if (!up.size) return 0;
+  const isAve = (x: number, z: number) => {
+    const tx = Math.floor(x / TILE), tz = Math.floor(z / TILE);
+    return tx >= 0 && tz >= 0 && tx < N && tz < N && T[tz * N + tx].roadType === 1;
+  };
+  // Pieces shorter than two tiles are not worth a node: an avenue junction
+  // box eats ~10 m at each end, so a 16 m piece would leave NO drivable lane
+  // (measured on Parker's save: 0 m lanes pinned cars at (64,105)). Cuts are
+  // also snapped to TILE CENTRES (multiples of 32 m from a tile-centre end
+  // node) so the new node sits where the tile road's own grid would put it.
+  const MIN_PIECE = 64;
+  // Edges touching an upgraded tile that are not already avenues.
+  const todo = g.liveEdges().filter((e) => g.eType[e] === 'street' && [...edgeTiles(g, e).keys()].some((i) => up.has(i)));
+  let retyped = 0;
+  const touched = new Set<number>();
+  for (const e0 of todo) {
+    // 1. sample the avenue/street state along the edge
+    const len = g.eLen[e0], steps = Math.max(2, Math.ceil(len));
+    const state: boolean[] = [];
+    for (let k = 0; k <= steps; k++) { const p = at(g.eCurve[e0], tAtLength(g.eLut[e0], (k / steps) * len)); state.push(isAve(p.x, p.z)); }
+    // 2. arc positions where the state flips, kept only if pieces stay long enough
+    const cuts: number[] = [];
+    for (let k = 1; k <= steps; k++) if (state[k] !== state[k - 1]) {
+      const arc = Math.round(((k / steps) * len) / TILE) * TILE, prev = cuts.length ? cuts[cuts.length - 1] : 0;
+      if (arc - prev >= MIN_PIECE && len - arc >= MIN_PIECE && !cuts.includes(arc)) cuts.push(arc);
+    }
+    // Split from the far end backwards so earlier arcs stay valid on the 'lo' piece.
+    const pieces: number[] = [];
+    let cur = e0;
+    for (let k = cuts.length - 1; k >= 0; k--) {
+      const r = g.splitEdgeFull(cur, tAtLength(g.eLut[cur], cuts[k]));
+      pieces.push(r.hi); touched.add(r.node); cur = r.lo;
+    }
+    pieces.push(cur);
+    // 3. retype the pieces that are mostly avenue
+    for (const e of pieces) {
+      const L = g.eLen[e], n = Math.max(2, Math.ceil(L));
+      let ave = 0;
+      for (let k = 0; k <= n; k++) { const p = at(g.eCurve[e], tAtLength(g.eLut[e], (k / n) * L)); if (isAve(p.x, p.z)) ave++; }
+      if (ave * 2 > n + 1) { g.eType[e] = 'avenue'; retyped++; touched.add(g.eA[e]); touched.add(g.eB[e]); }
+    }
+  }
+  if (retyped || touched.size) {
+    g.version++; markJunctionKinds(w, touched);
+    // Pieces of one road that ended up the same type again are merged back
+    // (RoadGraph.tidyNode only merges plain, collinear, same-type pairs).
+    for (const m of touched) if (g.nAlive[m] && g.nKind[m] === 'plain') g.tidyNode(m);
+    rebuildBlocks(w);
+  }
+  return retyped;
+}
+const TILE = 32;

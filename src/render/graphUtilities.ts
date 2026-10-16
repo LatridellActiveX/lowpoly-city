@@ -199,9 +199,9 @@ export const AMBER_S = 2.5;
  */
 export function signalSlot(gt: GraphTraffic, n: number, e: number): 0 | 1 | 2 {
   const J = gt.junctions.get(n);
-  if (!J || !J.phaseEdges.length) return 0;
+  if (!J || !J.phases.length) return 0;
   if (!gt.green(n, e)) return 0;
-  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = gt.time % (cyc * J.phaseEdges.length);
+  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (gt.time + gt.offset(n)) % (cyc * J.phases.length); // OASIS-AVENUE: paired phases + green-wave offset
   const into = tt - Math.floor(tt / cyc) * cyc;
   return into >= SIGNAL_GREEN - AMBER_S ? 1 : 2;
 }

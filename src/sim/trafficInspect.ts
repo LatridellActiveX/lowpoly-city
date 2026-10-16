@@ -61,6 +61,8 @@ export interface MissingConn {
 export interface SignalInfo {
   /** Edge whose approach has (or is about to get) green. */
   greenEdge: number;
+  /** OASIS-AVENUE: every approach green in this phase (opposite approaches share a phase). */
+  greenEdges: number[];
   /** Phase index / phase count (one phase per approach). */
   phase: number; phases: number;
   /** 'green' while the approach runs, 'all-red' during the clearance. */
@@ -159,16 +161,18 @@ export function nodeShape(g: RoadGraph, n: number, outside = false): NodeShape {
 
 /**
  * Signal phase at node n, mirroring GraphTraffic.green exactly: phases cycle
- * over J.phaseEdges, SIGNAL_GREEN s green then SIGNAL_CLEAR s all-red each.
+ * over J.phases, SIGNAL_GREEN s green then SIGNAL_CLEAR s all-red each.
  * Null when the node isn't a signal or has ≤ 1 approach (always green).
  */
 export function signalInfo(gt: GraphTraffic, n: number): SignalInfo | null {
   if (gt.g.nKind[n] !== 'signal') return null;
   const J = gt.junctions.get(n); if (!J) return null;
-  const k = J.phaseEdges.length; if (k <= 1) return null;
-  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = gt.time % (cyc * k), ph  /* same expression as GraphTraffic.green */ = Math.floor(tt / cyc), into = tt - ph * cyc;
+  // OASIS-AVENUE: cycle over J.phases (paired opposite approaches) with the
+  // node's green-wave offset — the same expression as GraphTraffic.green.
+  const k = J.phases.length; if (k <= 1) return null;
+  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (gt.time + gt.offset(n)) % (cyc * k), ph = Math.floor(tt / cyc), into = tt - ph * cyc;
   const green = into < SIGNAL_GREEN;
-  return { greenEdge: J.phaseEdges[ph], phase: ph, phases: k, state: green ? 'green' : 'all-red', remaining: green ? SIGNAL_GREEN - into : cyc - into };
+  return { greenEdge: J.phases[ph][0], greenEdges: J.phases[ph], phase: ph, phases: k, state: green ? 'green' : 'all-red', remaining: green ? SIGNAL_GREEN - into : cyc - into };
 }
 
 /* ------------------------------------------------------------------ */
