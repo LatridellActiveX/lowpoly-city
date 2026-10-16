@@ -29,6 +29,7 @@
  */
 import { GRID_SIZE, TileService } from './types';
 import { World } from './grid';
+import { garbageNorm } from './garbageRules';
 import { isFarmLot } from './industry';
 import {
   DESIRE_BASE,
@@ -120,7 +121,7 @@ export function computeLandValue(world: World, env: { pollution: Float32Array; p
     v += LV_PARK * env.parks[i] + Math.min(LV_COMMERCE_MAX, LV_COMMERCE * commerce[i]);
     v -= LV_POLLUTION * env.pollution[i] + LV_NOISE * noise[i];
     if (pre) pre[i] = v;
-    v -= LV_GARBAGE * Math.min(1, t.garbage / 60) * (world.peakPop < 1000 ? 0.3 : 1); // V1.5b stage E (mild before the dump unlocks)
+    v -= LV_GARBAGE * Math.min(1, garbageNorm(t) / 60) * (world.peakPop < 1000 ? 0.3 : 1); // V1.5b stage E (mild before the dump unlocks)
     out[i] = Math.max(0, Math.min(LV_MAX, v));
   }
   return { noise, landValue: out };

@@ -64,11 +64,12 @@ import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
 import { landfillDozerModel, landfillGullModel, landfillTopSize, landfillTopY, LF_CZ } from './landfillModel';
 import { serviceSize, Svc } from '../sim/services';
-import { G_MAX, G_WARN, landfillStage, LANDFILL_STAGES } from '../sim/garbage';
+import { landfillStage, LANDFILL_STAGES } from '../sim/garbage';
+import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
 import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
-import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
+import { bigFarmModel, constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
 import { Resource } from '../sim/resources';
@@ -486,6 +487,7 @@ export class CityRenderer {
     // PR 5 industry + wind (industryModels.ts).
     add('nacelle', nacelleModel(), solid, 64);
     add('farm', autoSkin(farmModel()), industrialMaterial(), 128); // V1.5b textured
+    add('bigFarm', autoSkin(bigFarmModel()), industrialMaterial(), 64); // merged large farm (2 x 1 tile model)
     // V1.5 stage 10: resource industries and processors (one pool per role).
     for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkinMap(g, HEAVY_SKINS), industrialMaterial(), 64); // V1.5b textured
     for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkinMap(g, HEAVY_SKINS), industrialMaterial(), 64); // V1.5b stage B new types
@@ -948,8 +950,8 @@ export class CityRenderer {
         else P[`svc${t.kind}`]?.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
-      if (t.zone && t.level > 0 && t.garbage >= G_WARN) {
-        P.garbagePile.add(this.place(center.clone().add(new THREE.Vector3(0.3, 0, 0.3)), hash2(x, z, 77) * 6, 1 + t.garbage / G_MAX));
+      if (t.zone && t.level > 0 && t.garbage >= garbageWarn(t.zone)) {
+        P.garbagePile.add(this.place(center.clone().add(new THREE.Vector3(0.3, 0, 0.3)), hash2(x, z, 77) * 6, 1 + Math.min(2, t.garbage / garbageMax(t.zone)) + (t.zone === 'industrial' ? 0.5 : t.zone === 'commercial' ? 0.25 : 0)));
         this.markers.push({ pos: center.clone().setY(1.05), color: new THREE.Color(1, 1, 1), kind: 'garbage', slot: 0 });
       }
       if (t.structure === 'constructionYard') {
@@ -964,7 +966,7 @@ export class CityRenderer {
         if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
       } else if (this.overlay === 'garbage') {
         // V1.5b: dump coverage (soft green) and garbage at buildings (yellow → brown).
-        const g = t.garbage / G_MAX, cv = sim.cov.by[0][i];
+        const g = t.garbage / garbageMax(t.zone), cv = sim.cov.by[0][i];
         if (g > 0.05) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0xffe14d).lerp(TMP.setHex(0x6b3d1f), g));
         else if (cv > 0) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(0x3ddc84).multiplyScalar(0.5 + cv * 0.5));
       } else if (this.overlay === 'crime') {
@@ -1246,7 +1248,9 @@ export class CityRenderer {
           const ci = cz * CELL_GRID + cx;
           if (cells.owner[ci] !== b.id) continue; // fallow / reassigned
           const role = cells.role[ci];
-          if (role === CellRole.Parking) {
+          if (role === CellRole.Parking && tpl.zone === 'industrial' && tpl.kind === 1) {
+            // Farm yard model covers this strip.
+          } else if (role === CellRole.Parking) {
             // Driveways (homes) are lighter concrete; lots are asphalt with stall lines.
             const drive = tpl.zone === 'residential';
             P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c.setHex(drive ? 0xbdb8ae : ASPHALT));
@@ -1293,6 +1297,13 @@ export class CityRenderer {
       const IND: Record<string, string> = { warehouse: 'warehouse', chemical_plant: 'chemical', steel_mill: 'steel', textile_mill: 'textile', bottling_plant: 'bottling', assembly_plant: 'assembly' };
       const NEWM: Record<string, string> = { hacienda: 'villa', terrace: 'terrace', modern_house: 'modern', garden_towers: 'gardentowers', sky_residence: 'skyresidence', supermarket: 'supermarket', petrol_station: 'petrol', pharmacy: 'pharmacy', hotel: 'hotel', cinema: 'cinema', department_store: 'department', outlet_mall: 'outlet', office_tower: 'officetower', business_park: 'bizpark', brewery: 'brewery', pharma_lab: 'pharma', clothing_factory: 'clothing', cold_store: 'coldstore', industrial_park: 'indpark', mega_factory: 'megafactory', bakery: 'bakery', bookstore: 'bookstore', toy_store: 'toystore', garden_centre: 'gardencentre', restaurant: 'restaurant', bank: 'bank', car_dealer: 'cardealer', gym: 'gym', laundromat: 'laundromat', vet_clinic: 'vetclinic', print_works: 'printworks', toy_factory: 'toyfactory' };
       const special = NEWM[tpl.id] ? `x.${NEWM[tpl.id]}` : OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
+      // Farms have no parking, so their yard model spans the whole plot (front strip included) instead of just the barn rows.
+      if (farm) {
+        const rs = tpl.rects.filter((r) => r.role === CellRole.Body || r.role === CellRole.Parking);
+        const u0 = Math.min(...rs.map((r) => r.u)), v0 = Math.min(...rs.map((r) => r.v));
+        const u1 = Math.max(...rs.map((r) => r.u + r.w)), v1 = Math.max(...rs.map((r) => r.v + r.d));
+        bodies.length = 0; bodies.push({ ...rs[0], u: u0, v: v0, w: u1 - u0, d: v1 - v0 });
+      }
       for (const [bi, br] of bodies.entries()) {
       body = br;
       const [x0, z0, x1, z1] = rectAABB(b.ox, b.oz, b.face, body.u, body.v, body.w, body.d);
@@ -1301,7 +1312,7 @@ export class CityRenderer {
       const lvIdx = Math.max(0, Math.min(tpl.maxLevel, Math.max(1, b.level + (b.construct > 0 ? 1 : 0))) - 1);
       mlv = tpl.model.level[lvIdx];
       if (farm || food || special) {
-        sx = sz = Math.min(bw, bd) * 0.95; sy = sx;
+        sx = sz = Math.min(bw / (tpl.id === 'big_farm' ? 2 : 1), bd) * 0.95; sy = sx; // the large farm's model is two tiles wide
       } else {
         const rb = roofBox(tpl.zone, mlv);
         sx = (bw * 0.9) / rb.w; sz = (bd * 0.9) / rb.d;
@@ -1313,7 +1324,7 @@ export class CityRenderer {
       const key = `${this.lod === 'low' ? 'lo:' : ''}${tpl.zone}.${look.design}.${mlv}`;
       const m = this.place(centre, yaw, sx, sy * (b.construct > 0 ? Math.max(0.06, progress) : 1), sz);
       const raw = b.construct > 0 ? 0.75 : 0;
-      if (farm) P.farm.add(m, this.c.setScalar(dim));
+      if (farm) (tpl.id === 'big_farm' ? P.bigFarm : P.farm).add(m, this.c.setScalar(dim));
       else if (special && bi === 0) P[special].add(m, this.c.setScalar(dim));
       else if (special) { /* one role model per building */ }
       else if (food) P[`foodPlant${Math.floor(hash2(b.ox, b.oz, seed + 61) * 3)}`].add(m, this.c.setScalar(dim));
@@ -1433,7 +1444,9 @@ export class CityRenderer {
       for (const r of this.farmRoutes) {
         const k = (((month - 1 + day / 30 + r.crop * 1.5) % 12) + 12) % 12;
         const stage = k < 1 || (k >= 8 && k < 9) ? 0 : k < 3 ? 1 : k < 5 ? 2 : k < 8 ? 3 : -1;
-        for (let m = 0; m < r.machines; m++) {
+        // The combine only comes out to harvest, and each farm has just the one; the other jobs use up to two tractors.
+        const crew = stage === 3 ? 1 : r.machines;
+        for (let m = 0; m < crew; m++) {
           const model = stage === 1 ? P.farmSeeder : stage === 2 ? P.farmSprayer : stage === 3 ? P.farmCombine : P.farmPlough;
           const cycle = r.total + PARK;
           let d = stage < 0 ? r.total : (clock * SPEED + m * cycle * 0.5 + r.crop * cycle) % cycle; // idle: parked
@@ -1458,7 +1471,7 @@ export class CityRenderer {
             yaw = h;
           }
           this.pv.set(px, 0.02, pz);
-          model.add(this.place(this.pv, yaw));
+          if (stage !== 3 || d < r.total) model.add(this.place(this.pv, yaw)); // the combine is out of sight while it is not harvesting
           if (working && stage >= 0) {
             for (let q = 0; q < 3; q++) {
               const a = (clock * 0.7 + q / 3 + m * 0.37) % 1;

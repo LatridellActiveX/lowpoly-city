@@ -482,6 +482,12 @@ setOverlay('none');
 const LOD_ZOOM = 0.8;
 const clock = new THREE.Clock();
 let hudTimer = 0;
+// FPS counter (Settings -> Show FPS counter): frames counted over half a second.
+const fpsEl = document.createElement('div');
+fpsEl.id = 'fps';
+fpsEl.className = 'hidden';
+document.body.append(fpsEl);
+let fpsFrames = 0, fpsTime = 0;
 let lastNoRoute = 0;
 renderer.setAnimationLoop(() => {
   const dt = clock.getDelta();
@@ -490,6 +496,12 @@ renderer.setAnimationLoop(() => {
   if (inTitle) {
     cam.orbit(dt * 12, 0);
     dayNight.override = ((performance.now() / 1000) / 90 + 0.3) % 1;
+  }
+  fpsFrames++; fpsTime += dt;
+  if (fpsTime >= 0.5) {
+    fpsEl.classList.toggle('hidden', !sim.settings.showFps || inTitle);
+    if (sim.settings.showFps) { const fps = fpsFrames / fpsTime; fpsEl.textContent = `${Math.round(fps)} FPS · ${(1000 / fps).toFixed(1)} ms`; fpsEl.dataset.level = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad'; }
+    fpsFrames = 0; fpsTime = 0;
   }
   sim.update(dt);
   if (tool === 'freeRoad') freeTool.tick(dt); // eased snapping

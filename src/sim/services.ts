@@ -18,6 +18,7 @@
  */
 import { GRID_SIZE, Tile, ToolId } from './types';
 import type { World } from './grid';
+import { roadComponents } from './roadnet';
 
 /** People at which police (and with them crime) unlock. */
 export const POLICE_UNLOCK_POP = 2500;
@@ -52,7 +53,7 @@ export const SERVICE_DEFS: ServiceDef[] = [
   // V1.5b stage C: the SHIPPING DEPOT (2×2 industrial building). Its
   // "coverage" is its CATCHMENT: industry and shops inside it ship through
   // the depot (goods.ts) instead of driving to the highway edge.
-  { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 15000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
+  { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 100000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
   // V1.6: RECYCLING CENTER. Its coverage cuts garbage build-up on every building in its radius (garbage.ts RECYCLE_CUT), so landfills last longer.
   { svc: Svc.Recycling, tool: 'recyclingCenter', label: 'Recycling Center', size: 1, cost: 8000, upkeep: 350, unlockPop: 2500, radius: 12, fleet: 12 }, // V1.6: 12 garbage trucks = 2× a landfill's 6; also burns garbage for 5,000 power (networks.ts)
 ];
@@ -133,6 +134,20 @@ export function computeCoverage(world: World): Coverage {
         f[z * N + x] = Math.min(1, f[z * N + x] + k);
       }
   }
+  // Garbage: a landfill / recycling center serves every building whose street is on its road network (garbage.ts).
+  const comp = roadComponents(world), served = new Set<number>();
+  for (const a of serviceAnchors(world)) { const k = world.tiles[a].kind; if (k === Svc.Dump || k === Svc.Recycling) { const r = serviceRoad(world.tiles, a); if (r >= 0 && comp[r]) served.add(comp[r]); } }
+  if (served.size) {
+    const g = by[Svc.Dump];
+    g.fill(0);
+    world.chunks.activeTilesSorted().forEach((i) => {
+      const t = world.tiles[i];
+      if (!t.zone && t.structure === 'none') return;
+      const x = i % N, z = (i - x) / N;
+      const r = world.tiles[i].road ? i : x > 0 && world.tiles[i - 1].road ? i - 1 : x < N - 1 && world.tiles[i + 1].road ? i + 1 : z > 0 && world.tiles[i - N].road ? i - N : z < N - 1 && world.tiles[i + N].road ? i + N : -1;
+      if (r >= 0 && served.has(comp[r])) g[i] = 1;
+    });
+  } else by[Svc.Dump].fill(0);
   const edu = new Uint8Array(n);
   for (let i = 0; i < n; i++) {
     const e = by[Svc.Elementary][i] > 0.3, h = by[Svc.High][i] > 0.3, c = by[Svc.College][i] > 0.3;

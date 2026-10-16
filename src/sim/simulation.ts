@@ -51,6 +51,7 @@ import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment, lvFinish } from './environment';
+import { garbageNorm } from './garbageRules';
 import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
@@ -233,7 +234,7 @@ export class Simulation {
     // Only garbage moved: redo the last step of land value for those tiles.
     const env = inc.env, lvArr = env.landValue, sf = this.safety;
     for (const i of ch.takeGarbageDirty()) {
-      const base = Math.fround(lvFinish(w, inc.pre[i], w.tiles[i].garbage));
+      const base = Math.fround(lvFinish(w, inc.pre[i], garbageNorm(w.tiles[i])));
       lvArr[i] = serviceEffectOne(base, sf.crime[i], sf.care[i], LV_MAX);
     }
     return env;

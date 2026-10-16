@@ -24,11 +24,13 @@ export interface Settings {
   /** PR 5: camera sensitivity multipliers (0.25–2). Rotation = middle-drag orbit; pan = drag + WASD. */
   camRotate: number;
   camPan: number;
+  /** Show a frames-per-second counter on the HUD. */
+  showFps: boolean;
 }
 
 const KEY = 'lowpoly-city-settings';
 // PR 5: maxCars default 150 → 75 (half the commuters; see COMMUTE_PEOPLE).
-export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1 });
+export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1, showFps: false });
 
 export function loadSettings(): Settings {
   try {

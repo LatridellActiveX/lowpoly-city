@@ -116,6 +116,7 @@ export function serializeWorld(world: World): string {
     clock: world.clock,
     tier: world.tier,
     peakPop: world.peakPop,
+    noAutoHaul: [...world.noAutoHaul],
     // v9: big maps store run-length columns; the 64 map keeps the v8 layout
     // (a tiles array + base64 cells, ~1 MB) so every older tool can read it.
     // The loader picks the layout by which fields are present.
@@ -176,6 +177,7 @@ export function deserializeWorld(raw: string): World | null {
     const seed: number = data.seed ?? Math.floor(Math.random() * 1e9);
     const w = new World(tiles, seed);
     w.tick = data.tick ?? 0;
+    if (Array.isArray(data.noAutoHaul)) for (const a of data.noAutoHaul) if (typeof a === 'number') w.noAutoHaul.add(a);
     w.regionsOwned = version >= 9 && typeof data.regionsOwned === 'number' ? data.regionsOwned : allRegions(size); // v9
     if (version < 2) {
       // ---- v1 -> v2 migration ----

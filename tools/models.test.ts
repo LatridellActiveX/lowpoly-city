@@ -8,7 +8,7 @@ import { mergeKind } from '../src/sim/growth';
 let bad = 0;
 const ok = (c: boolean, m: string) => { if (!c) { bad++; console.log('FAIL ' + m); } else console.log('ok   ' + m); };
 const ids = new Set<string>();
-const NEW = new Set(['hacienda', 'terrace', 'modern_house', 'garden_towers', 'sky_residence', 'supermarket', 'petrol_station', 'pharmacy', 'hotel', 'cinema', 'department_store', 'outlet_mall', 'office_tower', 'business_park', 'brewery', 'pharma_lab', 'clothing_factory', 'cold_store', 'industrial_park', 'mega_factory', 'bakery', 'bookstore', 'toy_store', 'garden_centre', 'restaurant', 'bank', 'car_dealer', 'gym', 'laundromat', 'vet_clinic', 'print_works', 'toy_factory']);
+const NEW = new Set(['hacienda', 'terrace', 'modern_house', 'garden_towers', 'sky_residence', 'supermarket', 'petrol_station', 'pharmacy', 'hotel', 'cinema', 'department_store', 'outlet_mall', 'office_tower', 'business_park', 'brewery', 'pharma_lab', 'clothing_factory', 'cold_store', 'industrial_park', 'mega_factory', 'bakery', 'bookstore', 'toy_store', 'garden_centre', 'restaurant', 'bank', 'car_dealer', 'gym', 'laundromat', 'vet_clinic', 'print_works', 'toy_factory', 'big_farm']);
 for (const t of TEMPLATES) {
   ok(!ids.has(t.id), `unique id ${t.id}`); ids.add(t.id);
   ok(t.rects.every((r) => r.u >= 0 && r.v >= 0 && r.u + r.w <= t.w && r.v + r.d <= t.d), `${t.id}: rects inside ${t.w}x${t.d}`);
