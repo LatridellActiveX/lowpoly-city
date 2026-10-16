@@ -3,7 +3,7 @@
  * procedural textures: corrugated metal, brick, concrete, rust/stains,
  * hazard stripes, rooftop vents, signage").
  *
- * One 512×384 seeded canvas holds 12 grey-scale-ish SURFACES in a 4×3 grid (8 industrial + 4 for homes)
+ * One 512×512 seeded canvas holds 16 grey-scale-ish SURFACES in a 4×4 grid (8 industrial + 4 for homes + 4 heavy-industry)
  * (128 px cells). Industrial geometry keeps Three.js primitive UVs (0..1
  * per face); `skinned()` squeezes each part's UVs into its surface's cell,
  * so ONE material (map × vertex colour × instance colour) textures every
@@ -16,8 +16,8 @@
 import * as THREE from 'three';
 import { seededStream } from '../sim/random';
 
-export enum Skin { Plain = 0, Metal = 1, Brick = 2, Concrete = 3, Rust = 4, Hazard = 5, Roof = 6, Glass = 7, Siding = 8, Stucco = 9, Shingle = 10, Boards = 11 }
-const COLS = 4, ROWS = 3, CELL = 128, INSET = 0.04;
+export enum Skin { Plain = 0, Metal = 1, Brick = 2, Concrete = 3, Rust = 4, Hazard = 5, Roof = 6, Glass = 7, Siding = 8, Stucco = 9, Shingle = 10, Boards = 11, Plate = 12, Cladding = 13, Louvre = 14, Grate = 15 }
+const COLS = 4, ROWS = 4, CELL = 128, INSET = 0.04;
 
 /** Tag a geometry with the surface it should use (applied by `skinned`). */
 export function skin<T extends THREE.BufferGeometry>(g: T, s: Skin): T {
@@ -155,6 +155,38 @@ export function industrialAtlas(): THREE.CanvasTexture {
       for (let i = 0; i < 6; i++) { g.fillStyle = grey(v - 26 + Math.floor(rnd() * 14)); g.fillRect(x0 + x + 2 + rnd() * 11, y0 + rnd() * CELL, 1, 12 + rnd() * 40); }
       if (rnd() < 0.5) { g.fillStyle = grey(v - 60); g.beginPath(); g.arc(x0 + x + 8, y0 + rnd() * CELL, 2.2, 0, Math.PI * 2); g.fill(); }
     }
+  });
+  // 12 Riveted steel plate: bolted panels with weld seams, rivet rows and a little weeping rust (tanks, columns, furnaces).
+  cell(Skin.Plate, (x0, y0) => {
+    g.fillStyle = grey(222); g.fillRect(x0, y0, CELL, CELL); speckle(x0, y0, 260, 196, 240);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const x = x0 + c * 32, y = y0 + r * 32, v = 206 + Math.floor(rnd() * 40);
+      g.fillStyle = grey(v); g.fillRect(x + 1, y + 1, 30, 30);
+      g.fillStyle = grey(168); g.fillRect(x, y, 32, 2); g.fillRect(x, y, 2, 32);
+      g.fillStyle = grey(250); g.fillRect(x + 2, y + 2, 29, 1);
+      for (const [dx, dy] of [[5, 5], [26, 5], [5, 26], [26, 26]]) { g.fillStyle = grey(150); g.beginPath(); g.arc(x + dx, y + dy, 2, 0, Math.PI * 2); g.fill(); g.fillStyle = grey(255); g.fillRect(x + dx - 1, y + dy - 1, 1, 1); }
+    }
+    stains(x0, y0, 5, 'rgba(130,80,40,0.22)');
+  });
+  // 13 Insulated cladding: horizontal sandwich-panel ribs with bolt lines and panel joints (big halls, white tanks).
+  cell(Skin.Cladding, (x0, y0) => {
+    g.fillStyle = grey(240); g.fillRect(x0, y0, CELL, CELL);
+    for (let y = 0; y < CELL; y += 10) { g.fillStyle = grey(200); g.fillRect(x0, y0 + y, CELL, 2); g.fillStyle = grey(255); g.fillRect(x0, y0 + y + 2, CELL, 2); }
+    for (let x = 0; x < CELL; x += 64) { g.fillStyle = grey(176); g.fillRect(x0 + x, y0, 2, CELL); for (let y = 6; y < CELL; y += 20) { g.fillStyle = grey(140); g.fillRect(x0 + x + 4, y0 + y, 2, 2); } }
+    stains(x0, y0, 5, 'rgba(100,100,100,0.18)');
+  });
+  // 14 Louvres: angled slats with dark gaps (cooling towers, plant-room vents, fan housings).
+  cell(Skin.Louvre, (x0, y0) => {
+    g.fillStyle = grey(110); g.fillRect(x0, y0, CELL, CELL);
+    for (let y = 0; y < CELL; y += 8) { const gr = g.createLinearGradient(0, y0 + y, 0, y0 + y + 6); gr.addColorStop(0, grey(252)); gr.addColorStop(1, grey(196)); g.fillStyle = gr; g.fillRect(x0, y0 + y, CELL, 6); }
+    g.fillStyle = grey(150); for (let x = 0; x < CELL; x += 42) g.fillRect(x0 + x, y0, 2, CELL);
+  });
+  // 15 Grating: expanded-metal walkway mesh with a diamond pattern and edge rails.
+  cell(Skin.Grate, (x0, y0) => {
+    g.fillStyle = grey(150); g.fillRect(x0, y0, CELL, CELL);
+    g.strokeStyle = grey(250); g.lineWidth = 2;
+    for (let k = -CELL; k < CELL * 2; k += 10) { g.beginPath(); g.moveTo(x0 + k, y0); g.lineTo(x0 + k + CELL, y0 + CELL); g.stroke(); g.beginPath(); g.moveTo(x0 + k + CELL, y0); g.lineTo(x0 + k, y0 + CELL); g.stroke(); }
+    g.fillStyle = grey(210); g.fillRect(x0, y0, CELL, 5); g.fillRect(x0, y0 + CELL - 5, CELL, 5);
   });
   atlas = new THREE.CanvasTexture(cv);
   atlas.colorSpace = THREE.SRGBColorSpace;

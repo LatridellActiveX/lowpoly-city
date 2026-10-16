@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
 import { slab } from './landfillModel';
+import { heavyIndustryModels } from './heavyIndustry';
 
 const STEEL = 0xc5cbd2, STEEL_D = 0x8d949c, CONCRETE = 0xb9b5ac, ROOF = 0x5c6670, WOOD = 0x8a6440;
 const cyl = (r: number, h: number, seg = 14) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
@@ -616,6 +617,7 @@ function quarryModel(): THREE.BufferGeometry {
 
 /** Every role model by name (keys match sim/chains.ts Role). */
 export function roleModels(): Record<string, THREE.BufferGeometry> {
+  const heavy = heavyIndustryModels();
   return {
     // Logging camp: cabin, log piles, stumps and forest edge.
     logging: merge([
@@ -637,37 +639,8 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
       part(cyl(0.03, 0.42, 8), STEEL_D, [0.32, 0.012, -0.3]),
       ...logs(8, -0.2, 0.25), ...[0, 1, 2, 3].map((k) => part(box(0.26, 0.025, 0.12), 0xd8b47a, [0.25, 0.012 + k * 0.026, 0.25])),
     ]),
-    // Refinery: tank farm, distillation column and a flare stack.
-    refinery: merge([
-      part(box(0.96, 0.012, 0.96), 0x8b8478),
-      part(cyl(0.07, 0.7, 10), STEEL, [-0.25, 0.012, -0.2]), ...[0.2, 0.4, 0.6].map((y) => part(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 10), STEEL_D, [-0.25, y, -0.2])),
-      part(cyl(0.025, 0.85, 6), 0x8d949c, [0.35, 0.012, -0.35]), part(new THREE.ConeGeometry(0.03, 0.08, 6).translate(0, 0.9, 0), 0xff8a1f, [0.35, 0, -0.35]),
-      ...[[0.12, -0.15], [0.12, 0.2], [-0.15, 0.22]].map(([x, z]) => part(cyl(0.12, 0.16), 0xe9e4da, [x, 0.012, z])),
-      part(box(0.6, 0.02, 0.02), STEEL_D, [0, 0.2, 0.02]),
-    ]),
-    // Building-materials plant: cement silos, aggregate bins and pallets.
-    materials: merge([
-      part(box(0.96, 0.012, 0.96), CONCRETE),
-      part(box(0.5, 0.26, 0.3), 0xd5d1c7, [-0.15, 0.012, -0.2]), part(box(0.52, 0.03, 0.32), ROOF, [-0.15, 0.27, -0.2]),
-      ...[-0.05, 0.12, 0.29].map((x) => part(cyl(0.065, 0.5, 10), 0xe2ddd2, [x + 0.05, 0.012, 0.15])),
-      ...[-0.38, -0.24].map((x) => part(new THREE.ConeGeometry(0.08, 0.1, 7).translate(0, 0.05, 0), 0x9f8f78, [x, 0.012, 0.3])),
-      ...[0, 1].map((k) => part(box(0.14, 0.08, 0.14), 0xc04a32, [0.3, 0.012 + k * 0.08, -0.3])),
-    ]),
-    // Furniture factory: brick workshop, timber store, sofas on pallets.
-    furniture: merge([
-      part(box(0.96, 0.012, 0.96), 0xb9b5ac),
-      part(box(0.62, 0.26, 0.42), 0xa45a3e, [0, 0.012, -0.15]), part(box(0.64, 0.04, 0.44), 0x4d4a48, [0, 0.27, -0.15]),
-      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.08, 0.012), 0xffd98a, [x, 0.1, 0.07])),
-      part(box(0.2, 0.06, 0.1), 0x3d6fa8, [-0.25, 0.012, 0.3]), part(box(0.2, 0.06, 0.1), 0xc0784a, [0.05, 0.012, 0.3]),
-      ...[0, 1, 2].map((k) => part(box(0.22, 0.02, 0.1), 0xd8b47a, [0.3, 0.012 + k * 0.022, 0.32])),
-    ]),
-    // Electronics plant: clean white hall, glass band, rooftop units.
-    electronics: merge([
-      part(box(0.96, 0.012, 0.96), 0xc7ccd2),
-      part(box(0.7, 0.22, 0.5), 0xf3f5f7, [0, 0.012, -0.12]), part(box(0.71, 0.05, 0.51), 0x4ea3d8, [0, 0.13, -0.12]),
-      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.05, 0.1), STEEL_D, [x, 0.232, -0.2])),
-      part(box(0.2, 0.012, 0.2), 0x2c4a6e, [0.28, 0.02, 0.3]), part(box(0.06, 0.08, 0.06), 0x55a868, [-0.3, 0.012, 0.3]),
-    ]),
+    // Refinery / materials / electronics: detailed versions live in heavyIndustry.ts.
+    refinery: heavy.refinery, materials: heavy.materials, electronics: heavy.electronics,
   };
 }
 
@@ -678,7 +651,7 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
 // mid-grey corrugated metal, light concrete, dark roofs, yellow hazard
 // stripes, orange-brown rust. Signage boards are bright saturated colours.
 // ----------------------------------------------------------------------------
-const BRICK = 0x9a4a35, MET = 0x8f989f, MET_D = 0x5b636a, CON = 0xc4c0b6, ROOFD = 0x4b535b, HAZ = 0xf2c230, RUST = 0x8a4f26;
+const BRICK = 0x9a4a35, MET = 0x8f989f, CON = 0xc4c0b6, ROOFD = 0x4b535b, HAZ = 0xf2c230;
 /** Rooftop HVAC unit with a fan grille. */
 function hvac(p: THREE.BufferGeometry[], x: number, y: number, z: number): void {
   p.push(part(box(0.1, 0.05, 0.07), 0xb8bec4, [x, y, z]));
@@ -709,42 +682,6 @@ export function newIndustryModels(): Record<string, THREE.BufferGeometry> {
     hazardKerb(p, 0.3, 0.42, 0.2);
     out.warehouse = merge(p);
   }
-  { // CHEMICAL PLANT: process columns, spherical tanks, pipe racks, flare stack.
-    const p = [apron()];
-    p.push(part(box(0.36, 0.2, 0.26), CON, [-0.26, 0.012, 0.2]));
-    p.push(part(box(0.38, 0.015, 0.28), ROOFD, [-0.26, 0.212, 0.2]));
-    for (const [x, z, h] of [[0.05, -0.15, 0.62], [0.17, -0.2, 0.5], [0.05, 0.02, 0.42]] as const) {
-      p.push(part(cyl(0.045, h, 12), 0xd0d4d8, [x, 0.012, z]));
-      for (let r = 1; r < 4; r++) p.push(part(box(0.11, 0.006, 0.11), MET_D, [x, 0.012 + (h * r) / 4, z]));
-    }
-    for (const [x, z] of [[0.32, 0.2], [0.32, -0.05]]) { p.push(part(new THREE.SphereGeometry(0.1, 14, 8), 0xe6e8ea, [x, 0.17, z])); for (const s of [-1, 1]) p.push(part(box(0.012, 0.1, 0.012), MET_D, [x + s * 0.07, 0.012, z])); }
-    p.push(part(new THREE.CylinderGeometry(0.015, 0.015, 0.7, 6).rotateZ(Math.PI / 2), RUST, [0, 0.3, -0.32]));
-    p.push(part(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6).rotateZ(Math.PI / 2), 0x3f8a5a, [0, 0.26, -0.32]));
-    for (const x of [-0.3, 0, 0.3]) p.push(part(box(0.015, 0.3, 0.015), MET_D, [x, 0.012, -0.32]));
-    p.push(part(cyl(0.018, 0.85, 8), 0xc23b2e, [-0.38, 0.012, -0.36]));
-    p.push(part(new THREE.ConeGeometry(0.03, 0.06, 8).translate(0, 0.03, 0), 0xff8a20, [-0.38, 0.86, -0.36]));
-    barrels(p, -0.4, 0.38);
-    hazardKerb(p, -0.2, 0.36, 0.18);
-    sign(p, -0.26, 0.15, 0.335, 0.22, 0xe07a1f);
-    out.chemical = merge(p);
-  }
-  { // STEEL MILL: tall brick-and-rust melt shop, blast furnace, stacks, ore piles.
-    const p = [apron()];
-    p.push(part(box(0.5, 0.42, 0.42), RUST, [-0.18, 0.012, 0.1]));
-    p.push(part(gable(0.52, 0.1, 0.44, 0.02), ROOFD, [-0.18, 0.43, 0.1]));
-    p.push(part(box(0.5, 0.12, 0.006), BRICK, [-0.18, 0.012, 0.32]));
-    p.push(part(new THREE.CylinderGeometry(0.08, 0.12, 0.55, 12).translate(0, 0.275, 0), MET_D, [0.25, 0.012, -0.15]));
-    p.push(part(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8).rotateZ(0.9), RUST, [0.12, 0.5, -0.15]));
-    for (const [x, h] of [[0.36, 0.95], [0.18, 0.85]] as const) {
-      p.push(part(new THREE.CylinderGeometry(0.03, 0.045, h, 10).translate(0, h / 2, 0), 0xb9b2a6, [x, 0.012, -0.38]));
-      p.push(part(new THREE.CylinderGeometry(0.033, 0.033, 0.04, 10), 0xc23b2e, [x, h - 0.08, -0.38]));
-    }
-    p.push(part(new THREE.ConeGeometry(0.14, 0.1, 8).translate(0, 0.05, 0).scale(1.4, 1, 1), 0x7a4a36, [0.28, 0.012, 0.3]));
-    conveyor(p, 0.2, 0.05, -0.05, 0.38, 0.22);
-    for (let k = 0; k < 3; k++) p.push(part(box(0.12, 0.025, 0.08), 0x6d6f73, [-0.35 + k * 0.14, 0.012, 0.42])); // slabs
-    sign(p, -0.18, 0.3, 0.325, 0.2, 0x3d5a80);
-    out.steel = merge(p);
-  }
   { // TEXTILE MILL: classic red-brick multi-storey mill with tall windows + chimney + water tower.
     const p = [apron()];
     p.push(part(box(0.72, 0.4, 0.34), BRICK, [-0.05, 0.012, 0.0]));
@@ -771,18 +708,7 @@ export function newIndustryModels(): Record<string, THREE.BufferGeometry> {
     sign(p, -0.1, 0.27, 0.14, 0.32, 0xd02c2c);
     out.bottling = merge(p);
   }
-  { // ASSEMBLY PLANT: big sawtooth-roof hall, paint shop with stacks, finished-goods lot.
-    const p = [apron()];
-    p.push(part(box(0.78, 0.26, 0.5), MET, [0, 0.012, -0.18]));
-    for (let s = 0; s < 4; s++) p.push(part(gable(0.78, 0.08, 0.125, 0.12), ROOFD, [0, 0.272, -0.37 + s * 0.125]));
-    for (let s = 0; s < 4; s++) p.push(part(box(0.76, 0.05, 0.006), 0x9fd7ff, [0, 0.29, -0.42 + s * 0.125])); // sawtooth glazing
-    p.push(part(box(0.22, 0.18, 0.18), CON, [-0.26, 0.012, 0.2])); // paint shop
-    for (const x of [-0.32, -0.2]) exhaustStack(p, x, 0.192, 0.2, 0.2);
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) p.push(part(box(0.06, 0.04, 0.1), [0x2f6fb0, 0xe8e8e8, 0xc23b2e, 0x3a3a3a][(r + c) % 4], [0.02 + c * 0.1, 0.012, 0.18 + r * 0.16])); // finished products
-    docks(p, 0.1, 3, 0.07, 0.24);
-    hazardKerb(p, 0.24, 0.12, 0.3);
-    sign(p, 0.0, 0.2, 0.074, 0.18, 0x1f7a3d);
-    out.assembly = merge(p);
-  }
+  const heavy = heavyIndustryModels();
+  out.chemical = heavy.chemical; out.steel = heavy.steel; out.assembly = heavy.assembly;
   return out;
 }
