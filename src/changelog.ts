@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-16-a',
+    title: 'Cleaner zoning and update notes',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Zoning no longer shows a cost / size tooltip next to the cursor, so it stops covering the menu. The coloured squares show what you are about to zone.' },
+      { tag: 'improved', text: 'After an update, the pop-up shows only what changed in the latest patch. The full history is still in What\'s new on the title screen and the ☰ menu.' },
+    ],
+  },
+  {
     id: '2026-10-15-s',
     title: 'Roof fixes, cinema and factory textures',
     date: '2026-10-15',

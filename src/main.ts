@@ -198,7 +198,7 @@ function updatePreview(): void {
       graphLayer.showCells(cells, cells.length ? zoneCodeColor(zc) : 0xe5484d);
       cellsShown = true;
       preview.show([]);
-      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${cells.length} square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
+      hud.showTip(null); // no tooltip while zoning: the coloured squares say what you are painting
       return;
     }
   }
@@ -282,7 +282,7 @@ function updatePreview(): void {
     const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
     html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
   }
-  hud.showTip(html, mouse[0], mouse[1]);
+  hud.showTip(zq ? null : html, mouse[0], mouse[1]); // zoning shows no tooltip (it cluttered the menu)
 }
 
 /**
