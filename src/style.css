@@ -179,7 +179,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 #zonebar .btn.active, #freeroadbar .btn.active { outline: 2px solid #ffd21f; }
 
 /* V1.5 update prompt: centred card above everything. */
-.update-prompt { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 50; width: 380px; padding: 16px 18px; }
+.update-prompt { position: fixed; left: 50%; top: 18%; transform: translateX(-50%); z-index: 90; /* above the model viewer (75) and What's new (70) */ width: 380px; padding: 16px 18px; }
 .update-prompt h3 { margin: 0 0 8px; }
 .update-prompt p { margin: 0 0 10px; line-height: 1.4; }
 .update-prompt .warn { color: #ffb36b; }
@@ -253,3 +253,27 @@ body.title-mode .changelog { z-index: 70; }
 .grid-legend { position: fixed; top: 52px; right: 12px; z-index: 20; font-size: 12px; line-height: 1.7; max-width: 300px; pointer-events: none; }
 .grid-legend.hidden { display: none; }
 .grid-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px; vertical-align: -1px; }
+
+/* ---- Model viewer (ui/modelViewer.ts) ---- */
+.model-viewer { position: fixed; inset: 0; z-index: 75; display: flex; flex-direction: column; padding: 16px 20px; background: rgba(14, 20, 32, 0.97); color: #eef; overflow: hidden; }
+.model-viewer.hidden { display: none; }
+.mv-head { display: flex; align-items: center; gap: 14px; position: relative; padding-right: 36px; }
+.mv-head h2 { margin: 0; font-size: 20px; }
+.mv-head .close { position: absolute; top: 0; right: 0; background: none; border: 0; color: inherit; font-size: 26px; opacity: 0.7; cursor: pointer; }
+.mv-search { flex: 1; max-width: 320px; padding: 6px 10px; border-radius: 8px; border: 1px solid #3a4a66; background: #1b2640; color: #eef; }
+.mv-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.mv-tab { width: auto; padding: 4px 12px; }
+.mv-tab.active { background: #3f6fd8; color: #fff; }
+.mv-grid { flex: 1; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; align-content: start; padding-right: 6px; }
+.mv-cat { grid-column: 1 / -1; margin: 10px 0 0; font-size: 15px; color: #9fb6e8; border-bottom: 1px solid #2c3a58; padding-bottom: 4px; }
+.mv-card { background: linear-gradient(180deg, #2b3d5c, #1d2a42); border-radius: 10px; padding: 6px; border: 1px solid #34466a; }
+.mv-card:hover { border-color: #6f9cff; }
+.mv-card canvas { width: 100%; aspect-ratio: 260 / 190; display: block; border-radius: 6px; cursor: grab; touch-action: none; }
+.mv-title { font-size: 13px; text-align: center; margin-top: 4px; }
+.mv-chip { font-size: 11px; text-align: center; opacity: 0.6; }
+.mv-hint { margin-top: 6px; text-align: center; }
+.mv-big { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(6, 10, 18, 0.7); }
+.mv-big-card { position: relative; padding: 14px 16px; background: #18233a; border-radius: 12px; max-width: 94vw; }
+.mv-big-card h3 { margin: 0 0 8px; }
+.mv-big-card canvas { width: min(760px, 88vw); aspect-ratio: 760 / 520; display: block; border-radius: 8px; background: linear-gradient(180deg, #2b3d5c, #1d2a42); cursor: grab; touch-action: none; }
+.mv-big-card .close { position: absolute; top: 6px; right: 10px; background: none; border: 0; color: inherit; font-size: 24px; cursor: pointer; opacity: 0.7; }

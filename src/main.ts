@@ -39,6 +39,7 @@ import { installDesktopNotice } from './ui/desktopOnly';
 import { gameLog } from './ui/gameLog';
 import { GameMenu } from './ui/menu';
 import { ChangelogPanel } from './ui/changelogPanel';
+import { ModelViewer } from './ui/modelViewer';
 import { RESUME_KEY, UpdateChecker } from './ui/updateCheck';
 import { NewGameOptions, TitleScreen } from './ui/titleScreen';
 import { buildBackdrop } from './ui/titleBackdrop';
@@ -431,6 +432,10 @@ app.append(menu.el);
 const changelog = new ChangelogPanel();
 document.body.append(changelog.el);
 menu.onChangelog = () => changelog.open();
+// Model viewer: a gallery of every model, from the ☰ menu and the title screen.
+const modelViewer = new ModelViewer();
+document.body.append(modelViewer.el);
+menu.onModels = () => modelViewer.open();
 // Back to the title screen: save the city first (Continue picks it up), then reload clean.
 menu.onMainMenu = () => {
   if (!inTitle) saveWorld(sim.world);
@@ -553,6 +558,7 @@ const title = new TitleScreen({
   },
   openSettings: () => menu.toggle(true),
   openChangelog: () => changelog.open(),
+  openModels: () => modelViewer.open(),
   saveSlot: (i) => saveToSlot(i),
 });
 if (inTitle) {

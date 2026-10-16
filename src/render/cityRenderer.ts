@@ -48,7 +48,7 @@ import { GRID_SIZE, Tile, ZoneType } from '../sim/types';
 import { InstancePool } from './instancing';
 import { CHUNK } from '../sim/chunks';
 import { owns, REGION, regionSide } from '../sim/regions';
-import { autoSkin, industrialMaterial, Skin } from './textures';
+import { autoSkin, autoSkinMap, industrialMaterial, Skin, texturedHome, texturedShop } from './textures';
 const IND_WALL_SKIN = [Skin.Metal, Skin.Concrete, Skin.Metal, Skin.Brick, Skin.Rust];
 import { truckBody } from '../sim/truckBodies';
 import { TILE_M } from '../roads/graph';
@@ -58,7 +58,7 @@ import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './
 import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
-import { homeModels, commerceModels, industryExtra } from './cityModels';
+import { homeModels, commerceModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
 import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
 import { landfillDozerModel, landfillGullModel, landfillTopSize, landfillTopY, LF_CZ } from './landfillModel';
@@ -408,6 +408,14 @@ export class CityRenderer {
               if (zone === 'industrial') {
                 const force = which === 'walls' ? IND_WALL_SKIN[k % IND_WALL_SKIN.length] : which === 'accent' ? (k === 0 || k === 4 ? Skin.Roof : Skin.Metal) : undefined;
                 add(`${pre}${zone}.${k}.${lv + 1}.${which}`, autoSkin(parts[which], force), industrialMaterial(), 32, which !== 'fixed');
+              } else if (zone === 'commercial') {
+                // V1.6: shops are textured too (brick / siding / concrete / stucco walls, membrane roofs, glass).
+                if (which === 'walls') texturedShop(parts, k);
+                add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], industrialMaterial(), 32, which !== 'fixed');
+              } else if (zone === 'residential' && lv < 3) {
+                // V1.6: low-density homes are textured (siding / stucco / boards, shingle roofs) from the atlas.
+                if (which === 'walls') texturedHome(parts, k);
+                add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], industrialMaterial(), 32, which !== 'fixed');
               } else add(`${pre}${zone}.${k}.${lv + 1}.${which}`, parts[which], solid, 32, which !== 'fixed');
             }
             add(`${pre}${zone}.${k}.${lv + 1}.lights`, parts.lights, this.windowGlow, 32, false);
@@ -478,13 +486,12 @@ export class CityRenderer {
     for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
     for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
     for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
-    for (const [k, g] of Object.entries({ ...homeModels(), ...commerceModels() })) add(`x.${k}`, g, solid, 64); // V1.6 more homes + shops
-    for (const [k, g] of Object.entries(industryExtra())) add(`x.${k}`, autoSkin(g), industrialMaterial(), 64);
-    // New recipe roles reuse the matching plant model.
+    for (const [k, g] of Object.entries(homeModels())) add(`x.${k}`, g, k === 'terrace' ? industrialMaterial() : solid, 64); // V1.6 more homes (the terrace carries its own atlas UVs)
+    for (const [k, g] of Object.entries(commerceModels())) add(`x.${k}`, g, industrialMaterial(), 64); // V1.6 shops: textured
     const roleX = industryExtra();
-    add('role.tailor', autoSkin(roleX.clothing), industrialMaterial(), 64);
-    add('role.pharma', autoSkin(roleX.pharma), industrialMaterial(), 64);
-    add('role.brewery', autoSkin(roleX.brewery), industrialMaterial(), 64);
+    for (const [k, g] of Object.entries(roleX)) add(`x.${k}`, PRESKINNED.has(k) ? g : autoSkinMap(g, FACTORY_SKINS), industrialMaterial(), 64);
+    // New recipe roles reuse the matching plant model.
+    for (const [role, key] of [['tailor', 'clothing'], ['pharma', 'pharma'], ['brewery', 'brewery'], ['printer', 'printworks'], ['toymaker', 'toyfactory']] as const) add(`role.${role}`, PRESKINNED.has(key) ? roleX[key].clone() : autoSkinMap(roleX[key].clone(), FACTORY_SKINS), industrialMaterial(), 64);
     add('fieldSoil', fieldSoil(), solid, 1024, false);
     add('fieldCrops', fieldCrops(), solid, 1024);
     add('fieldFence', fieldFence(), solid, 2048);
@@ -919,12 +926,15 @@ export class CityRenderer {
       // V1.5b service buildings (2×2 ones are centred on their block).
       if (t.structure === 'service' && !t.part) {
         const big = serviceSize(tiles, i) === 2;
-        if (t.kind === Svc.Dump && big) {
+        if (t.kind === Svc.Dump) {
           // V1.6 landfill: the model changes with how full it is (stage 0 … LANDFILL_STAGES − 1); the compactor and gulls are animated.
-          const stage = landfillStage(t), c = new THREE.Vector3(x + 1, 0, z + 1);
-          P[`svc0_${stage}`]?.add(this.place(c, 0));
-          this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
-        } else P[!big && (t.kind === Svc.Elementary || t.kind === Svc.Police) ? `svc${t.kind}s` : `svc${t.kind}`]?.add(this.place(big ? new THREE.Vector3(x + 1, 0, z + 1) : center, big ? 0 : this.roadFacing(x, z, has) ?? turn));
+          // A leftover 1×1 dump from an early save is drawn at half size on its own tile.
+          const stage = landfillStage(t), c = big ? new THREE.Vector3(x + 1, 0, z + 1) : center.clone();
+          P[`svc0_${stage}`]?.add(big ? this.place(c, 0) : this.place(c, this.roadFacing(x, z, has) ?? turn, 0.5, 0.5, 0.5));
+          if (big) this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
+        } else if (big) P[`svc${t.kind}`]?.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), 0));
+        else if (t.kind === Svc.Elementary || t.kind === Svc.Police) P[`svc${t.kind}`]?.add(this.place(center, this.roadFacing(x, z, has) ?? turn, 0.5, 0.5, 0.5)); // legacy 1×1: the 2×2 model at half size
+        else P[`svc${t.kind}`]?.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
       }
       // V1.5b garbage: bin bags and a 🗑 icon on buildings that need a pickup.
       if (t.zone && t.level > 0 && t.garbage >= G_WARN) {
@@ -1270,7 +1280,7 @@ export class CityRenderer {
       const OFFICE: Record<string, string> = { law_firm: 'law', cable_co: 'cable', internet_co: 'isp', data_center: 'data', cell_tower: 'cell', radio_station: 'radio' };
       // V1.5b stage B: the six new industry types have their own models (before roles).
       const IND: Record<string, string> = { warehouse: 'warehouse', chemical_plant: 'chemical', steel_mill: 'steel', textile_mill: 'textile', bottling_plant: 'bottling', assembly_plant: 'assembly' };
-      const NEWM: Record<string, string> = { hacienda: 'villa', terrace: 'terrace', modern_house: 'modern', garden_towers: 'gardentowers', sky_residence: 'skyresidence', supermarket: 'supermarket', petrol_station: 'petrol', pharmacy: 'pharmacy', hotel: 'hotel', cinema: 'cinema', department_store: 'department', outlet_mall: 'outlet', office_tower: 'officetower', business_park: 'bizpark', brewery: 'brewery', pharma_lab: 'pharma', clothing_factory: 'clothing', cold_store: 'coldstore', industrial_park: 'indpark', mega_factory: 'megafactory' };
+      const NEWM: Record<string, string> = { hacienda: 'villa', terrace: 'terrace', modern_house: 'modern', garden_towers: 'gardentowers', sky_residence: 'skyresidence', supermarket: 'supermarket', petrol_station: 'petrol', pharmacy: 'pharmacy', hotel: 'hotel', cinema: 'cinema', department_store: 'department', outlet_mall: 'outlet', office_tower: 'officetower', business_park: 'bizpark', brewery: 'brewery', pharma_lab: 'pharma', clothing_factory: 'clothing', cold_store: 'coldstore', industrial_park: 'indpark', mega_factory: 'megafactory', bakery: 'bakery', bookstore: 'bookstore', toy_store: 'toystore', garden_centre: 'gardencentre', restaurant: 'restaurant', bank: 'bank', car_dealer: 'cardealer', gym: 'gym', laundromat: 'laundromat', vet_clinic: 'vetclinic', print_works: 'printworks', toy_factory: 'toyfactory' };
       const special = NEWM[tpl.id] ? `x.${NEWM[tpl.id]}` : OFFICE[tpl.id] ? `office.${OFFICE[tpl.id]}` : IND[tpl.id] ? `ind.${IND[tpl.id]}` : P[`role.${role}`] ? `role.${role}` : '';
       for (const [bi, br] of bodies.entries()) {
       body = br;

@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS: merged nebula (d2d8890..5eb1845) and models (97ae17f..2b4c14e).
+    id: '2026-10-16-oasis-merge-nebula-models',
+    title: 'Nebula and new models arrive',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'This update brings together rectangle zoning, the power fix for lots past a junction, cleaner power and water numbers, debug codes and the new tab icon, plus the Model viewer, textured houses and shops, new businesses, and the books and toys goods.' },
+    ],
+  },
+  {
     // NEBULA: top-bar power/water showed raw floats (1184.3000000000002/5930).
     // Descriptive id so it can't collide with other workers' letter ids.
     id: '2026-10-15-hud-amount-format',
@@ -91,6 +100,46 @@ export const CHANGELOG: ChangeEntry[] = [
     changes: [
       { tag: 'new', text: '☰ Menu → 🐞 Debug code: "Copy debug code" turns your whole city (roads, buildings, zoning, power and water, money and time) into one line of text you can paste into a bug report.' },
       { tag: 'new', text: '"Load debug code" opens a city from a pasted code, so a reported problem can be reproduced exactly.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-roof-cinema-textures',
+    title: 'Roof fixes, cinema and factory textures',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Townhouse and mansard roofs no longer hang over the edge: the rowhouse blocks (A, C, E, G at level 4), the mansard apartment block (H at level 5), the terraced townhouses and the print works now have roofs that match their walls.' },
+      { tag: 'improved', text: 'The multiplex cinema is rebuilt with brick and concrete textures, a glass lobby, a curved lit marquee, a neon blade sign, poster cases, a ticket booth, a popcorn cart, queue posts, a fly tower and a searchlight.' },
+      { tag: 'improved', text: 'The brewery, pharmaceutical lab, clothing factory, cold storage, industrial park and mega-factory now have proper surface textures (concrete, metal, brick, stucco, glass and roof membrane).' },
+      { tag: 'improved', text: 'Removed the old 1x1 landfill, police station and school models. Any left over in very old saves are drawn at half size using the current models.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-textured-shops',
+    title: 'Textured shops and new businesses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'All shops are now textured (brick, siding, stucco, concrete, roof membrane and glass) with much more street-level detail: striped awnings, cornices, window mullions, double doors, sign letters, planters, sandwich boards, bike racks, crates and rooftop water tanks.' },
+      { tag: 'new', text: 'Ten new, fully textured businesses: bakery, bookstore, toy store, garden centre, restaurant, bank, car dealership, gym & pool, laundromat and vet clinic.' },
+      { tag: 'new', text: 'Two new factories - a print works (lumber into books) and a toy factory (plastics into toys) - and two new goods, books and toys, which shops now sell.' },
+      { tag: 'improved', text: 'The supermarket, petrol station, pharmacy, hotel, cinema, department store, outlet mall, office tower and business park are textured too.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-textured-houses',
+    title: 'Better-looking houses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Low-density homes (levels 1-3) now have textured walls (clapboard siding, stucco, vertical boards, brick) and shingled roofs, plus a lot more detail: roof courses and ridge caps, eave boards, shutters, flower boxes, door panels and porch lamps, stepping stones, picket fences with gates, flower beds, and rounded trees and bushes.' },
+      { tag: 'improved', text: 'The terraced townhouses are rebuilt with much more detail: textured siding, brick and stucco, bay windows, fanlights, chimney pots, dormers, front walls with hedges and flower beds, bins, and street trees.' },
+      { tag: 'fix', text: 'The "update available" prompt now shows on top of the Model viewer and What\'s new screens too.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-viewer',
+    title: 'Model viewer',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'New 🏛 Model viewer, in the ☰ menu and on the title screen: a grid of every building, power and water plant, service and vehicle model, with titles and categories (homes, apartments & towers, shops & offices, industry, resources & farms, power & water, services, vehicles, roads) and a search box. Hover a model to spin it, drag to turn it, click for a big view with zoom.' },
     ],
   },
   {
