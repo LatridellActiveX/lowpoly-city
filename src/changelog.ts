@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // HOTFIX: update reload on a big map kept the 64-tile ground, so clicks did nothing (main.ts fitSceneToMap).
+    id: '2026-10-16-oasis-hotfix-build-after-update',
+    title: 'Building works again after an update',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'fix', text: 'On bigger maps, clicking to build roads, zones or buildings did nothing after the game updated itself. Building works right after an update again.' },
+    ],
+  },
+  {
     // OASIS: Inspect traffic diagnostics (sim/trafficInspect.ts, ui/trafficPanel.ts, render/stuckOverlay.ts).
     id: '2026-10-16-oasis-inspect-traffic-diagnostics',
     title: 'Inspect traffic: junctions, roads and stuck cars',

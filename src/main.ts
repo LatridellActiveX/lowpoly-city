@@ -529,6 +529,14 @@ const autosave = () => !inTitle && saveWorld(sim.world);
 setInterval(autosave, 20_000);
 document.addEventListener('visibilitychange', () => document.hidden && autosave());
 window.addEventListener('beforeunload', autosave);
+if (resume) {
+  // HOTFIX (2026-10-16, "I can't build things after an update"): the update reload
+  // creates the city at start-up, skipping startGame(), so a 128 / 192 map kept the
+  // 64-tile ground plane — the pointer ray found no ground outside it and every
+  // click there did nothing. Size the scene and frame the start region here too.
+  fitSceneToMap();
+  setTool('inspect');
+}
 if (resume === 'continue') hud.flash('Updated — welcome back');
 
 // ---- V1.5: title screen ----
@@ -537,6 +545,14 @@ if (resume === 'continue') hud.flash('Updated — welcome back');
  *   'continue' -> the autosave (falls back to a new city if unreadable)
  *   'new'      -> a fresh city (optionally seeded / dry map) — erases the autosave
  */
+/** Size ground / slab / grid to the current map and frame the start region. */
+function fitSceneToMap(): void {
+  resizeScene(sceneBundle, GRID_SIZE);
+  const sr = startRegion(), rs = regionSide();
+  if (rs > 1) cam.target.set((sr % rs) * REGION + REGION / 2, 0, Math.floor(sr / rs) * REGION + REGION / 2);
+  else cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
+  cam.zoomBy(1 / 1.5);
+}
 function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'river' }): void {
   if (kind === 'new') {
     clearSave();
@@ -557,11 +573,7 @@ function startGame(kind: 'continue' | 'new', opts: NewGameOptions = { map: 'rive
   title.hide();
   dayNight.override = null;
   // V1.6 A6: the map may have changed size (new big map, or a save of another size).
-  resizeScene(sceneBundle, GRID_SIZE);
-  const sr = startRegion(), rs = regionSide();
-  if (rs > 1) cam.target.set((sr % rs) * REGION + REGION / 2, 0, Math.floor(sr / rs) * REGION + REGION / 2);
-  else cam.target.set(GRID_SIZE / 2, 0, GRID_SIZE / 2);
-  cam.zoomBy(1 / 1.5);
+  fitSceneToMap();
   sim.speed = lastSpeed;
   hud.inspect(null);
   hud.notices.reset(sim);
