@@ -21,7 +21,82 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
-    id: '2026-10-15-o',
+    // NEBULA: top-bar power/water showed raw floats (1184.3000000000002/5930).
+    // Descriptive id so it can't collide with other workers' letter ids.
+    id: '2026-10-15-hud-amount-format',
+    title: 'Cleaner power and water numbers',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Power and water in the top bar (and the inspect network line, graphs tip and debug-load text) no longer show long floating-point leftovers like 1184.3000000000002 — they round to a whole number with commas, or one decimal when the value is under 10.' },
+    ],
+  },
+  {
+    // NEBULA rectangle zoning (descriptive id: can't collide with letter ids).
+    id: '2026-10-15-zone-rectangle',
+    title: 'Zoning: drag a rectangle',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Zoning is now one simple rectangle: press on one corner and drag to the opposite corner. Every free small square inside gets zoned; a click zones a single small square.' },
+      { tag: 'new', text: 'Beside curved or angled roads the rectangle follows the road — along it and away from it — so zones line up with the road instead of making a staircase.' },
+      { tag: 'improved', text: 'Squares in the rectangle that cannot be zoned (road, water, buildings, too far from a road) show red, and the tip shows the size, squares, price and how many are skipped.' },
+      { tag: 'improved', text: 'Zone colours on empty land now show only while a zoning tool is selected (or in the Zoning overlay), so the normal view stays clean.' },
+      { tag: 'improved', text: 'The old zoning depth buttons and road-following strips are gone — the rectangle is the only way to zone.' },
+    ],
+  },
+  {
+    // NEBULA: merged the latest origin/models (descriptive id: no collisions).
+    id: '2026-10-15-models-merge',
+    title: 'New buildings arrive on nebula',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'This version includes the new homes, shops, offices and industry (and their three new goods) together with the junction, power line, traffic light, zoning and power fixes.' },
+    ],
+  },
+  {
+    // NEBULA: Parker's "not enough capacity" with a turbine at 16/645. A
+    // descriptive id so it can't collide with other workers' letter ids.
+    id: '2026-10-15-power-graphonly-fix',
+    title: 'Power fix: lots past the junction',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Lots beside a road past a junction no longer show "no power — not enough capacity" while the power plant has plenty to spare. A lot that got its water through the road network had its power status frozen after the city changed.' },
+      { tag: 'improved', text: '"Not enough capacity" now only appears when the network really is short; anything else says "connected but not delivered" so it can be reported.' },
+    ],
+  },
+  {
+    // NEBULA favicon. Descriptive id so it can't collide with other workers' ids.
+    id: '2026-10-15-favicon',
+    title: 'Browser tab icon',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'The game now has its own low-poly icon (a house and a pine tree on a grass tile) in browser tabs, bookmarks and on phone home screens.' },
+    ],
+  },
+  {
+    // NEBULA zoning highlight fix (descriptive id: can't collide with letter ids).
+    id: '2026-10-15-zoneangles',
+    title: 'Zoning highlight matches what you zone',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'The zoning highlight now sits exactly on the squares under your cursor from every camera angle — it no longer slides off them when the camera is low.' },
+      { tag: 'fix', text: 'The highlight now also shows the thin strip by the kerb that gets zoned too, so the highlighted squares (and the count) are exactly what you get.' },
+    ],
+  },
+  {
+    // NEBULA debug codes. A descriptive id (not a letter) so it can't collide
+    // with letter ids other workers add on nebula at the same time.
+    id: '2026-10-15-debugcode',
+    title: 'Debug codes',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: '☰ Menu → 🐞 Debug code: "Copy debug code" turns your whole city (roads, buildings, zoning, power and water, money and time) into one line of text you can paste into a bug report.' },
+      { tag: 'new', text: '"Load debug code" opens a city from a pasted code, so a reported problem can be reproduced exactly.' },
+    ],
+  },
+  {
+    // From origin/models (5cc753c). Its id was '2026-10-15-o', which nebula already
+    // uses (renumbered zoning entry), so it got a descriptive id in the merge.
+    id: '2026-10-15-models-more-buildings',
     title: 'More homes, shops and industry',
     date: '2026-10-15',
     changes: [
@@ -52,7 +127,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-i',
+    id: '2026-10-15-q',
     title: 'Power & water grid view',
     date: '2026-10-15',
     changes: [
@@ -60,7 +135,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-h',
+    id: '2026-10-15-p',
     title: 'Freeform road zoning, power and traffic fixes',
     date: '2026-10-15',
     changes: [
@@ -93,7 +168,7 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
-    id: '2026-10-15-g',
+    id: '2026-10-15-o',
     title: 'Freeform road polish and square zoning',
     date: '2026-10-15',
     changes: [

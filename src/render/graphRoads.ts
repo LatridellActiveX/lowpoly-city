@@ -29,6 +29,7 @@
  *
  * Units: the scene uses 1 tile = 1 unit = TILE_M metres.
  */
+import { Y_PREVIEW } from './previewHeights';
 import * as THREE from 'three';
 import { at, Cubic, tangent, tAtLength, V2, buildLut } from '../roads/bezier';
 import { GUTTER_M, KERB_M, LANE_M, RoadGraph, RoadType, ROAD_SPEC, SHOULDER_M, SIDEWALK_M, TILE_M, roadHalf } from '../roads/graph';
@@ -44,7 +45,7 @@ const C = {
   asphalt: new THREE.Color(0x4d525a), gutter: new THREE.Color(0x3c4047), kerb: new THREE.Color(0xd6d3cc), walk: new THREE.Color(0xb9b6ae),
   white: new THREE.Color(0xf2f2f2), yellow: new THREE.Color(0xf2d16b), manhole: new THREE.Color(0x34373c), drain: new THREE.Color(0x2a2c30),
 };
-export const MAX_PREVIEW = 2000;
+export const MAX_PREVIEW = 8192; // NEBULA: rectangle zoning boxes can hold thousands of small cells
 /** Thin paint: 0.15 m wide dashes (Parker: thinner lane dashes). */
 const PAINT_W = 0.15, DASH = 3, GAP = 6;
 
@@ -273,8 +274,15 @@ export class GraphRoadLayer {
   constructor(scene: THREE.Scene) {
     scene.add(this.group);
     const quad = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2).translate(0.5, 0, 0.5);
-    this.preview = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), MAX_PREVIEW);
-    this.preview.count = 0; this.preview.frustumCulled = false; this.preview.renderOrder = 3;
+    // NEBULA zoning-angle fix: the zone highlight is drawn ON the ground (Y_PREVIEW), not
+    // floating above it, and without depth test so it still shows over kerbs / sidewalks /
+    // lot pads. The pointer is picked on the y=0 ground plane (ui/input.ts); a quad lifted
+    // by h is seen displaced by ~h/tan(pitch) along the view, so at low camera pitch the
+    // old lift (Y_ZONE+0.004 ≈ 2.2 m) moved the highlight about 0.7 of a cell away from
+    // the squares that the click actually zones. DoubleSide: some block sides map the
+    // unit quad mirrored (negative determinant), which flips its winding.
+    this.preview = new THREE.InstancedMesh(quad, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.55, depthWrite: false, depthTest: false, side: THREE.DoubleSide }), MAX_PREVIEW);
+    this.preview.count = 0; this.preview.frustumCulled = false; this.preview.renderOrder = 10;
     this.group.add(this.preview);
   }
 
@@ -430,12 +438,13 @@ export class GraphRoadLayer {
   }
 
   /** Highlight zone cells only (zoning drag preview); null clears. */
-  showCells(cells: Array<{ quad: Float64Array }> | null, color = 0x46c36b): void {
-    this.showPreview(cells && { cells: cells.map((c) => ({ quad: c.quad, state: 'new' as const })), curve: new Float64Array(8), type: 'street', ok: true, color });
+  showCells(cells: Array<{ quad: Float64Array; color?: number }> | null, color = 0x46c36b): void {
+    // NEBULA: a cell may carry its own colour (rectangle zoning paints skipped squares red).
+    this.showPreview(cells && { cells: cells.map((c) => ({ quad: c.quad, state: 'new' as const, color: c.color })), curve: new Float64Array(8), type: 'street', ok: true, color });
   }
 
   /** Show the zoning preview cells + ghost road (null clears). */
-  showPreview(p: { cells: Array<{ quad: Float64Array; state: 'new' | 'clipped' }>; curve: Cubic; type: RoadType; ok: boolean; color?: number } | null): void {
+  showPreview(p: { cells: Array<{ quad: Float64Array; state: 'new' | 'clipped'; color?: number }>; curve: Cubic; type: RoadType; ok: boolean; color?: number } | null): void {
     if (this.ghost) { this.group.remove(this.ghost); this.ghost.geometry.dispose(); this.ghost = null; }
     if (!p) { this.preview.count = 0; return; }
     const lut = buildLut(p.curve), len = lut[lut.length - 1];
@@ -452,9 +461,9 @@ export class GraphRoadLayer {
       const q = c.quad;
       // Unit square → parallelogram from corners 0, 1 and 3 (cells are near-parallelograms).
       const ux = (q[2] - q[0]) * U, uz = (q[3] - q[1]) * U, wx = (q[6] - q[0]) * U, wz = (q[7] - q[1]) * U;
-      mat.set(ux * 0.94, 0, wx * 0.94, q[0] * U + (ux + wx) * 0.03, 0, 1, 0, Y_ZONE + 0.004, uz * 0.94, 0, wz * 0.94, q[1] * U + (uz + wz) * 0.03, 0, 0, 0, 1);
+      mat.set(ux * 0.94, 0, wx * 0.94, q[0] * U + (ux + wx) * 0.03, 0, 1, 0, Y_PREVIEW, uz * 0.94, 0, wz * 0.94, q[1] * U + (uz + wz) * 0.03, 0, 0, 0, 1);
       this.preview.setMatrixAt(k, mat);
-      this.preview.setColorAt(k, col.set(!p.ok ? 0xe5484d : p.color ?? (c.state === 'new' ? 0x46c36b : 0xf0a830)));
+      this.preview.setColorAt(k, col.set(!p.ok ? 0xe5484d : c.color ?? p.color ?? (c.state === 'new' ? 0x46c36b : 0xf0a830)));
       k++;
     }
     this.preview.count = k;

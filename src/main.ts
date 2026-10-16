@@ -46,10 +46,10 @@ import { loadSlotIntoMain, saveToSlot } from './sim/slots';
 import { World } from './sim/grid';
 import { GraphRoadLayer } from './render/graphRoads';
 import { migrateToGraph } from './roads/persist';
-import { placeFreeRoad, paintBlocks, undo, redo } from './sim/freeroads';
+import { placeFreeRoad, undo, redo } from './sim/freeroads';
+import { paintRect, planRect, rectQuote, square } from './sim/zoneRect';
 import { quadCubic, lineCubic } from './roads/bezier';
-import type { V2 } from './roads/bezier';
-import { FreeRoadTool, dragCells, paintDragged, toMetres } from './ui/freeRoadTool';
+import { FreeRoadTool, toMetres } from './ui/freeRoadTool';
 import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
@@ -88,8 +88,12 @@ gameLog.event(hasSave() ? 'Game started — saved city loaded' : 'Game started �
 let tool: ToolId = 'inspect';
 let dragFrom: [number, number] | null = null;
 /** Zoning on freeform-road blocks: metres where the drag began (null = ordinary tile zoning). */
-let blockDragFrom: V2 | null = null;
+/** NEBULA: rectangle-zoning anchor corner (tile units, the mouse-down ground point); null = not dragging. */
+let zoneFrom: { x: number; z: number } | null = null;
+/** Tile index whose zone code a box paints (its anchor corner's tile, clamped). */
+const zoneCodeTile = (p: { x: number; z: number }) => idx(Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(p.x))), Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(p.z))));
 let cellsShown = false;
+
 let hoverTile: [number, number] | null = null;
 let lastSpeed = 1;
 /** Last mouse position in screen pixels (for the cost tooltip). */
@@ -151,15 +155,14 @@ zoneBar.id = 'zonebar';
 zoneBar.className = 'panel hidden';
 document.body.append(zoneBar);
 function renderZoneBar(): void {
-  const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant';
+  const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant'; // farm / food plant: no density choice
   zoneBar.classList.toggle('hidden', !show);
   if (!show) return;
   const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed', 'Office'] : ['Light', 'Heavy'];
   const d = Math.min(sim.zoneOpt.density, names.length - 1);
   zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
-    <span class="muted" style="margin-left:10px">Depth</span> ${[1, 2, 3, 4].map((k) => `<button class="btn${k === sim.zoneOpt.depth ? ' active' : ''}" data-depth="${k}">${k}</button>`).join('')} <span class="muted">tiles</span>`;
+    <span class="muted" style="margin-left:10px">Drag a box (corner to corner) to zone the small squares inside · click = one square</span>`;
   zoneBar.querySelectorAll<HTMLButtonElement>('[data-d]').forEach((b) => (b.onclick = () => { sim.zoneOpt.density = +b.dataset.d!; renderZoneBar(); }));
-  zoneBar.querySelectorAll<HTMLButtonElement>('[data-depth]').forEach((b) => (b.onclick = () => { sim.zoneOpt.depth = +b.dataset.depth!; renderZoneBar(); }));
 }
 
 function setTool(id: ToolId): void {
@@ -188,18 +191,27 @@ function setOverlay(o: OverlayMode): void {
  * click, and while dragging a zone rectangle it shows its size and total.
  */
 function updatePreview(): void {
-  // Zone tools over a freeform road's block: highlight the small squares under the drag (or cursor).
-  if (ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant') {
-    const pm = toMetres(pointer.x, pointer.z), a = blockDragFrom ?? pm;
-    if (blockDragFrom || sim.world.blocks.cellAt(pm)) {
-      const cells = dragCells(sim, a, pm, sim.zoneOpt.depth);
-      const zc = codeForTool(sim, tool, idx(Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.x))), Math.max(0, Math.min(GRID_SIZE - 1, Math.floor(pointer.z)))), sim.zoneOpt);
-      graphLayer.showCells(cells, cells.length ? zoneCodeColor(zc) : 0xe5484d);
-      cellsShown = true;
-      preview.show([]);
-      hud.showTip(cells.length ? `<b style="color:#${zoneCodeColor(zc).toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${cells.length} square${cells.length > 1 ? 's' : ''}` : null, mouse[0], mouse[1]);
-      return;
-    }
+  // NEBULA rectangle zoning (sim/zoneRect.ts) — the ONLY zoning mode. Every zone tool
+  // highlights the small-cell box from the mouse-down corner (or, before a drag, the
+  // single small cell under the cursor) to the cursor: zone-coloured squares are what
+  // mouse-up zones (zoneDryRun, incl. the kerb-row fill), red squares are inside the box
+  // but skipped (road, water, building, too far from a road). Drawn on the ground plane
+  // (previewHeights.ts) so it lines up at every camera angle.
+  if (ZONE_TOOLS.has(tool)) {
+    const here = { x: pointer.x, z: pointer.z }, plan = planRect(sim, tool, zoneFrom ?? here, here);
+    const zc = codeForTool(sim, tool, zoneCodeTile(zoneFrom ?? here), sim.zoneOpt);
+    const q = rectQuote(sim, plan, zc, tool), col = zoneCodeColor(zc), W = GRID_SIZE * 4;
+    // Red = skipped: block cells in the road's frame ('road' mode), grid squares otherwise.
+    const red = plan.mode === 'road' ? plan.skippedCells.map((c) => ({ quad: c.quad, color: 0xe5484d }))
+      : plan.skipped.length + plan.zone.length <= 1500 ? plan.skipped.map((k) => ({ quad: square(k % W, Math.floor(k / W)), color: 0xe5484d })) : [];
+    graphLayer.showCells([...plan.zone, ...q.fill.map((quad) => ({ quad })), ...red], col);
+    cellsShown = true;
+    preview.show([]);
+    const affordable = q.cost <= sim.world.cash;
+    renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
+    const [bw, bh] = plan.size;
+    hud.showTip(`<b style="color:#${col.toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${bw}×${bh} ${plan.mode === 'road' ? 'along the road' : 'box'} · ${q.keys.length} square${q.keys.length !== 1 ? 's' : ''}${q.cost ? ` · -$${q.cost.toLocaleString()}` : ''}${plan.skipped.length ? ` · <span class="bad">${plan.skipped.length} skipped</span>` : ''}`, mouse[0], mouse[1]);
+    return;
   }
   if (cellsShown) { graphLayer.showCells(null); cellsShown = false; }
   if (tool === 'freeRoad') {
@@ -326,8 +338,7 @@ attachInput(renderer.domElement, cam, ground, {
   },
   dragStart(t) {
     dragFrom = t;
-    const pm0 = toMetres(pointer.x, pointer.z);
-    blockDragFrom = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant' && sim.world.blocks.cellAt(pm0) ? pm0 : null;
+    zoneFrom = ZONE_TOOLS.has(tool) ? { x: pointer.x, z: pointer.z } : null;
     hoverTile = t;
     updatePreview();
   },
@@ -345,10 +356,12 @@ attachInput(renderer.domElement, cam, ground, {
       else if (tool === 'freeRoad') {
         const msg = freeTool.click(pm);
         if (msg) { hud.flash(msg); sound.play(msg.startsWith('-$') ? toolSound('road') : 'error'); }
-      } else if (blockDragFrom) {
-        // Drag over a freeform road's block: zone the small squares inside the dragged rectangle.
-        const n = paintDragged(sim, blockDragFrom, pm, codeForTool(sim, tool, idx(end[0], end[1]), sim.zoneOpt), sim.zoneOpt.depth);
-        hud.flash(n ? `Zoned ${n} square${n > 1 ? 's' : ''}` : 'Already zoned');
+      } else if (zoneFrom) {
+        // NEBULA: the box from the mouse-down corner to the mouse-up point, small cells.
+        const here = { x: pointer.x, z: pointer.z }, plan = planRect(sim, tool, zoneFrom, here);
+        const r = paintRect(sim, tool, plan, codeForTool(sim, tool, zoneCodeTile(zoneFrom), sim.zoneOpt));
+        sound.play(r.changed ? toolSound(tool) : 'error');
+        hud.flash(r.locked ? '🔒 Locked — grow your population to unlock this (see the tier bar)' : r.broke ? 'Not enough money' : r.changed ? `Zoned ${r.changed} square${r.changed > 1 ? 's' : ''} (-$${r.spent.toLocaleString()})` : plan.zone.length ? 'Already zoned' : "Nothing zonable in the box");
       } else {
         const r = sim.apply(tool, shapeTiles(tool, dragFrom[0], dragFrom[1], end[0], end[1]));
         // PR 6 sounds: one placement sound per drag (throttled inside sound.ts), buzz on failure.
@@ -362,12 +375,12 @@ attachInput(renderer.domElement, cam, ground, {
         else hud.flash(`-$${r.spent.toLocaleString()}`);
       }
     }
-    dragFrom = null; blockDragFrom = null;
+    dragFrom = null; zoneFrom = null;
     updatePreview();
     hud.refresh(sim);
   },
   dragCancel() {
-    dragFrom = null; blockDragFrom = null;
+    dragFrom = null; zoneFrom = null;
     updatePreview();
   },
   key(k) {
@@ -423,6 +436,9 @@ menu.onMainMenu = () => {
   if (!inTitle) saveWorld(sim.world);
   window.location.reload();
 };
+// NEBULA debug code: a pasted code was written to the save — load it in place
+// (no page reload, so the beforeunload autosave can't overwrite it).
+menu.onDebugLoaded = () => startGame('continue');
 
 // Desktop only: small or touch-only screens see a "play on a computer" notice.
 installDesktopNotice(document.body);
@@ -462,6 +478,7 @@ renderer.setAnimationLoop(() => {
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
   graphLayer.showZones = tool === 'freeRoad' || ZONE_TOOLS.has(tool);
+  city.showZoneTint = ZONE_TOOLS.has(tool); // NEBULA: zone tints only while zoning (or Zoning overlay)
   graphLayer.updateGrid(city.overlay === 'grid' ? sim : null); // power & water grid ribbons along the roads
   graphLayer.sync(sim.world.roads, sim.world.blocks);
   hudTimer -= dt;
@@ -571,7 +588,7 @@ updater.start();
   /** V1.6 B6/B7: free-road layer + tool + helpers (Playwright screenshots/flows). */
   graphLayer,
   freeTool,
-  free: { placeFreeRoad, paintBlocks, quadCubic, lineCubic, undo, redo },
+  free: { placeFreeRoad, quadCubic, lineCubic, undo, redo },
   /** NEBULA testing: trace a tile-road world into the graph (as loading a v9 save does). */
   migrateToGraph,
   /** PR 4 testing: swap in a prepared Simulation (e.g. new city.sim.constructor(world)). */

@@ -136,6 +136,47 @@ export function paintBlocks(sim: Simulation, p: V2, code: number, brush = 1, dep
   return n;
 }
 
+/**
+ * NEBULA zoning-highlight fix: exactly which grid cells paintCells(sim, cells, code)
+ * WOULD change, without changing anything. paintCells also zones the kerb-row
+ * fill (syncKerbFill: the strip of grid cells between a tile road's kerb and the
+ * first block cell) — those squares are not block cells, so the old highlight,
+ * which drew only the block cells, showed fewer squares than mouse-up zoned
+ * (e.g. 26 shown / 31 zoned on a straight road, 21 / 25 on a curve), at every
+ * camera angle. main.ts now draws `fill` too and counts `keys`.
+ * Implementation: paint into world.cells.zone, run the same syncKerbFill, record
+ * every change, then undo all of them in reverse order (no tile, lot, undo-stack
+ * or version side effects; ZoneCell.code is not touched).
+ */
+export function zoneDryRun(sim: Simulation, cells: ZoneCell[], code: number): { keys: number[]; fill: Float64Array[] } {
+  const w = sim.world, zone = w.cells.zone, W = GRID_SIZE * 4, log: Array<[number, number]> = [];
+  for (const c of cells) {
+    const k = gridCellOf(c);
+    if (k < 0 || w.cells.owner[k] !== 0 || zone[k] === code) continue;
+    log.push([k, zone[k]]); zone[k] = code;
+  }
+  const painted = new Set(log.map(([k]) => k));
+  if (log.length) {
+    const tiles = new Set<number>();
+    for (const [k] of log) tiles.add(Math.floor(Math.floor(k / W) / 4) * GRID_SIZE + Math.floor((k % W) / 4));
+    log.push(...syncKerbFill(w, w.blocks, tiles));
+  }
+  // Net effect: a cell counts if its FINAL value differs from its original one
+  // (syncKerbFill may also clear stale grid cells next to graph roads).
+  const final = new Map<number, number>();
+  for (const [k] of log) final.set(k, zone[k]);
+  for (let i = log.length - 1; i >= 0; i--) zone[log[i][0]] = log[i][1]; // restore
+  const keys = new Set<number>();
+  for (const [k, f] of final) if (zone[k] !== f) keys.add(k);
+  const S = TILE_M / 4, fill: Float64Array[] = [];
+  for (const k of keys) {
+    if (painted.has(k)) continue;
+    const x = (k % W) * S, z = Math.floor(k / W) * S; // quad corners 0,1,2,3 like ZoneCell.quad
+    fill.push(new Float64Array([x, z, x + S, z, x + S, z + S, x, z + S]));
+  }
+  return { keys: [...keys].sort((p, q) => p - q), fill };
+}
+
 /** Close the kerb-row gaps next to the cells just painted (roads/bridge.ts syncKerbFill); adds them to the undo list. */
 function fillKerb(sim: Simulation, old: Array<[number, number]>): void {
   const tiles = new Set<number>();
@@ -195,7 +236,9 @@ export function paintCells(sim: Simulation, cells: ZoneCell[], code: number): nu
   const w = sim.world, old: Array<[number, number]> = [];
   for (const c of cells) {
     const k = gridCellOf(c);
-    if (k < 0 || w.cells.owner[k] !== 0 || w.cells.zone[k] === code) continue;
+    if (k < 0 || w.cells.owner[k] !== 0) continue;
+    // NEBULA: a second block cell over an already-painted grid cell (tight curves) still takes the code.
+    if (w.cells.zone[k] === code) { c.code = code; continue; }
     old.push([k, w.cells.zone[k]]);
     c.code = code; w.cells.zone[k] = code;
     const cx = k % (GRID_SIZE * 4), cz = Math.floor(k / (GRID_SIZE * 4));

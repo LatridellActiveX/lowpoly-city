@@ -30,7 +30,19 @@ import { demandOf, isSource, output, NetworkResult } from './networks';
 import type { World } from './grid';
 
 type Kind = 'power' | 'water';
-interface Cache { key: string; tiles: Set<number>; /** last served flag per extra (power then water), to report only CHANGES */ last: Map<string, boolean>; extra: Record<Kind, Array<{ i: number; comp: number }>>; srcOf: Record<Kind, Map<number, number[]>> }
+interface Cache { key: string;
+  /**
+   * NEBULA fix (Parker's "not enough capacity" with 629 spare): graph-only
+   * tiles PER UTILITY. This used to be ONE set for power and water, and
+   * networks.ts skipped BOTH flags of every tile in it. A lot that the tile
+   * flood connects for POWER (roads carry power) but reaches WATER only
+   * through the graph (in the tile flood only pipes carry water) sat in the
+   * set because of water, so its power flag was never written: it kept the
+   * `powered: false` a fresh topology starts with while its powerNet was a
+   * real network — status() then said "outage: not enough capacity".
+   * Now each utility only skips the tiles THIS pass serves for THAT utility.
+   */
+  tiles: Record<Kind, Set<number>>; /** last served flag per extra (power then water), to report only CHANGES */ last: Map<string, boolean>; extra: Record<Kind, Array<{ i: number; comp: number }>>; srcOf: Record<Kind, Map<number, number[]>> }
 const caches = new WeakMap<World, Cache>();
 /**
  * Tiles this pass serves (graph-only consumers). networks.ts skips them in
@@ -38,11 +50,38 @@ const caches = new WeakMap<World, Cache>();
  * as unserved and this pass as served, which would look like a flip every
  * tick and needlessly bust served-dependent caches.
  */
-export function graphOnly(w: World): Set<number> | undefined { return caches.get(w)?.tiles; }
+export function graphOnly(w: World, kind: Kind): Set<number> | undefined { return caches.get(w)?.tiles[kind]; }
+
+/**
+ * NEBULA fix: make the graph-only lists match the CURRENT topology BEFORE
+ * networks.ts runs its served-flag loop (it used to read the previous tick's
+ * lists, then this pass rebuilt them afterwards — one tick late).
+ *
+ * `tileNet` is the TILE FLOOD's own network ids per utility (networks.ts
+ * topo.powerNet / topo.waterNet). We decide "already connected by the tile
+ * fill?" from those, NOT from res.service: this pass writes powerNet /
+ * waterNet into the shared service objects, so after one tick they no longer
+ * tell the two apart (that made a rebuild without a topology change drop
+ * graph-only tiles and leave their flags stale).
+ *
+ * Returns the tiles that WERE graph-only for a utility but are not any more,
+ * so the caller can hand them back to the tile result.
+ */
+export function prepareGraphUtilities(w: World, res: NetworkResult, tileNet: Record<Kind, Int32Array>): Record<Kind, number[]> {
+  const dropped: Record<Kind, number[]> = { power: [], water: [] };
+  if (!w.graphRoads) return dropped;
+  const key = `${w.roads.version}|${w.chunks.topoRev}`;
+  const old = caches.get(w);
+  if (old && old.key === key) return dropped;
+  const c = build(w, res, key, tileNet);
+  caches.set(w, c);
+  if (old) for (const kind of ['power', 'water'] as const) for (const i of old.tiles[kind]) if (!c.tiles[kind].has(i)) dropped[kind].push(i);
+  return dropped;
+}
 
 /** Rebuild the graph-only consumer lists (topology changed). */
-function build(w: World, res: NetworkResult, key: string): Cache {
-  const c: Cache = { key, tiles: new Set(), last: new Map(), extra: { power: [], water: [] }, srcOf: { power: new Map(), water: new Map() } };
+function build(w: World, res: NetworkResult, key: string, tileNet?: Record<Kind, Int32Array>): Cache {
+  const c: Cache = { key, tiles: { power: new Set(), water: new Set() }, last: new Map(), extra: { power: [], water: [] }, srcOf: { power: new Map(), water: new Map() } };
   const active = w.chunks.activeTilesSorted(); // V1.6 A2: built-up chunks only
   for (const kind of ['power', 'water'] as const) {
     const util = traceTiles(w, (t) => (kind === 'power' ? t.powerLine : t.waterPipe) && !t.road).g;
@@ -52,16 +91,18 @@ function build(w: World, res: NetworkResult, key: string): Cache {
     // Which graph component feeds which TILE networks (via the source tiles).
     const srcOf = c.srcOf[kind];
     for (const s of sources) {
-      const comp = net.componentOf({ pts: s.pts }), gnet = kind === 'power' ? res.service[s.i].powerNet : res.service[s.i].waterNet;
+      // source tiles are always in their own tile network: read it from the tile flood when we have it
+      const comp = net.componentOf({ pts: s.pts }), gnet = tileNet ? tileNet[kind][s.i] : kind === 'power' ? res.service[s.i].powerNet : res.service[s.i].waterNet;
       if (comp >= 0 && gnet >= 0) { const l = srcOf.get(comp) ?? []; if (!l.includes(gnet)) l.push(gnet); srcOf.set(comp, l); }
     }
     for (const i of active) {
       const t = w.tiles[i];
       if (t.zone === null || t.part) continue; // consumers: zoned tiles (multi-tile parts go through their anchor)
       const sv = res.service[i];
-      if ((kind === 'power' ? sv.powerNet : sv.waterNet) >= 0) continue; // the tile fill already connects it
+      // the tile fill already connects it (tile-flood ids, see prepareGraphUtilities)
+      if ((tileNet ? tileNet[kind][i] : kind === 'power' ? sv.powerNet : sv.waterNet) >= 0) continue;
       const comp = net.componentOf({ pts: [tileCentre(i)] });
-      if (comp >= 0 && srcOf.has(comp)) { c.extra[kind].push({ i, comp }); c.tiles.add(i); }
+      if (comp >= 0 && srcOf.has(comp)) { c.extra[kind].push({ i, comp }); c.tiles[kind].add(i); }
     }
   }
   return c;
@@ -77,7 +118,7 @@ export function applyGraphUtilities(w: World, res: NetworkResult): number {
   if (!w.graphRoads) return 0;
   const key = `${w.roads.version}|${w.chunks.topoRev}`;
   let c = caches.get(w);
-  if (!c || c.key !== key) { c = build(w, res, key); caches.set(w, c); }
+  if (!c || c.key !== key) { c = build(w, res, key); caches.set(w, c); } // normally prepared already by networks.ts
   let n = 0;
   for (const kind of ['power', 'water'] as const) {
     const nets = kind === 'power' ? res.power : res.water;

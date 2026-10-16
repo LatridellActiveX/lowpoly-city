@@ -16,6 +16,7 @@
  */
 import { HistoryPoint, Simulation } from '../sim/simulation';
 import { MONTH_TICKS } from '../sim/economy';
+import { formatAmount, formatRatio } from './format';
 
 interface Series {
   label: string;
@@ -131,7 +132,7 @@ export class GraphsPanel {
       ctx.fillStyle = 'rgba(255,255,255,0.75)';
       ctx.font = '11px system-ui';
       ctx.fillText(chart.title, left + 4, top + 18);
-      ctx.fillText(String(Math.round(max)), 2, top + 14);
+      ctx.fillText(formatAmount(max), 2, top + 14);
       ctx.fillText('0', 2, top + chartH - 14);
       // Each series as a polyline.
       for (const s of chart.series) {
@@ -152,6 +153,7 @@ export class GraphsPanel {
       }
     });
     const p = h[hoverK ?? n - 1];
-    this.tip.textContent = `${hoverK === null ? 'Latest' : when(p.tick)} — residents ${p.population}, jobs ${p.jobs}, power ${p.powerDemand}/${p.powerCapacity}, water ${p.waterDemand}/${p.waterCapacity}`;
+    // NEBULA: formatRatio so hover tip matches the top-bar power/water numbers.
+    this.tip.textContent = `${hoverK === null ? 'Latest' : when(p.tick)} — residents ${formatAmount(p.population)}, jobs ${formatAmount(p.jobs)}, power ${formatRatio(p.powerDemand, p.powerCapacity)}, water ${formatRatio(p.waterDemand, p.waterCapacity)}`;
   }
 }

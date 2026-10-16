@@ -15,6 +15,9 @@
  * Things that move every frame (spinning turbine blades, bobbing warning
  * markers) are updated separately in `animate()`, touching only those pools.
  */
+import { axisEdge } from '../sim/zoneRect';
+import { gridCellOf } from '../roads/bridge';
+import { TILE_PREVIEW_Y } from './previewHeights';
 import * as THREE from 'three';
 import { seededStream, TEXTURE_SEEDS } from '../sim/random';
 import { CELL_GRID, CellRole, FACES, ZONE_CODES, ZoneCode } from '../sim/cells';
@@ -283,6 +286,14 @@ export class CityRenderer {
   /** Water pipes are only drawn while the pipe tool or the water overlay is active (PR 3). */
   showPipes = false;
   private lastShowPipes = false;
+  /**
+   * NEBULA (Parker: "I don't want the blue tiles near the buildings in normal view"):
+   * the coloured zone-cell tints on free zoned land are drawn ONLY while a zoning tool
+   * is active (main.ts sets this) or in the Zoning overlay. In the normal view zoned
+   * but empty land shows plain ground; the buildings growing there show the zone.
+   */
+  showZoneTint = false;
+  private lastShowZoneTint = false;
   overlay: OverlayMode = 'none';
   /** Smooth vertex-coloured ground (nature.ts), rebuilt when the city seed changes. */
   private groundMesh: THREE.Mesh | null = null;
@@ -657,8 +668,8 @@ export class CityRenderer {
 
   /** Called every frame. Rebuilds instances if the sim changed, then animates. */
   frame(sim: Simulation, time: number): void {
-    if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay || this.showPipes !== this.lastShowPipes) {
-      this.lastShowPipes = this.showPipes;
+    if (sim.version !== this.lastVersion || this.overlay !== this.lastOverlay || this.showPipes !== this.lastShowPipes || this.showZoneTint !== this.lastShowZoneTint) {
+      this.lastShowPipes = this.showPipes; this.lastShowZoneTint = this.showZoneTint;
       const t0 = performance.now();
       this.rebuild(sim);
       this.stats.rebuilds++; this.stats.rebuildMs += performance.now() - t0; // V1.6 A5 render bench
@@ -1143,13 +1154,19 @@ export class CityRenderer {
     // ---- zoned free cells (and the zoning overlay for owned ones) ----
     for (const b of w.lots.buildings.values()) void b;
     const zoneTint = [0, 0, 0.82, 0.66, 0, 0.78, 0, 0.78, 0, 0];
+    // NEBULA: grid cells under a FREE-FORM road's block cells are drawn by GraphRoadLayer
+    // in the road's own frame (rotated quads) while zoning; tinting the axis-aligned grid
+    // square under each too gave the staircase that "didn't align with the road".
+    const freeCell = new Set<number>();
+    if (this.showZoneTint && ov !== 'zoning') for (const c of w.blocks.cells) if (!axisEdge(sim, c.edge)) { const k = gridCellOf(c); if (k >= 0) freeCell.add(k); }
     for (let c = 0; c < cells.zone.length; c++) {
       const code = cells.zone[c];
       if (!code) continue;
       const cx = c % CELL_GRID, cz = (c - cx) / CELL_GRID;
       const info = ZONE_CODES[code];
       const col = code === ZoneCode.Farm ? 0xc9b46a : code === ZoneCode.FoodPlant ? 0xd9a35c : code === ZoneCode.ComMixed ? 0x9b7fe0 /* V1.5 mixed use: violet */ : code === ZoneCode.ComOffice ? 0x3fb6c9 /* V1.5b office: teal */ : ZONE_COLORS[info.zone!];
-      if (cells.owner[c] === 0) {
+      // NEBULA: free zoned cells are tinted only with a zoning tool / the Zoning overlay.
+      if (cells.owner[c] === 0 && (this.showZoneTint || ov === 'zoning') && !freeCell.has(c)) {
         this.c.setHex(col);
         if (zoneTint[code]) this.c.multiplyScalar(zoneTint[code]);
         P.lot.add(this.place(cellPos(cx, cz), 0, Q, 1, Q), this.c);
@@ -1753,13 +1770,16 @@ export class PreviewRenderer {
     const edgeColor = outline === null ? 0xffffff : outline ? tint ?? 0x34c759 : 0xff3b30;
     for (const t of tiles) {
       const color = t.ok === null ? 0xffffff : t.ok ? tint ?? 0x34c759 : 0xff3b30;
-      this.m.makeTranslation(t.x + 0.5, 0.12, t.z + 0.5);
+      // NEBULA zoning-angle fix: draw at the y=0 pick plane (depthTest is off, so it still
+      // shows over roads). At 0.12 the tile highlight slid ~0.3 tile off the hovered tile at
+      // low pitch (offset = height / tan(pitch)).
+      this.m.makeTranslation(t.x + 0.5, TILE_PREVIEW_Y, t.z + 0.5);
       this.pool.add(this.m, this.c.setHex(color));
       // [dx, dz, bar centre offset x, z, rotation]: N, S, W, E edges.
       for (const [dx, dz, ox, oz, rot] of [[0, -1, 0.5, 0, 0], [0, 1, 0.5, 1, 0], [-1, 0, 0, 0.5, Math.PI / 2], [1, 0, 1, 0.5, Math.PI / 2]]) {
         if (inSel.has((t.z + dz) * GRID_SIZE + (t.x + dx)) && t.x + dx >= 0 && t.x + dx < GRID_SIZE) continue;
         this.q.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, rot);
-        this.m.compose(this.v.set(t.x + ox, 0.13, t.z + oz), this.q, this.one);
+        this.m.compose(this.v.set(t.x + ox, TILE_PREVIEW_Y + 0.001, t.z + oz), this.q, this.one);
         this.edges.add(this.m, this.c.setHex(edgeColor));
       }
     }

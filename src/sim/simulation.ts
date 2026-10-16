@@ -749,8 +749,17 @@ export class Simulation {
     const needsRoad = t.zone !== null;
     const missing: string[] = [];
     if (needsRoad && !s.roadAccess) missing.push('road access');
-    if (needsPower && !s.powered) missing.push(s.powerNet < 0 ? 'power connection' : 'power (outage: not enough capacity)');
-    if (needsWater && !s.watered) missing.push(s.waterNet < 0 ? 'water connection' : 'water (outage: not enough capacity)');
+    // NEBULA fix: only blame CAPACITY when the network really is short (it
+    // counted an outage or wants more than it makes). Otherwise a connected
+    // but unserved lot is a bookkeeping fault, and saying "not enough
+    // capacity" next to a turbine at 16/645 sent Parker hunting the wrong bug.
+    const why = (kind: 'power' | 'water', id: number): string => {
+      if (id < 0) return `${kind} connection`;
+      const n = this.net[kind][id];
+      return n && (n.outages > 0 || n.demand > n.capacity) ? `${kind} (outage: not enough capacity)` : `${kind} (connected but not delivered)`;
+    };
+    if (needsPower && !s.powered) missing.push(why('power', s.powerNet));
+    if (needsWater && !s.watered) missing.push(why('water', s.waterNet));
     return {
       roadAccess: s.roadAccess,
       powered: s.powered,
