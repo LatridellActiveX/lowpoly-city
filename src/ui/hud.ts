@@ -23,6 +23,7 @@ import { ToolGroupId, TOOL_GROUPS, TOOLS, toolDef } from './tools';
 import { GraphsPanel } from './graphs';
 import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
+import { formatAmount, formatRatio } from './format';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
 import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services';
@@ -474,7 +475,9 @@ export class Hud {
     const bar = (used: number, cap: number) => {
       const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : used > 0 ? 100 : 0;
       const cls = used > cap ? 'over' : pct > 85 ? 'warn' : '';
-      return `<span class="meter ${cls}"><i style="width:${pct}%"></i></span>${used}/${cap}`;
+      // NEBULA: formatAmount so float demand (residents÷5 …) never prints as
+      // 1184.3000000000002 in the top bar.
+      return `<span class="meter ${cls}"><i style="width:${pct}%"></i></span>${formatRatio(used, cap)}`;
     };
     this.lastSim = sim;
     const cash = sim.world.cash;
@@ -644,7 +647,8 @@ export class Hud {
       const id = kind === 'power' ? svc.powerNet : svc.waterNet;
       if (id < 0) return 'not connected';
       const n = (kind === 'power' ? sim.net.power : sim.net.water)[id];
-      return `network #${id + 1}: ${n.demand}/${n.capacity} used${n.outages ? `, <b class="bad">${n.outages} in outage</b>` : ''}`;
+      // NEBULA: same formatter as the top bar — demand can be fractional.
+      return `network #${id + 1}: ${formatRatio(n.demand, n.capacity)} used${n.outages ? `, <b class="bad">${n.outages} in outage</b>` : ''}`;
     };
     if (t.zone || t.structure === 'waterTower' || t.structure === 'pumpStation') {
       const st = sim.status(i);
@@ -678,7 +682,7 @@ export class Hud {
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
-      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
+      rows.push(`<div class="row">Output: ${formatAmount(out)} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       if (t.part) rows.push('<div class="row muted">Part of a 2×2 nuclear plant (output is counted on its top-left tile).</div>');
       rows.push(`<div class="row muted">${netLine('power')}</div>`);

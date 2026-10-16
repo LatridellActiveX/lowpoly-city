@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // NEBULA: top-bar power/water showed raw floats (1184.3000000000002/5930).
+    // Descriptive id so it can't collide with other workers' letter ids.
+    id: '2026-10-15-hud-amount-format',
+    title: 'Cleaner power and water numbers',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Power and water in the top bar (and the inspect network line, graphs tip and debug-load text) no longer show long floating-point leftovers like 1184.3000000000002 — they round to a whole number with commas, or one decimal when the value is under 10.' },
+    ],
+  },
+  {
     // NEBULA rectangle zoning (descriptive id: can't collide with letter ids).
     id: '2026-10-15-zone-rectangle',
     title: 'Zoning: drag a rectangle',

@@ -20,6 +20,7 @@ import { decodeDebugCode } from '../src/sim/debugCode';
 import { deserializeWorld } from '../src/sim/save';
 import { Simulation } from '../src/sim/simulation';
 import { GRID_SIZE } from '../src/sim/types';
+import { formatAmount } from '../src/ui/format';
 
 /** Decode + load. Throws an Error with the user-facing reason on a bad code. */
 export function loadDebugCode(codeOrJson: string): Simulation {
@@ -67,7 +68,12 @@ else {
   console.log(`City ${N}×${N}, seed ${report.seed}, tick ${report.tick}, cash $${report.cash.toLocaleString()}, graph roads: ${report.graphRoads} (${report.graph.edges} edges)`);
   for (const k of ['power', 'water'] as const) {
     console.log(`${k.toUpperCase()} networks: ${report[k].length}`);
-    for (const n of report[k]) console.log('  ', JSON.stringify(n));
+    // Human-readable: same formatter as the HUD so float demand never prints raw.
+    // --json above still dumps the raw numbers for scripts.
+    for (const n of report[k]) {
+      const demand = Number(n.demand) || 0, capacity = Number(n.capacity) || 0, supplied = Number(n.supplied) || 0, outages = Number(n.outages) || 0;
+      console.log(`  #${n.id}: demand ${formatAmount(demand)} / capacity ${formatAmount(capacity)} (supplied ${formatAmount(supplied)}, ${outages} outage${outages === 1 ? '' : 's'})`);
+    }
   }
   console.log(`Tiles missing power/water: ${off.length}`);
   for (const o of off.slice(0, 200)) console.log(`   ${o.tile} ${o.what}: ${o.missing.join(', ')}`);
