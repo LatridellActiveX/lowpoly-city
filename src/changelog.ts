@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS: Inspect traffic diagnostics (sim/trafficInspect.ts, ui/trafficPanel.ts, render/stuckOverlay.ts).
+    id: '2026-10-16-oasis-inspect-traffic-diagnostics',
+    title: 'Inspect traffic: junctions, roads and stuck cars',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'new', text: 'Inspect a junction to see its ID, type, connected roads with lanes in and out, which lanes can turn where (missing connections are flagged in red), the traffic light phase and time left, cars queued per approach and the longest wait.' },
+      { tag: 'new', text: 'Inspect a road to see its ID, end junctions, type, length, lanes each way, cars on it, average speed and how many are stuck. Inspect a car to see its trip, road, lane, next junction, route left and how long it has been waiting.' },
+      { tag: 'new', text: 'A "Show stuck cars" button (with the Inspect tool) rings every car that has not moved for over 10 seconds in red and the junctions they are stuck at in orange, with a live count. Click any ID like "node 42" to copy it.' },
+    ],
+  },
+  {
     // OASIS zoning UI cleanup: one short hint + segmented density control.
     id: '2026-10-16-oasis-zoning-ui-declutter',
     title: 'Tidier zoning bar',

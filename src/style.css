@@ -271,3 +271,13 @@ body.title-mode .changelog { z-index: 70; }
 .grid-legend { position: fixed; top: 52px; right: 12px; z-index: 20; font-size: 12px; line-height: 1.7; max-width: 300px; pointer-events: none; }
 .grid-legend.hidden { display: none; }
 .grid-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 3px; vertical-align: -1px; }
+/* OASIS traffic diagnostics (Inspect: junction / road / car panels, stuck pill). */
+.info code.cid { font: 600 12px ui-monospace, Menlo, monospace; background: rgba(255,255,255,0.1); padding: 0 4px; border-radius: 4px; cursor: copy; user-select: all; white-space: nowrap; }
+.info code.cid:hover { background: rgba(255,255,255,0.22); }
+.info .row.tight { margin: 1px 0 1px 6px; font-size: 12px; }
+.info .row.mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.stuck-pill { position: absolute; bottom: 120px; right: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: inherit; cursor: pointer; }
+.stuck-pill.hidden { display: none; }
+.stuck-pill.active { border-color: #ff7a6e; box-shadow: 0 0 0 1px #ff7a6e inset; }
+.stuck-pill .bad { color: #ff7a6e; }
+body.title-mode .stuck-pill { display: none !important; }
