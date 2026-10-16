@@ -32,11 +32,25 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
+    id: '2026-10-16-oasis-garbage-depot',
+    title: 'Garbage across the whole road network',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Landfills and recycling centers now serve every building on their connected roads, anywhere on the map, instead of a fixed radius. The garbage view shows the served buildings.' },
+      { tag: 'improved', text: 'Garbage trucks now hold 200 each and keep visiting nearby piles on one run until they are nearly full, then head home. Landfills also have an Inspect option to unload to recycling centers automatically or only when you send it.' },
+      { tag: 'balance', text: 'Industry makes 3× the garbage of housing and shops 2×, and their buildings hold proportionally more before they pile up.' },
+      { tag: 'balance', text: 'The Shipping Depot now costs $100,000.' },
+      { tag: 'new', text: 'Neighbouring fully-grown farms can now merge into one large farm with a bigger shared field. It has the same detailed barn, silo and yard, plus an annex with extra barns, silos and machinery.' },
+      { tag: 'improved', text: 'Farm yards now fill their whole plot, so the barn, silo and farmhouse are about 1.5× larger and easier to see.' },
+      { tag: 'new', text: 'Settings has a new option to show an FPS counter on the HUD.' },
+    ],
+  },
+  {
     id: '2026-10-16-oasis-farm-machines-calendar',
     title: 'Working farms and a slower calendar',
     date: '2026-10-16',
     changes: [
-      { tag: 'new', text: 'Farms now send machines out into their fields: tractors plough in late winter and autumn, drill seed in spring, spray the crop in early summer and a combine harvests the ripe fields, kicking up dust as they go. Between jobs they wait by the barn. Bigger farms send two. Also in the Model viewer.' },
+      { tag: 'new', text: 'Farms now send machines out into their fields: tractors plough in late winter and autumn, drill seed in spring and spray the crop in early summer, and each farm sends a single combine out only while its crops are being harvested, kicking up dust as they go. Between jobs they wait by the barn. Bigger farms send two. Also in the Model viewer.' },
       { tag: 'improved', text: 'The calendar is slower: a day now lasts 10 seconds at 1× (5 s at 2×, 2.5 s at 3×). The day/night cycle, traffic, growth and money are unchanged at 1×.' },
       { tag: 'improved', text: 'The 3× button now runs at 4× game speed. Slow frames at the fast speeds are split into smaller steps so cars never skip past lights or queues, and a safety cap stops a laggy frame from piling up extra work.' },
     ],

@@ -28,14 +28,15 @@ import { formatAmount, formatRatio } from './format';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
 import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services';
-import { G_MAX, G_WARN, LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
+import { garbageMax, garbageWarn } from '../sim/garbageRules';
+import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
-import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
+import { FARM_FIELDS, farmFieldMult, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
 import { CONSTRUCT_TICKS, FUEL_MAX, POWER_OUTPUT } from "../sim/rules";
 // OASIS traffic diagnostics: junction / road / car panels + stuck-car pill.
 import { GraphTraffic } from '../roads/gtraffic';
@@ -245,6 +246,14 @@ export class Hud {
     this.buildBudget(actions);
     // OASIS: click a <code class="cid"> id (node 42 / edge 17 / car 311) to copy it.
     this.info.addEventListener('click', (ev) => {
+      const lf = (ev.target as HTMLElement).closest('[data-lf]') as HTMLElement | null;
+      if (lf && this.lastSim) { // landfill: switch automatic hauling to recycling centers on/off, or send a haul now
+        const w = this.lastSim.world, a = Number(lf.dataset.a);
+        if (lf.dataset.lf === 'auto') { if (w.noAutoHaul.has(a)) w.noAutoHaul.delete(a); else w.noAutoHaul.add(a); }
+        else w.haulNow.add(a);
+        this.refresh(this.lastSim);
+        return;
+      }
       const c = (ev.target as HTMLElement).closest('.cid');
       if (!c) return;
       const txt = c.textContent ?? '';
@@ -774,7 +783,7 @@ export class Hud {
       if (t.waterPipe) rows.push(`<div class="row">Water: <span class="muted">${netLine('water')}</span></div>`);
     }
     // PR 5 farm / food plant / yard rows.
-    if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)]}</b></div>`);
+    if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)] * farmFieldMult(sim.world, i)}</b></div>`);
     if (t.zone === 'industrial' && isFoodPlant(t)) rows.push(`<div class="row">Food in hopper: <b>${t.input.toFixed(1)}</b>${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 food on the way' : ''}</div>`);
     if (fieldOf) rows.push(`<div class="row">Crop field of the farm at tile ${coords(fieldOf.host).join(', ')}. Bulldoze to leave it fallow.</div>`);
     if (t.structure === 'constructionYard') {
@@ -784,7 +793,8 @@ export class Hud {
     // V1.5b services: the building itself, then garbage + coverage on any tile.
     if (t.structure === 'service') {
       const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
-      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      if (d.svc === Svc.Dump || d.svc === Svc.Recycling) rows.push(`<div class="row">Serves <b>every building on connected roads</b>${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      else rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
       if (d.svc === Svc.Police || d.svc === Svc.Clinic || d.svc === Svc.Hospital) rows.push(`<div class="row">${d.svc === Svc.Police ? 'Patrol cars' : 'Ambulances'} out: <b>${sim.responders.outOf(a)} / ${d.fleet}</b></div>`);
       if (d.svc === Svc.Dump) {
         const lf = sim.world.tiles[a], fill = landfillFill(lf);
@@ -792,9 +802,12 @@ export class Hud {
         if (landfillFull(lf)) rows.push('<div class="row bad">FULL — it takes no more garbage. Build a new landfill (recycling centers slow the flow).</div>');
         else if (fill >= 0.8) rows.push('<div class="row bad">Almost full — plan a new landfill.</div>');
         rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+        const auto = !sim.world.noAutoHaul.has(a);
+        rows.push(`<div class="row">♻️ Unload to recycling centers: <b>${auto ? 'automatic' : 'only when I send it'}</b> <button class="btn" data-lf="auto" data-a="${a}">${auto ? 'Switch to manual' : 'Switch to automatic'}</button></div>`);
+        if (!auto) rows.push(`<div class="row"><button class="btn" data-lf="now" data-a="${a}"${sim.world.haulNow.has(a) ? ' disabled' : ''}>${sim.world.haulNow.has(a) ? 'Hauling to recycling…' : 'Unload to recycling now'}</button></div>`);
       }
       if (d.svc === Svc.Recycling) {
-        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
+        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage, and its trucks collect from the whole road network.</div>');
         rows.push(`<div class="row">🔥 Burns garbage for <b>${POWER_OUTPUT.powerPlant}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
         rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
       }
@@ -805,7 +818,7 @@ export class Hud {
       }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
-    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
+    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= garbageWarn(t.zone) ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${garbageMax(t.zone)}${t.garbage >= garbageWarn(t.zone) ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
     if (t.zone) {
       const c = sim.cov.by;
       // V1.5b stage G: workforce education.

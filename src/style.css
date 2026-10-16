@@ -305,3 +305,10 @@ body.title-mode .changelog { z-index: 70; }
 .stuck-pill.active { border-color: #ff7a6e; box-shadow: 0 0 0 1px #ff7a6e inset; }
 .stuck-pill .bad { color: #ff7a6e; }
 body.title-mode .stuck-pill { display: none !important; }
+
+/* FPS counter (Settings -> Show FPS counter) */
+#fps { position: fixed; right: 10px; bottom: 10px; z-index: 30; padding: 3px 8px; border-radius: 6px; font: 600 12px/1.4 ui-monospace, monospace; background: rgba(20, 24, 30, 0.72); color: #e8eef4; pointer-events: none; }
+#fps.hidden { display: none; }
+#fps[data-level='good'] { color: #7ee08a; }
+#fps[data-level='ok'] { color: #f2c94c; }
+#fps[data-level='bad'] { color: #ff7a6b; }

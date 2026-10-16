@@ -84,6 +84,7 @@ export class GameMenu {
           ${[['high', 'High (detailed models up close)'], ['low', 'Low (simple models, faster)']].map(([v, l]) => `<option value="${v}" ${s.detail === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select></label>
         <label class="set check"><input type="checkbox" data-k="dayNight" ${s.dayNight ? 'checked' : ''}><span>🌗 Day/night cycle (1 hour per day at 1×)</span></label>
+        <label class="set check"><input type="checkbox" data-k="showFps" ${s.showFps ? 'checked' : ''}><span>📈 Show FPS counter on the HUD</span></label>
         <h4>🔊 Sound</h4>
         <label class="set"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" data-a="volume" value="${sound.settings.volume}"><b>${Math.round(sound.settings.volume * 100)}%</b></label>
         <label class="set"><span>UI sounds</span><input type="range" min="0" max="1" step="0.05" data-a="ui" value="${sound.settings.ui}"><b>${Math.round(sound.settings.ui * 100)}%</b></label>
@@ -104,6 +105,7 @@ export class GameMenu {
           const st = this.getSim().settings;
           const k = inp.dataset.k as keyof typeof st;
           if (k === 'dayNight') st.dayNight = (inp as HTMLInputElement).checked;
+          else if (k === 'showFps') st.showFps = (inp as HTMLInputElement).checked;
           else if (k === 'detail') st.detail = inp.value as 'high' | 'low';
           else st[k] = Number(inp.value) as never;
           const label = inp.parentElement?.querySelector('b');

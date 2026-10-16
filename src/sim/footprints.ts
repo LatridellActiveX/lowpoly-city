@@ -401,6 +401,11 @@ export const TEMPLATES: Template[] = [
   { id: 'toy_factory', label: 'Toy factory', zone: 'industrial', kind: 0, density: 0, tier: 1, w: 6, d: 6,
     rects: [R(0, 0, 4, 2, P), R(4, 0, 2, 2, Bay), R(0, 2, 6, 4, B)], garage: 4, bays: 2,
     maxLevel: 4, capacity: [10, 16, 24, 32], model: { level: [1, 2, 3, 4] }, weight: 1 },
+  // ---------------- V1.6 farms merge: neighbouring farms become one large farm sharing a bigger field (industry.ts fieldMult) ----------------
+  // Weight 0: it never grows from scratch, only when maxed-out farms next to each other merge (growth.ts tryMerge: kind 1 stays kind 1).
+  { id: 'big_farm', label: 'Large farm', zone: 'industrial', kind: 1, density: 0, tier: 0, w: 6, d: 4,
+    rects: [R(0, 0, 6, 1, P), R(0, 1, 6, 3, B)], garage: 0, bays: 0,
+    maxLevel: 3, capacity: [8, 16, 24], model: { level: [1, 2, 3] }, weight: 0 },
 ];
 
 export const TPL: Record<string, Template> = Object.fromEntries(TEMPLATES.map((t) => [t.id, t]));

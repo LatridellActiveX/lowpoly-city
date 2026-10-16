@@ -15,7 +15,7 @@ import { VEHICLES } from './vehicles';
 import { serviceModels } from './serviceModels';
 import { bigCoalModel } from './coalModel';
 import { bigOilModel } from './oilPlantModel';
-import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
+import { bigFarmModel, constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { commerceModels, homeModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
 import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
@@ -94,6 +94,7 @@ export function buildCatalog(): CatalogItem[] {
   // ---- Resources, farms, processors ----
   add('Resources & farms', 'Farm', () => textured(farmModel()));
   for (let k = 0; k < 3; k++) add('Resources & farms', `Food processing plant ${String.fromCharCode(65 + k)}`, () => textured(foodPlantModel(k)));
+  add('Resources & farms', 'Large farm (merged)', () => textured(bigFarmModel()));
   add('Resources & farms', 'Tractor with plough', () => plain(tractorPlough()));
   add('Resources & farms', 'Tractor with seed drill', () => plain(tractorSeeder()));
   add('Resources & farms', 'Tractor with crop sprayer', () => plain(tractorSprayer()));

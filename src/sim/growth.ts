@@ -274,7 +274,8 @@ export const IND_MERGE_RATE = 1.5;
  * V1.6: commercial kinds (shops 0, mixed-use 3, offices 4) and industrial
  * factories / food plants (0, 2) merge ACROSS kinds into the larger
  * footprints — a row of corner shops and a law firm can become a mall or a
- * business park. Farms (industrial 1) and residential stay as they were.
+ * business park. Farms (industrial 1) merge only with farms (into the large farm,
+ * which shares one big field); residential stays as it was.
  */
 export function mergeKind(zone: string, kind: number): number {
   if (zone === 'commercial') return 0;
