@@ -156,13 +156,30 @@ zoneBar.id = 'zonebar';
 zoneBar.className = 'panel hidden';
 document.body.append(zoneBar);
 function renderZoneBar(): void {
-  const show = ZONE_TOOLS.has(tool) && tool !== 'farm' && tool !== 'foodPlant'; // farm / food plant: no density choice
+  // OASIS zoning UI cleanup (2026-10-16): the zone bar is now the ONE place that
+  // explains zoning. It shows for every zone tool (farm / food plant included, they
+  // just get no density picker) and holds:
+  //   1. a compact segmented Density control (only for tools with density levels),
+  //   2. a single short hint, "Drag to zone · Click for one square".
+  // Previously the bar carried a long hint of its own AND the HUD's bottom .hint line
+  // repeated the tool's full paragraph-long description right on top of it, so the two
+  // overlapped the toolbar. While zoning we now hide that .hint line (body.zoning, see
+  // style.css); the full explanation still lives in the tool button's hover title.
+  const show = ZONE_TOOLS.has(tool);
   zoneBar.classList.toggle('hidden', !show);
+  document.body.classList.toggle('zoning', show); // hides the long .hint line while zoning
   if (!show) return;
+  const hasDensity = tool !== 'farm' && tool !== 'foodPlant'; // farm / food plant: no density choice
   const names = tool === 'residential' ? ['Low', 'Medium', 'High'] : tool === 'commercial' ? ['Low', 'High', 'Mixed', 'Office'] : ['Light', 'Heavy'];
   const d = Math.min(sim.zoneOpt.density, names.length - 1);
-  zoneBar.innerHTML = `<span class="muted">Density</span> ${names.map((n, k) => `<button class="btn${k === d ? ' active' : ''}" data-d="${k}" ${tool === 'residential' && k === 2 && sim.world.tier < 3 ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${tool === 'residential' && k === 2 && sim.world.tier < 3 ? ' 🔒' : ''}</button>`).join('')}
-    <span class="muted" style="margin-left:10px">Drag a box (corner to corner) to zone the small squares inside · click = one square</span>`;
+  // Residential High stays locked until the 10,000 tier; the lock reason is a tooltip.
+  const locked = (k: number) => tool === 'residential' && k === 2 && sim.world.tier < 3;
+  const seg = hasDensity
+    ? `<span class="zb-label">Density</span><span class="zb-seg" role="group" aria-label="Density">${names
+        .map((n, k) => `<button class="${k === d ? 'active' : ''}" data-d="${k}" ${locked(k) ? 'disabled title="Unlocks at 10,000 people"' : ''}>${n}${locked(k) ? ' 🔒' : ''}</button>`)
+        .join('')}</span><span class="zb-sep"></span>`
+    : '';
+  zoneBar.innerHTML = `${seg}<span class="zb-hint">Drag to zone · Click for one square</span>`;
   zoneBar.querySelectorAll<HTMLButtonElement>('[data-d]').forEach((b) => (b.onclick = () => { sim.zoneOpt.density = +b.dataset.d!; renderZoneBar(); }));
 }
 

@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS zoning UI cleanup: one short hint + segmented density control.
+    id: '2026-10-16-oasis-zoning-ui-declutter',
+    title: 'Tidier zoning bar',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Zoning shows one short hint, "Drag to zone · Click for one square", next to a compact Density switch, instead of long overlapping text. Hover a zone button for the full explanation.' },
+    ],
+  },
+  {
     id: '2026-10-16-a',
     title: 'Cleaner zoning and update notes',
     date: '2026-10-16',
