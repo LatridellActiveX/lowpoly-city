@@ -39,6 +39,7 @@
     "test:debugcode": "esbuild tools/debugcode.test.ts --bundle --platform=node --format=esm --outfile=/tmp/debugcode-test.mjs --log-level=error && node /tmp/debugcode-test.mjs",
     "test:trafficinspect": "esbuild tools/trafficinspect.test.ts --bundle --platform=node --format=esm --outfile=/tmp/trafficinspect-test.mjs --log-level=error && node /tmp/trafficinspect-test.mjs",
     "test:avenue": "esbuild tools/avenue.test.ts --bundle --platform=node --format=esm --outfile=/tmp/avenue-test.mjs --log-level=error && node /tmp/avenue-test.mjs",
+    "test:safegap": "esbuild tools/safegap.test.ts --bundle --platform=node --format=esm --outfile=/tmp/safegap-test.mjs --log-level=error && node /tmp/safegap-test.mjs",
     "test:format": "esbuild tools/format.test.ts --bundle --platform=node --format=esm --outfile=/tmp/format-test.mjs --log-level=error && node /tmp/format-test.mjs",
     "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs"
   },

@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-SAFEGAP: roads/gtraffic.ts safe-gap car following, real model lengths, junction slot checks; tools/safegap.test.ts.
+    id: '2026-10-16-oasis-safegap-traffic',
+    title: 'Smoother traffic: cars keep a safe gap',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Cars now keep a safe distance from the car in front. They speed up gently, brake smoothly, and only drive as fast as they could still stop behind the car ahead. Traffic moves evenly instead of bunching up.' },
+      { tag: 'fix', text: 'Cars and trucks no longer drive into or through each other. The traffic now knows how long every model really is, and drivers also watch the car that has just turned in front of them.' },
+      { tag: 'improved', text: 'At junctions a car only enters when its path is clear and there is room for its whole length on the road it is turning into. If not, it waits at the stop line. Cars only pick a lane where there is room for them, and cars pulling out wait for a gap in the traffic.' },
+    ],
+  },
+  {
     id: '2026-10-16-oasis-farm-machines-calendar',
     title: 'Working farms and a slower calendar',
     date: '2026-10-16',
