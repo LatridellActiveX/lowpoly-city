@@ -51,6 +51,9 @@ import { placeFreeRoad, undo, redo } from './sim/freeroads';
 import { paintRect, planRect, rectQuote, square } from './sim/zoneRect';
 import { quadCubic, lineCubic } from './roads/bezier';
 import { FreeRoadTool, toMetres } from './ui/freeRoadTool';
+// OASIS traffic diagnostics: click junctions / roads / cars with Inspect; stuck-car rings.
+import { pickGraph } from './sim/trafficInspect';
+import { StuckOverlay } from './render/stuckOverlay';
 import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
@@ -64,6 +67,7 @@ const city = new CityRenderer(scene);
 const preview = new PreviewRenderer(scene);
 // V1.6 B6/B7: freeform roads (graph mesh, zone-block overlay, preview grid, lane cars) and their tool.
 const graphLayer = new GraphRoadLayer(scene);
+const stuckOverlay = new StuckOverlay(scene);
 // Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
 const dayNight = new DayNight(scene, sun, hemi);
 
@@ -369,7 +373,12 @@ attachInput(renderer.domElement, cam, ground, {
       sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
       hud.pickCell = [Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.x * 4))), Math.max(0, Math.min(GRID_SIZE * 4 - 1, Math.floor(pointer.z * 4)))];
       const pm = toMetres(pointer.x, pointer.z);
-      if (tool === 'inspect') hud.inspect(idx(end[0], end[1]));
+      if (tool === 'inspect') {
+        // OASIS: on graph roads, a click on a car / junction / road edge opens
+        // the traffic panel; anywhere else the usual tile panel.
+        const gt = hud.inspectTraffic(sim), pick = gt ? pickGraph(gt, pm) : null;
+        if (pick) hud.inspectGraph(pick); else hud.inspect(idx(end[0], end[1]));
+      }
       else if (tool === 'freeRoad') {
         const msg = freeTool.click(pm);
         if (msg) { hud.flash(msg); sound.play(msg.startsWith('-$') ? toolSound('road') : 'error'); }
@@ -502,6 +511,7 @@ renderer.setAnimationLoop(() => {
   city.showZoneTint = ZONE_TOOLS.has(tool); // NEBULA: zone tints only while zoning (or Zoning overlay)
   graphLayer.updateGrid(city.overlay === 'grid' ? sim : null); // power & water grid ribbons along the roads
   graphLayer.sync(sim.world.roads, sim.world.blocks);
+  stuckOverlay.update(hud.showStuck && !inTitle ? hud.stuck : null, clock.elapsedTime); // OASIS: stuck-car rings
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));
@@ -644,5 +654,9 @@ updater.start();
   },
   setTimeOfDay: (t: number | null) => (dayNight.override = t),
   inspect: (x: number, z: number) => hud.inspect(idx(x, z)),
+  /** OASIS: traffic diagnostics (tests / screenshots). */
+  inspectGraph: (kind: 'node' | 'edge' | 'vehicle', id: number) => hud.inspectGraph({ kind, id } as never),
+  setShowStuck: (on: boolean) => { hud.showStuck = on; hud.refresh(sim); },
+  get stuck() { return hud.stuck; },
   refresh: () => hud.refresh(sim),
 };

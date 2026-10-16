@@ -15,7 +15,8 @@ import { DEPOT_BONUS, depotOf } from '../sim/goods';
 import { resLevel } from '../sim/footprints';
 import { rangeOf } from '../sim/parking';
 import { Simulation } from '../sim/simulation';
-import { ToolId, ZoneType } from '../sim/types';
+import { GRID_SIZE, ToolId, ZoneType } from '../sim/types';
+import { TILE_M } from '../roads/graph';
 import { BUILD_COST, growthFactor, ledgerNet, MAX_PROPERTY, MAX_TAX, monthlyTax, propertyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
@@ -36,6 +37,10 @@ import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
 import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
 import { CONSTRUCT_TICKS, FUEL_MAX, POWER_OUTPUT } from "../sim/rules";
+// OASIS traffic diagnostics: junction / road / car panels + stuck-car pill.
+import { GraphTraffic } from '../roads/gtraffic';
+import { defaultOutside, edgeInfo, GraphPick, nodeInfo, stuckReport, StuckReport, vehicleInfo } from '../sim/trafficInspect';
+import { edgePanel, nodePanel, stuckPill, vehiclePanel } from './trafficPanel';
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number, dir: number): string {
@@ -99,6 +104,17 @@ export class Hud {
   readonly demandBars = new DemandBars();
   private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
+  /** OASIS: graph thing (junction / road edge / car) shown in the info panel instead of a tile. */
+  private infoGraph: GraphPick | null = null;
+  /** OASIS: "Show stuck cars" pill (visible with the Inspect tool, or while the highlight is on). */
+  private readonly stuckBtn = el('button', 'stuck-pill hidden') as HTMLButtonElement;
+  /** OASIS: is the stuck-car highlight on? main.ts reads it every frame to draw the rings. */
+  showStuck = false;
+  /** OASIS: the latest stuck report (refresh() recomputes it; main.ts draws it). */
+  stuck: StuckReport = { vehicles: [], nodes: [] };
+  /** OASIS: a static GraphTraffic (no cars) for inspecting junctions before any live trip exists. */
+  private staticGt: GraphTraffic | null = null;
+  private staticVer = -1;
   private currentTool: ToolId = 'inspect';
   /** PR 6: cell under the cursor when Inspect was clicked (main.ts sets it), so the panel shows THAT building. */
   pickCell: [number, number] | null = null;
@@ -227,7 +243,15 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.gridLegend, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    // OASIS: click a <code class="cid"> id (node 42 / edge 17 / car 311) to copy it.
+    this.info.addEventListener('click', (ev) => {
+      const c = (ev.target as HTMLElement).closest('.cid');
+      if (!c) return;
+      const txt = c.textContent ?? '';
+      void navigator.clipboard?.writeText(txt).then(() => this.flash(`Copied "${txt}"`), () => this.flash(txt));
+    });
+    this.stuckBtn.onclick = () => { this.showStuck = !this.showStuck; this.paintStuck(); };
+    root.append(top, this.gridLegend, this.info, this.stuckBtn, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -427,6 +451,7 @@ export class Hud {
 
   setTool(id: ToolId): void {
     this.currentTool = id;
+    this.paintStuck();
     this.toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
     // PR 5: remember the tool in its group and highlight the group button.
     const gid = toolDef(id).group;
@@ -458,7 +483,57 @@ export class Hud {
   /** Show the info panel for a tile index (or hide with null). */
   inspect(i: number | null): void {
     this.infoTile = i;
+    this.infoGraph = null;
     this.info.classList.toggle('hidden', i === null);
+  }
+
+  /** OASIS: show a junction / road edge / car from the road graph (Inspect click). */
+  inspectGraph(p: GraphPick): void {
+    this.infoTile = null;
+    this.infoGraph = p;
+    this.info.classList.remove('hidden');
+    if (this.lastSim) this.renderGraphInfo(this.lastSim);
+  }
+
+  /**
+   * OASIS: the GraphTraffic to inspect. The live one when it matches the
+   * current road graph (same object and version); otherwise a car-less one
+   * built on demand, so junction plans can be inspected before the first
+   * trip or right after an edit (the live one is rebuilt lazily on a trip).
+   */
+  inspectTraffic(sim: Simulation): GraphTraffic | null {
+    const roads = sim.world.roads, gt = sim.traffic.graph.gt;
+    if (!roads || roads.edgeCount() === 0) return null;
+    if (gt && gt.g === roads && gt.junctions.size) return gt; // (update() rebuilds it on a version change)
+    if (!this.staticGt || this.staticGt.g !== roads || this.staticVer !== roads.version) { this.staticGt = new GraphTraffic(roads); this.staticVer = roads.version; }
+    return this.staticGt;
+  }
+
+  /** OASIS: repaint the stuck pill (label, counter, visibility). */
+  private paintStuck(): void {
+    this.stuckBtn.classList.toggle('hidden', this.currentTool !== 'inspect' && !this.showStuck);
+    this.stuckBtn.classList.toggle('active', this.showStuck);
+    this.stuckBtn.innerHTML = stuckPill(this.showStuck, this.stuck.vehicles.length, this.stuck.nodes.length);
+    this.stuckBtn.title = 'Highlight cars that have not moved for over 10 s (red) and the junctions they are waiting at (orange)';
+  }
+
+  /** OASIS: render the graph panel for this.infoGraph. */
+  private renderGraphInfo(sim: Simulation): void {
+    const gt = this.inspectTraffic(sim), p = this.infoGraph!;
+    let title = 'Gone', rows: string[] = ['<div class="row muted">This item no longer exists (the road was edited or the car arrived).</div>'];
+    if (gt) {
+      const g = gt.g, mapM = GRID_SIZE * TILE_M;
+      // Outside connection = dead end on a highway connection tile (or by the map border).
+      const outside = (n: number) => {
+        const tx = Math.floor(g.nx[n] / TILE_M), tz = Math.floor(g.nz[n] / TILE_M);
+        return g.nEdges[n].length === 1 && (!!sim.world.tiles[tz * GRID_SIZE + tx]?.edge || defaultOutside(g, n, mapM));
+      };
+      if (p.kind === 'node' && g.nAlive[p.id]) [title, rows] = nodePanel(nodeInfo(gt, p.id, outside));
+      else if (p.kind === 'edge' && g.eAlive[p.id]) [title, rows] = edgePanel(edgeInfo(gt, p.id));
+      else if (p.kind === 'vehicle') { const v = gt.vehicles.find((q) => q.id === p.id && !q.done); if (v) [title, rows] = vehiclePanel(vehicleInfo(gt, v)); else title = `Car ${p.id}`, rows = ['<div class="row muted">This car has arrived or given up.</div>']; }
+    }
+    this.info.innerHTML = `<button class="close" aria-label="Close">×</button><h3>${title}</h3>${rows.join('')}`;
+    (this.info.querySelector('.close') as HTMLButtonElement).onclick = () => this.inspect(null);
   }
 
   /** Refresh numbers. Called a few times per second from main.ts. */
@@ -532,6 +607,11 @@ export class Hud {
     void this.currentTool;
 
     if (this.infoTile !== null) this.renderInfo(sim, this.infoTile);
+    // OASIS traffic diagnostics.
+    if (this.infoGraph) this.renderGraphInfo(sim);
+    const lgt = sim.traffic.graph.gt;
+    this.stuck = lgt ? stuckReport(lgt) : { vehicles: [], nodes: [] };
+    this.paintStuck();
   }
 
   /** PR 4: "🏘 Village · 612 / 2,000" progress toward the next tier. */

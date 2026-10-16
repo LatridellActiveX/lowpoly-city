@@ -295,3 +295,13 @@ body.title-mode .changelog { z-index: 70; }
 .mv-big-card h3 { margin: 0 0 8px; }
 .mv-big-card canvas { width: min(760px, 88vw); aspect-ratio: 760 / 520; display: block; border-radius: 8px; background: linear-gradient(180deg, #2b3d5c, #1d2a42); cursor: grab; touch-action: none; }
 .mv-big-card .close { position: absolute; top: 6px; right: 10px; background: none; border: 0; color: inherit; font-size: 24px; cursor: pointer; opacity: 0.7; }
+/* OASIS traffic diagnostics (Inspect: junction / road / car panels, stuck pill). */
+.info code.cid { font: 600 12px ui-monospace, Menlo, monospace; background: rgba(255,255,255,0.1); padding: 0 4px; border-radius: 4px; cursor: copy; user-select: all; white-space: nowrap; }
+.info code.cid:hover { background: rgba(255,255,255,0.22); }
+.info .row.tight { margin: 1px 0 1px 6px; font-size: 12px; }
+.info .row.mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+.stuck-pill { position: absolute; bottom: 120px; right: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; font-size: 12px; color: inherit; cursor: pointer; }
+.stuck-pill.hidden { display: none; }
+.stuck-pill.active { border-color: #ff7a6e; box-shadow: 0 0 0 1px #ff7a6e inset; }
+.stuck-pill .bad { color: #ff7a6e; }
+body.title-mode .stuck-pill { display: none !important; }
