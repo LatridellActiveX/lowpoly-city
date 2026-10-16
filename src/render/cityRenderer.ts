@@ -58,6 +58,7 @@ import { RING_LANE_R, ringArrowModel, ringIslandModel, ringYieldModel } from './
 import { bigOilModel, OIL_STACKS } from './oilPlantModel';
 import { MODELS, nuclearPlantModel, pumpStationModel, SITE } from './models';
 import { roleModels, newIndustryModels } from './industryModels';
+import { HEAVY_SKINS } from './heavyIndustry';
 import { homeModels, commerceModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
 import { officeModels } from './officeModels';
 import { serviceModels } from './serviceModels';
@@ -483,8 +484,8 @@ export class CityRenderer {
     add('nacelle', nacelleModel(), solid, 64);
     add('farm', autoSkin(farmModel()), industrialMaterial(), 128); // V1.5b textured
     // V1.5 stage 10: resource industries and processors (one pool per role).
-    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b textured
-    for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkin(g), industrialMaterial(), 64); // V1.5b stage B new types
+    for (const [k, g] of Object.entries(roleModels())) add(`role.${k}`, autoSkinMap(g, HEAVY_SKINS), industrialMaterial(), 64); // V1.5b textured
+    for (const [k, g] of Object.entries(newIndustryModels())) add(`ind.${k}`, autoSkinMap(g, HEAVY_SKINS), industrialMaterial(), 64); // V1.5b stage B new types
     for (const [k, g] of Object.entries(officeModels())) add(`office.${k}`, g, solid, 64); // V1.5b stage H
     for (const [k, g] of Object.entries(homeModels())) add(`x.${k}`, g, k === 'terrace' ? industrialMaterial() : solid, 64); // V1.6 more homes (the terrace carries its own atlas UVs)
     for (const [k, g] of Object.entries(commerceModels())) add(`x.${k}`, g, industrialMaterial(), 64); // V1.6 shops: textured

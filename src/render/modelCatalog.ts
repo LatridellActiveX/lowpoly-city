@@ -18,8 +18,9 @@ import { bigOilModel } from './oilPlantModel';
 import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { commerceModels, homeModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
+import { HEAVY_SKINS } from './heavyIndustry';
 import { ringIslandModel } from './roundaboutModel';
-import { autoSkin, autoSkinMap, industrialMaterial, texturedHome, texturedShop } from './textures';
+import { autoSkinMap, industrialMaterial, texturedHome, texturedShop } from './textures';
 import { SERVICE_DEFS } from '../sim/services';
 
 export interface CatalogItem {
@@ -36,7 +37,7 @@ let solidMat: THREE.MeshLambertMaterial | null = null;
 const solid = () => (solidMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }));
 const mesh = (g: THREE.BufferGeometry, m: THREE.Material = solid()) => new THREE.Mesh(g, m);
 const plain = (g: THREE.BufferGeometry) => mesh(g);
-const textured = (g: THREE.BufferGeometry) => mesh(autoSkin(g), industrialMaterial());
+const textured = (g: THREE.BufferGeometry) => mesh(autoSkinMap(g, HEAVY_SKINS), industrialMaterial());
 const WALLS = [0xe9dfc9, 0xd9b99b, 0xc9d3dc, 0xe8c6c0, 0xd8dcb8, 0xcdb8a0, 0xbfc8d6, 0xe4d6b0];
 const ACCENTS = [0xb5543c, 0x4b6d8c, 0x6b7f4a, 0x8a4f6a, 0x3f7f8a, 0x9a6a3a, 0x5a5f8a, 0x7a4a3a];
 const pretty = (k: string) => k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());

@@ -54,6 +54,16 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
+    id: '2026-10-16-b',
+    title: 'Heavy industry overhaul',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Chemical plant, steel mill and assembly plant rebuilt with far more detail: process columns with platforms and ladders, spherical tanks, pipe racks, cooling towers, a blast furnace with hot-blast stoves, a gantry crane, a ladle car on rails, sawtooth halls, car lots and more.' },
+      { tag: 'improved', text: 'Refinery, building-materials (cement) plant and electronics plant get the same treatment: floating-roof tank farms, a rotary kiln and silos, a fab hall with rooftop air handlers and utility yard.' },
+      { tag: 'new', text: 'Four new surfaces for heavy industry: riveted steel plate, insulated cladding, louvres and walkway grating. All visible in the Model viewer under Industry and Resources.' },
+    ],
+  },
+  {
     id: '2026-10-16-a',
     title: 'Cleaner zoning and update notes',
     date: '2026-10-16',
