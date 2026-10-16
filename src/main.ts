@@ -210,8 +210,7 @@ function updatePreview(): void {
     preview.show([]);
     const affordable = q.cost <= sim.world.cash;
     renderer.domElement.style.cursor = affordable ? 'crosshair' : 'not-allowed';
-    const [bw, bh] = plan.size;
-    hud.showTip(`<b style="color:#${col.toString(16).padStart(6, '0')}">${ZONE_CODES[zc]?.label ?? ''}</b> · ${bw}×${bh} ${plan.mode === 'road' ? 'along the road' : 'box'} · ${q.keys.length} square${q.keys.length !== 1 ? 's' : ''}${q.cost ? ` · -$${q.cost.toLocaleString()}` : ''}${plan.skipped.length ? ` · <span class="bad">${plan.skipped.length} skipped</span>` : ''}`, mouse[0], mouse[1]);
+    hud.showTip(null); // no tooltip while zoning: the coloured squares say what you are painting
     return;
   }
   if (cellsShown) { graphLayer.showCells(null); cellsShown = false; }
@@ -294,7 +293,7 @@ function updatePreview(): void {
     const count = def.shape === 'point' ? '' : `${size}${valid} tile${valid > 1 ? 's' : ''} · `;
     html = `${count}<b class="${affordable ? 'ok' : 'bad'}">${money(cost)}</b>${affordable ? '' : ` <span class="bad">(you have ${money(sim.world.cash)})</span>`}`;
   }
-  hud.showTip(html, mouse[0], mouse[1]);
+  hud.showTip(zq ? null : html, mouse[0], mouse[1]); // zoning shows no tooltip (it cluttered the menu)
 }
 
 /**

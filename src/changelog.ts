@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-16-a',
+    title: 'Cleaner zoning and update notes',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Zoning no longer shows a cost / size tooltip next to the cursor, so it stops covering the menu. The coloured squares show what you are about to zone.' },
+      { tag: 'improved', text: 'After an update, the pop-up shows only what changed in the latest patch. The full history is still in What\'s new on the title screen and the ☰ menu.' },
+    ],
+  },
+  {
     // OASIS: merged nebula (d2d8890..5eb1845) and models (97ae17f..2b4c14e).
     id: '2026-10-16-oasis-merge-nebula-models',
     title: 'Nebula and new models arrive',
