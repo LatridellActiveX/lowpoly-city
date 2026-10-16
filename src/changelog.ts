@@ -31,6 +31,8 @@ export const CHANGELOG: ChangeEntry[] = [
       { tag: 'fix', text: 'Leftover traffic lights on plain straight roads (where a side road was removed) are gone, and short road pieces next to junctions no longer trap cars.' },
       { tag: 'improved', text: 'Traffic lights give the through road one shared green in both directions, so T and four-way junctions cycle twice as fast, and lights close together are timed as a green wave.' },
       { tag: 'improved', text: 'Cars going straight on an avenue use both lanes instead of queuing in one.' },
+      { tag: 'fix', text: 'Cars waiting at lights, stop signs and roundabouts now stop on the painted stop line instead of on the crosswalk or inside the junction, and only drive in when they can get all the way across.' },
+      { tag: 'fix', text: 'At junctions without lights, a driver who has waited a while now gets a turn instead of waiting forever for a gap in busy traffic.' },
     ],
   },
   {

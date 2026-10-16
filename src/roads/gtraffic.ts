@@ -51,6 +51,7 @@
  */
 import { at, buildLut, Cubic, polyline, segX, tAtLength, tangent, V2 } from './bezier';
 import { LANE_M, RoadGraph, ROAD_SPEC } from './graph';
+import { planAll, rings } from './junctions';
 
 /** Lane width = the B6 cross-section's lane (cars must fit visibly). */
 export const LANE_W = LANE_M;
@@ -61,6 +62,16 @@ export const STOP_WAIT = 1;
 export const YIELD_GAP = 15;
 export const PATH_CACHE = 2048;
 export const CAR_LEN = 4.5, MIN_GAP = 2;
+/**
+ * OASIS-AVENUE: distance from an arm's trim to the REAR edge of its painted
+ * stop line (render/graphRoads.ts crossing(): crosswalk trim+0.5…trim+3.5,
+ * stop line trim+4.3…trim+4.8). Waiting cars hold with their front here.
+ */
+export const STOP_LINE_BACK = 4.8;
+/** OASIS-AVENUE: shortest drivable lane kept on any edge (room for one waiting car + gap). */
+export const MIN_LANE = 8;
+/** OASIS-AVENUE: seconds at the line before a car at a plain/stop junction claims its turn. */
+export const STARVE_WAIT = 6;
 /** IDM parameters. */
 const ACC = 2.5, DEC = 4, HEADWAY = 1.2;
 
@@ -75,7 +86,16 @@ export interface Connector { node: number; inEdge: number; inLane: number; outEd
  * third/quarter of the cycle. Left turns stay permissive: they enter only
  * when no conflicting connector is occupied (conflict matrix, conflictFree).
  */
-export interface Junction { conns: Connector[]; conflict: Uint8Array; occupied: Int32Array; phaseEdges: number[]; phases: number[][] }
+export interface Junction {
+  conns: Connector[]; conflict: Uint8Array; occupied: Int32Array; phaseEdges: number[]; phases: number[][];
+  /**
+   * OASIS-AVENUE ANTI-STARVATION (plain / stop junctions): the connector the
+   * longest-waiting car at the line wants (−1 none) and that car's wait.
+   * `claim` collects this frame's candidate, `held` is last frame's winner,
+   * which conflicting movements must leave free (see mayEnter).
+   */
+  claim: number; claimWait: number; held: number;
+}
 
 /** Segment ids: lanes are (edge, dir, lane); connectors are per node. */
 type Seg = { kind: 'lane'; edge: number; dir: 0 | 1; lane: number } | { kind: 'conn'; node: number; idx: number };
@@ -132,7 +152,60 @@ export class GraphTraffic {
   /** Lane centre offset (to the right of travel). */
   laneOff(lane: number, e = -1): number { return (e >= 0 ? ROAD_SPEC[this.g.eType[e]].median / 2 : 0) + (lane + 0.5) * LANE_W; }
   /** Start / end arc length of the drivable part of edge e. */
-  span(e: number): [number, number] { return [nodeClear(this.g, this.g.eA[e]), this.g.eLen[e] - nodeClear(this.g, this.g.eB[e])]; }
+  span(e: number): [number, number] {
+    const a = e < this.clrA.length && this.clrA[e] >= 0 ? this.clrA[e] : nodeClear(this.g, this.g.eA[e]);
+    const b = e < this.clrB.length && this.clrB[e] >= 0 ? this.clrB[e] : nodeClear(this.g, this.g.eB[e]);
+    return [a, this.g.eLen[e] - b];
+  }
+  /**
+   * OASIS-AVENUE STOP LINES: how far from each end node the lanes of edge e
+   * stop (−1 = use nodeClear). A lane ENDS where its cars must wait, and the
+   * vehicle point `s` is the car's CENTRE (the renderer draws the model
+   * centred there), so the lane ends half a car length behind the line:
+   *  - a JUNCTION (degree ≥ 3, plan.junction) whose arm got a crosswalk:
+   *    the painted stop line (render/graphRoads.ts crossing()) sits at
+   *    trim + STOP_LINE_BACK from the node; cars hold with their FRONT on its
+   *    rear edge, never on the crosswalk or inside the box;
+   *  - a junction arm too short for a crosswalk, a ROUNDABOUT entry (yield
+   *    at the rim), or any other plated node: hold right at the trim (+0.3 m);
+   *  - otherwise (plain bends, dead ends): nodeClear as before.
+   * Everything past that point is the junction box, crossed on a connector,
+   * which a car only enters when its exit lane has room to clear the box
+   * (mayEnter "don't block the box"). Rebuilt with the junctions (build()).
+   */
+  private clrA = new Float64Array(0);
+  private clrB = new Float64Array(0);
+  private buildStopLines(): void {
+    const g = this.g, n = g.eAlive.length;
+    this.clrA = new Float64Array(n).fill(-1); this.clrB = new Float64Array(n).fill(-1);
+    const rs = rings(g), ringNode = new Set<number>(rs.flatMap((r) => r.nodes));
+    const plans = planAll(g, rs);
+    for (const [node, plan] of plans) {
+      const ring = ringNode.has(node);
+      if (!plan.junction && !ring) continue;
+      for (const arm of plan.arms) {
+        if (ring && ringNode.has(g.other(arm.edge, node))) continue; // the ring's own edges: no entry line
+        const len = g.eLen[arm.edge];
+        // Same test crossing() uses to decide whether this arm is painted.
+        const painted = plan.junction && !ring && arm.trim + STOP_LINE_BACK - 1.3 + 2 <= len / 2;
+        const d = (painted ? arm.trim + STOP_LINE_BACK : arm.trim + 0.3) + CAR_LEN / 2;
+        if (arm.atA) this.clrA[arm.edge] = d; else this.clrB[arm.edge] = d;
+      }
+    }
+    // A short link between two junctions must still hold at least one
+    // waiting car (MIN_LANE): otherwise "don't block the box" can never let
+    // anyone onto it and the two junctions deadlock (gtraffic bench: a 32 m
+    // link kept a 4 m lane). Pull both hold points towards their nodes,
+    // proportionally, until the lane is MIN_LANE long (or as long as it can be).
+    for (const e of g.liveEdges()) {
+      const a = this.clrA[e] >= 0 ? this.clrA[e] : nodeClear(g, g.eA[e]);
+      const b = this.clrB[e] >= 0 ? this.clrB[e] : nodeClear(g, g.eB[e]);
+      const len = g.eLen[e];
+      if (len - a - b >= MIN_LANE || a + b <= 0) continue;
+      const k = Math.max(0, len - MIN_LANE) / (a + b);
+      this.clrA[e] = a * k; this.clrB[e] = b * k;
+    }
+  }
   /** Point on lane (e, dir, lane) at distance s from its start (dir 0 = a→b). */
   lanePoint(e: number, dir: 0 | 1, lane: number, s: number): V2 {
     const [s0, s1] = this.span(e), L = this.g.eLen[e];
@@ -154,6 +227,7 @@ export class GraphTraffic {
   build(): void {
     const g = this.g;
     this.junctions.clear();
+    this.buildStopLines(); // before the connectors: they start at the lane ends
     for (const n of g.liveNodes()) this.junctions.set(n, this.buildNode(n));
     this.cache.clear(); this.cacheVersion = g.version;
   }
@@ -215,7 +289,7 @@ export class GraphTraffic {
       }
       if (best >= 0) { used.add(best); phases.push([e, best]); } else phases.push([e]);
     }
-    return { conns, conflict, occupied: new Int32Array(m), phaseEdges, phases };
+    return { conns, conflict, occupied: new Int32Array(m), phaseEdges, phases, claim: -1, claimWait: 0, held: -1 };
   }
   /** Do connectors i and j at node n conflict? */
   conflicts(n: number, i: number, j: number): boolean { const J = this.junctions.get(n)!; return J.conflict[i * J.conns.length + j] === 1; }
@@ -288,6 +362,11 @@ export class GraphTraffic {
     const l = this.list(seg);
     // Lists are ordered by s ascending (rearmost first): a new car enters at the back.
     if (l.length && l[0].s < CAR_LEN + MIN_GAP) return null; // entry blocked
+    // OASIS-AVENUE: nor may it pull out in front of a car that is crossing
+    // the junction box into this very lane: that car would be stuck in the
+    // box (its exit start is taken), blocking every crossing movement —
+    // the seed of a box gridlock on busy plain junctions.
+    { const J = this.junctions.get(a); if (J) for (let j = 0; j < J.conns.length; j++) if (J.occupied[j] > 0 && J.conns[j].outEdge === e) return null; }
     const v: Vehicle = { id: this.nextId++, path: r.edges, nodes: r.nodes, i: 0, seg, s: 0, v: 0, lane, wait: 0, stopped: 0, done: false, length: CAR_LEN, trip };
     l.unshift(v); this.vehicles.push(v); this.stats.spawned++;
     return v;
@@ -417,7 +496,19 @@ export class GraphTraffic {
   /** May vehicle v, at the end of its lane, enter connector ci at node n now? */
   private mayEnter(v: Vehicle, n: number, ci: number, dt: number): boolean {
     const g = this.g, J = this.junctions.get(n)!, m = J.conns.length, c = J.conns[ci];
-    const conflictFree = () => { for (let j = 0; j < m; j++) if (J.occupied[j] > 0 && j !== ci && J.conflict[ci * m + j]) return false; return true; };
+    // OASIS-AVENUE: at first-come junctions a left-turner facing an endless
+    // stream never found a gap (the stream's connectors were always
+    // occupied) and its queue starved for minutes. A car that has waited
+    // STARVE_WAIT s at the line CLAIMS its movement; while the longest such
+    // claim stands, conflicting movements may not start, so the box empties
+    // and the claimant goes next (classic "longest waiter first").
+    const yieldsToClaim = () => J.held >= 0 && J.held !== ci && J.conflict[ci * m + J.held] === 1;
+    const claim = () => { if (v.wait >= STARVE_WAIT && v.wait > J.claimWait) { J.claim = ci; J.claimWait = v.wait; } };
+    const conflictFree = () => {
+      for (let j = 0; j < m; j++) if (J.occupied[j] > 0 && j !== ci && J.conflict[ci * m + j]) { if (kind === 'plain' || kind === 'stop') claim(); return false; }
+      if ((kind === 'plain' || kind === 'stop') && yieldsToClaim()) return false;
+      return true;
+    };
     // DON'T BLOCK THE BOX: only enter when the exit lane has room for this car
     // after every car already in the box heading for the same lane.
     {
@@ -425,7 +516,9 @@ export class GraphTraffic {
       const ex = this.list({ kind: 'lane', edge: c.outEdge, dir: this.dirOf(c.outEdge, n), lane });
       let inBox = 0; for (let j = 0; j < m; j++) if (J.occupied[j] > 0 && J.conns[j].outEdge === c.outEdge) inBox += J.occupied[j];
       const room = (ex.length ? ex[0].s : this.laneLen(c.outEdge)) - inBox * (CAR_LEN + MIN_GAP);
-      if (room < CAR_LEN + MIN_GAP) return false;
+      // (A lane shorter than one car + gap takes one car when it is empty, so a
+      // tiny link can never become a permanent wall.)
+      if (room < Math.min(CAR_LEN + MIN_GAP, this.laneLen(c.outEdge))) return false;
     }
     const kind = g.nKind[n];
     if (kind === 'stop') { if (v.stopped < STOP_WAIT) { v.stopped += dt; return false; } return conflictFree(); }
@@ -457,6 +550,8 @@ export class GraphTraffic {
   /** Advance every vehicle by dt seconds. */
   update(dt: number): void {
     this.time += dt;
+    // OASIS-AVENUE anti-starvation: last frame's longest claim becomes the one honoured this frame.
+    for (const J of this.junctions.values()) { J.held = J.claim; J.claim = -1; J.claimWait = 0; }
     if (this.cacheVersion !== this.g.version) this.build();
     for (const [, l] of this.onSeg) {
       // leader first (largest s)
