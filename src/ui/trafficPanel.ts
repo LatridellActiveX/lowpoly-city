@@ -37,7 +37,7 @@ export function nodePanel(n: NodeInfo): [string, string[]] {
   // Signal
   if (n.signal) {
     const s = n.signal;
-    rows.push(`<div class="row">🚦 Phase ${s.phase + 1}/${s.phases}: ${s.state === 'green' ? `<span class="ok">green</span> for ${cid('edge', s.greenEdge)}` : '<b>all red</b> (clearing)'} · ${secs(s.remaining)} left</div>`);
+    rows.push(`<div class="row">🚦 Phase ${s.phase + 1}/${s.phases}: ${s.state === 'green' ? `<span class="ok">green</span> for ${s.greenEdges.map((e) => cid('edge', e)).join(' + ')}` : '<b>all red</b> (clearing)'} · ${secs(s.remaining)} left</div>`);
   }
   // Lane connections, grouped per incoming lane: "edge 17 L0 → ↰ e5 L0 · ↑ e8 L0"
   if (n.conns.length) {

@@ -21,6 +21,19 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-AVENUE: avenue upgrade reaches the road graph + intersection fixes
+    // (roads/persist.ts upgradeGraphRoads / demoteStaleJunctions, roads/gtraffic.ts).
+    id: '2026-10-16-oasis-avenue-traffic',
+    title: 'Avenue upgrades and smoother intersections',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'fix', text: 'Upgrading a street to an avenue now really gives it four lanes. Before, the road only changed colour while cars kept driving one lane, which caused jams. Cities saved earlier are repaired when loaded.' },
+      { tag: 'fix', text: 'Leftover traffic lights on plain straight roads (where a side road was removed) are gone, and short road pieces next to junctions no longer trap cars.' },
+      { tag: 'improved', text: 'Traffic lights give the through road one shared green in both directions, so T and four-way junctions cycle twice as fast, and lights close together are timed as a green wave.' },
+      { tag: 'improved', text: 'Cars going straight on an avenue use both lanes instead of queuing in one.' },
+    ],
+  },
+  {
     // HOTFIX: update reload on a big map kept the 64-tile ground, so clicks did nothing (main.ts fitSceneToMap).
     id: '2026-10-16-oasis-hotfix-build-after-update',
     title: 'Building works again after an update',

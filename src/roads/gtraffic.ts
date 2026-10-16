@@ -21,8 +21,11 @@
  * JUNCTION CONTROL (node kind)
  *   plain       first come: enter when no conflicting connector is occupied.
  *   stop        come to a full stop (STOP_WAIT s) at the line, then as plain.
- *   signal      one approach (incoming edge) green at a time, SIGNAL_GREEN s
- *               each plus SIGNAL_CLEAR all-red. RIGHT-ON-RED (the 1.5b fix):
+ *   signal      one PHASE green at a time, SIGNAL_GREEN s each plus
+ *               SIGNAL_CLEAR all-red. OASIS-AVENUE: a phase is a pair of
+ *               OPPOSITE approaches (a through road) or a lone approach, so a
+ *               T or a cross runs 2 phases; nearby lights (≤ 48 m) are
+ *               offset into a green wave (GraphTraffic.offset). RIGHT-ON-RED (the 1.5b fix):
  *               a right-turner on red stops ROR_STOP s, then goes if no
  *               occupied connector shares its EXIT lane and the exit lane's
  *               first ROR_GAP metres are empty. It does not wait for
@@ -62,7 +65,17 @@ export const CAR_LEN = 4.5, MIN_GAP = 2;
 const ACC = 2.5, DEC = 4, HEADWAY = 1.2;
 
 export interface Connector { node: number; inEdge: number; inLane: number; outEdge: number; outLane: number; turn: 'left' | 'straight' | 'right'; curve: Cubic; lut: Float32Array; len: number }
-export interface Junction { conns: Connector[]; conflict: Uint8Array; occupied: Int32Array; phaseEdges: number[] }
+/**
+ * phaseEdges: every approach (incoming edge) that has a signal head.
+ * phases (OASIS-AVENUE fix #4): the signal PHASES — groups of approaches
+ * that are green together. Opposite approaches of a through road (within
+ * 30° of straight across) share one phase, so a T junction runs 2 phases
+ * (through road, side road) and a cross 2 phases (N–S, E–W) instead of one
+ * phase per approach (3 or 4), which gave each through direction only a
+ * third/quarter of the cycle. Left turns stay permissive: they enter only
+ * when no conflicting connector is occupied (conflict matrix, conflictFree).
+ */
+export interface Junction { conns: Connector[]; conflict: Uint8Array; occupied: Int32Array; phaseEdges: number[]; phases: number[][] }
 
 /** Segment ids: lanes are (edge, dir, lane); connectors are per node. */
 type Seg = { kind: 'lane'; edge: number; dir: 0 | 1; lane: number } | { kind: 'conn'; node: number; idx: number };
@@ -93,6 +106,11 @@ export const GIVE_UP = 90;
 /** Clearance (junction box radius) at node n. */
 export function nodeClear(g: RoadGraph, n: number): number {
   if (g.nEdges[n].length <= 1) return 0;
+  // OASIS-AVENUE: a PLAIN node joining just two roads (a bend, or where a
+  // street turns into an avenue) has no cross traffic, so it needs only a
+  // short transition, not a full junction box. With the full box, a 32 m
+  // avenue piece between two such nodes had a 0 m lane and pinned every car.
+  if (g.nEdges[n].length === 2 && g.nKind[n] === 'plain') return 2;
   let w = 0; for (const e of g.nEdges[n]) w = Math.max(w, ROAD_SPEC[g.eType[e]].width / 2);
   return w + 2;
 }
@@ -182,7 +200,22 @@ export class GraphTraffic {
       if (x) conflict[i * m + j] = conflict[j * m + i] = 1;
     }
     const phaseEdges = es.filter((e) => !(g.eType[e] === 'oneway' && g.eB[e] !== n));
-    return { conns, conflict, occupied: new Int32Array(m), phaseEdges };
+    // OASIS-AVENUE fix #4: pair opposite approaches into one phase (see Junction).
+    const phases: number[][] = [], used = new Set<number>();
+    for (const e of phaseEdges) {
+      if (used.has(e)) continue;
+      used.add(e);
+      const d = g.dirAt(e, n);
+      // The most nearly opposite remaining approach, if within 30° of straight across.
+      let best = -1, bestDot = -Math.cos((30 * Math.PI) / 180);
+      for (const f of phaseEdges) {
+        if (used.has(f)) continue;
+        const o = g.dirAt(f, n), dot = d.x * o.x + d.z * o.z;
+        if (dot <= bestDot) { best = f; bestDot = dot; }
+      }
+      if (best >= 0) { used.add(best); phases.push([e, best]); } else phases.push([e]);
+    }
+    return { conns, conflict, occupied: new Int32Array(m), phaseEdges, phases };
   }
   /** Do connectors i and j at node n conflict? */
   conflicts(n: number, i: number, j: number): boolean { const J = this.junctions.get(n)!; return J.conflict[i * J.conns.length + j] === 1; }
@@ -324,8 +357,26 @@ export class GraphTraffic {
   private laneFor(edges: number[], nodes: number[], i: number): number {
     const e = edges[i], n = this.lanes(e);
     if (n === 1 || i + 1 >= edges.length) return 0;
-    const c = this.connector(nodes[i + 1], e, edges[i + 1], -1);
-    return c ? this.junctions.get(nodes[i + 1])!.conns[c].inLane : 0;
+    const node = nodes[i + 1], J = this.junctions.get(node);
+    if (!J) return 0;
+    // OASIS-AVENUE fix #3: USE EVERY LANE THAT GOES WHERE THE CAR IS GOING.
+    // The old code took the FIRST connector for (e → next edge). Turns have
+    // exactly one lane (left: inner, right: kerb), but STRAIGHT has one
+    // connector per lane, and "first" always meant lane 0 — so every
+    // through car queued in the inner lane and an avenue carried no more
+    // through traffic than a street. Now: among the lanes with a connector
+    // to the next edge, take the one with the shortest queue in this
+    // direction (ties → the vehicle's own path parity, so a burst of cars
+    // spreads over both lanes). (The old `return c ? … : 0` also mis-read
+    // connector index 0 as "none"; same result, but fixed here.)
+    const dir = this.dirOf(e, nodes[i]);
+    let best = -1, bestQ = Infinity;
+    for (const c of J.conns) {
+      if (c.inEdge !== e || c.outEdge !== edges[i + 1]) continue;
+      const q = this.list({ kind: 'lane', edge: e, dir, lane: c.inLane }).length + ((c.inLane + edges.length) % 2) * 0.5;
+      if (q < bestQ) { bestQ = q; best = c.inLane; }
+    }
+    return best < 0 ? 0 : best;
   }
   /** Connector index at node for (inEdge → outEdge), preferring inLane (or any when −1). */
   connector(node: number, inEdge: number, outEdge: number, inLane: number): number {
@@ -336,10 +387,32 @@ export class GraphTraffic {
   }
   /** Signal state: is the approach on edge e green at node n? */
   green(n: number, e: number): boolean {
-    const J = this.junctions.get(n)!, k = J.phaseEdges.length;
-    if (k <= 1) return true;
-    const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = this.time % (cyc * k), ph = Math.floor(tt / cyc);
-    return J.phaseEdges[ph] === e && tt - ph * cyc < SIGNAL_GREEN;
+    const J = this.junctions.get(n)!, k = J.phases.length;
+    if (k <= 1) return true; // one phase (a through road with no side road): always green
+    const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (this.time + this.offset(n)) % (cyc * k), ph = Math.floor(tt / cyc);
+    return J.phases[ph].includes(e) && tt - ph * cyc < SIGNAL_GREEN;
+  }
+  /**
+   * OASIS-AVENUE fix #4b: a per-node phase OFFSET (seconds) so lights close
+   * together run as a GREEN WAVE instead of independently. A signal that is
+   * joined by a short edge (≤ 48 m) to a lower-numbered signal copies that
+   * node's offset plus the travel time, so a platoon released by one light
+   * arrives on green at the next. Cached per graph version.
+   */
+  private offsets = new Map<number, number>();
+  private offsetsVersion = -1;
+  offset(n: number): number {
+    if (this.offsetsVersion !== this.g.version) { this.offsets.clear(); this.offsetsVersion = this.g.version; }
+    const hit = this.offsets.get(n); if (hit !== undefined) return hit;
+    this.offsets.set(n, 0); // cycle guard
+    const g = this.g;
+    let off = 0;
+    for (const e of g.nEdges[n]) {
+      const m = g.other(e, n);
+      if (m < n && g.nKind[m] === 'signal' && g.eLen[e] <= 48) { off = this.offset(m) - g.eLen[e] / ROAD_SPEC[g.eType[e]].speed; break; }
+    }
+    this.offsets.set(n, off);
+    return off;
   }
   /** May vehicle v, at the end of its lane, enter connector ci at node n now? */
   private mayEnter(v: Vehicle, n: number, ci: number, dt: number): boolean {

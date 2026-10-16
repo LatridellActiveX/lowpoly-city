@@ -25,7 +25,7 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
-import { syncGraphToTiles, absorbTileRoads } from '../roads/persist';
+import { syncGraphToTiles, absorbTileRoads, upgradeGraphRoads } from '../roads/persist';
 import { coords, World } from './grid';
 import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
@@ -578,8 +578,14 @@ export class Simulation {
       // OASIS: in a graph world the tile road tools feed the graph too, so the
       // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
       if (!this.noAbsorb && (tool === 'road' || tool === 'avenue' || tool === 'roundabout')) {
-        const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
-        if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
+        const idxs = tiles.map(([x, z]) => z * GRID_SIZE + x);
+        const n = absorbTileRoads(this.world, idxs);
+        // OASIS-AVENUE fix #1: dragging the Avenue tool over a street that the
+        // GRAPH already owns used to change only the tiles (absorbTileRoads
+        // skips graph tiles), so traffic kept one lane. Retype the graph
+        // edges under the upgraded tiles too (roads/persist.ts).
+        const up = tool === 'avenue' ? upgradeGraphRoads(this.world, idxs) : 0;
+        if (n || up) this.version++; // graph renderer redraws, tile renderer hands the tiles over
       }
     }
     return r;

@@ -56,7 +56,8 @@ function town() {
   ok(st.lanesIn === ROAD_SPEC.street.lanes && st.type === 'street', 'road approach lane counts', st);
   ok(ni.conns.length === gt.junctions.get(T.c)!.conns.length && ni.conns.every((c) => ['left', 'straight', 'right'].includes(c.turn)), 'connections mirror the junction plan', ni.conns.length);
   ok(ni.missing.length === 0, 'a healthy 4-way reports no missing connections', ni.missing);
-  ok(ni.signal !== null && ni.signal.phases === 4, 'signal has one phase per approach', ni.signal);
+  // OASIS-AVENUE: opposite approaches share a phase, so a 4-way runs 2 phases (N–S, E–W).
+  ok(ni.signal !== null && ni.signal.phases === 2 && ni.signal.greenEdges.length === 2, 'signal pairs opposite approaches into 2 phases', ni.signal);
 }
 
 // ---- missing connections ----
@@ -78,7 +79,7 @@ function town() {
   let agree = 0, total = 0;
   for (let t = 0; t < 120; t += 0.7) {
     gt.time = t; const s = signalInfo(gt, T.c)!;
-    for (const e of [T.w, T.e, T.n, T.s]) { total++; if (gt.green(T.c, e) === (s.state === 'green' && s.greenEdge === e)) agree++; }
+    for (const e of [T.w, T.e, T.n, T.s]) { total++; if (gt.green(T.c, e) === (s.state === 'green' && s.greenEdges.includes(e))) agree++; }
     if (!(s.remaining > 0 && s.remaining <= 12)) { ok(false, 'remaining within the phase', s); break; }
   }
   ok(agree === total, 'signal state matches GraphTraffic.green at every sampled time', { agree, total });
@@ -91,8 +92,9 @@ function town() {
   // Cars from the north end through the centre heading south.
   for (let k = 0; k < 12; k++) { gt.spawn(T.N, T.S); gt.update(0.5); }
   // Run until a car is waiting at the (red) road approach, so there is a queue.
-  for (let k = 0; k < 400 && !gt.vehicles.some((v) => v.seg.kind === 'lane' && v.seg.edge === T.n && v.v < 0.1); k++) gt.update(0.25);
-  for (let k = 0; k < 8; k++) gt.update(0.25); // let the wait build up (2 s)
+  // OASIS-AVENUE: N–S now shares a phase, so wait for a car actually held AT THE LINE (within 60 m), not one pausing elsewhere.
+  for (let k = 0; k < 800 && !gt.vehicles.some((v) => v.seg.kind === 'lane' && v.seg.edge === T.n && v.v < 0.1 && v.wait >= 2 && gt.laneLen(T.n) - v.s <= 60); k++) { if (k % 8 === 0) gt.spawn(T.N, T.S); gt.update(0.25); } // keep cars coming until one meets a red
+  // (the loop above already waited until the held car's wait is ≥ 2 s)
   let ni = nodeInfo(gt, T.c); const ei = edgeInfo(gt, T.n);
   ok(ei.id === T.n && ei.from === T.N && ei.to === T.c && ei.label === 'road' && Math.abs(ei.length - 200) < 0.5, 'edge: id, from/to, road label, length', ei);
   ok(ei.lanesAB === 1 && ei.lanesBA === 1, 'edge: lanes per direction', ei);
@@ -105,7 +107,9 @@ function town() {
   ok(ni.longestWait >= q.longestWait, 'junction: longest wait covers every approach');
 
   // Force a jam: freeze the lead car.
-  const v = gt.vehicles[0]; v.v = 0; v.wait = STUCK_SECONDS + 5;
+  // OASIS-AVENUE: with continuous spawning vehicles[0] may already be past the
+  // junction, so freeze the car held at the north approach line instead.
+  const v = onN.filter((x) => x.v < 0.1).sort((a, b) => b.s - a.s)[0] ?? gt.vehicles[0]; v.v = 0; v.wait = STUCK_SECONDS + 5;
   const before = JSON.stringify(gt.vehicles.map((x) => [x.id, x.s, x.v, x.wait, x.seg]));
   const vi = vehicleInfo(gt, v); ni = nodeInfo(gt, T.c);
   ok(ni.stuck >= 1, 'junction: counts the stuck car waiting for it', ni.stuck);
