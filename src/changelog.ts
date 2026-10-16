@@ -31,6 +31,15 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
+    // HOTFIX: update reload on a big map kept the 64-tile ground, so clicks did nothing (main.ts fitSceneToMap).
+    id: '2026-10-16-oasis-hotfix-build-after-update',
+    title: 'Building works again after an update',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'fix', text: 'On bigger maps, clicking to build roads, zones or buildings did nothing after the game updated itself. Building works right after an update again.' },
+    ],
+  },
+  {
     // OASIS-AVENUE: avenue upgrade reaches the road graph + intersection fixes
     // (roads/persist.ts upgradeGraphRoads / demoteStaleJunctions, roads/gtraffic.ts).
     id: '2026-10-16-oasis-avenue-traffic',
@@ -41,6 +50,8 @@ export const CHANGELOG: ChangeEntry[] = [
       { tag: 'fix', text: 'Leftover traffic lights on plain straight roads (where a side road was removed) are gone, and short road pieces next to junctions no longer trap cars.' },
       { tag: 'improved', text: 'Traffic lights give the through road one shared green in both directions, so T and four-way junctions cycle twice as fast, and lights close together are timed as a green wave.' },
       { tag: 'improved', text: 'Cars going straight on an avenue use both lanes instead of queuing in one.' },
+      { tag: 'fix', text: 'Cars waiting at lights, stop signs and roundabouts now stop on the painted stop line instead of on the crosswalk or inside the junction, and only drive in when they can get all the way across.' },
+      { tag: 'fix', text: 'At junctions without lights, a driver who has waited a while now gets a turn instead of waiting forever for a gap in busy traffic.' },
     ],
   },
   {

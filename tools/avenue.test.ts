@@ -15,6 +15,9 @@
  *     share a phase, and close lights get a green-wave offset.
  *  +  A plain 2-road node used a full junction box, so a short avenue piece
  *     had a 0 m lane (cars pinned): nodeClear is 2 m there now.
+ *  +  Lanes end at the painted STOP LINE (GraphTraffic.buildStopLines), every
+ *     lane keeps ≥ MIN_LANE, spawns never cut in front of a car leaving the
+ *     box, and plain/stop junctions let the longest waiter go (STARVE_WAIT).
  *
  * Checks:
  *  a. Parker's save: no stale lights, no 0 m lanes, every graph edge under
@@ -23,6 +26,10 @@
  *  c. Bench town: upgrading part of a street mid-simulation splits the edge
  *     at a tile centre, retypes only the dragged part, bumps the graph
  *     version (live trips complete, none lost), and no lane is < 10 m.
+ *  e. STOP LINES (Parker): cars waiting at lights, stop signs, yields and
+ *     roundabouts, on streets and avenues, hold with their FRONT on the rear
+ *     edge of the painted stop line (± 0.3 m) — never on the crosswalk or in
+ *     the box; and hardly anyone stands still inside a junction box.
  *  d. Signals: a T junction runs 2 phases, a cross 2 phases; a 2-lane
  *     avenue spreads straight traffic over both lanes.
  */
@@ -30,7 +37,8 @@ import { readFileSync } from 'node:fs';
 import { loadCode } from './fixtures/loadCode';
 import { buildTown, rect, tick, Simulation, World } from './bench/town';
 import { migrateToGraph } from '../src/roads/persist';
-import { GraphTraffic } from '../src/roads/gtraffic';
+import { CAR_LEN, GraphTraffic, STOP_LINE_BACK } from '../src/roads/gtraffic';
+import { planAll, rings } from '../src/roads/junctions';
 import { GRID_SIZE } from '../src/sim/types';
 import { allRegions } from '../src/sim/regions';
 
@@ -110,6 +118,68 @@ const code = readFileSync('tools/fixtures/parker-avenue.lpc', 'utf8').trim();
   let lanes = new Set<number>();
   for (let i = 0; i < 400; i++) { tick(s); for (const v of s.traffic.graph.vehicles) if (v.seg.kind === 'lane' && g.eType[v.seg.edge] === 'avenue') lanes.add(v.seg.lane); }
   ok(lanes.has(0) && lanes.has(1), 'cars use both avenue lanes', [...lanes]);
+}
+
+// ---- e. stop lines ----
+/**
+ * Independent geometry: where is the painted stop line (render/graphRoads.ts
+ * crossing(): rear edge at arm.trim + 4.8 m from the node) or, at a
+ * roundabout entry / unpainted arm, the hold point (trim + 0.3 m)? Then for
+ * every car STANDING at the head of its lane, measure its FRONT bumper's
+ * distance from the node it is waiting for.
+ */
+function stopLineCheck(s: Simulation, tag: string, frames: number) {
+  const g = s.world.roads, rs = rings(g), ringNode = new Set(rs.flatMap((r) => r.nodes));
+  let held = 0, bad: unknown[] = [], inBox = 0, boxSamples = 0, kinds = new Set<string>(), types = new Set<string>();
+  for (let f = 0; f < frames; f++) {
+    s.update(0.25);
+    if (f % 10) continue;
+    const gt = s.traffic.graph.gt as any; if (!gt) continue;
+    const plans = planAll(g, rs);
+    for (const v of gt.vehicles) {
+      if (v.done || v.v > 0.05) continue;
+      if (v.seg.kind === 'conn') { inBox++; continue; }
+      const e = v.seg.edge, dir = v.seg.dir, node = dir === 0 ? g.eB[e] : g.eA[e];
+      const plan = plans.get(node), ring = ringNode.has(node);
+      if (!plan || (!plan.junction && !ring) || v.i + 1 >= v.path.length) continue;
+      const l = gt.list(v.seg); if (l[l.length - 1] !== v) continue; // only the head of the queue
+      const arm = plan.arms.find((a: any) => a.edge === e && a.atA === (dir === 1));
+      if (!arm) continue;
+      if (ring && ringNode.has(g.other(e, node))) continue; // circulating on the ring itself: no entry line
+      const len = g.eLen[e], [s0, s1] = gt.span(e);
+      const centre = dir === 0 ? len - (s0 + v.s) : s1 - v.s; // arc distance from the node
+      const front = centre - CAR_LEN / 2;
+      const painted = plan.junction && !ring && arm.trim + 5.5 <= len / 2;
+      const line = painted ? arm.trim + STOP_LINE_BACK : arm.trim + 0.3;
+      if (gt.laneLen(e) - v.s > 0.01) continue; // queued behind nothing but not at the line yet (braking)
+      held++; kinds.add(ring ? 'roundabout' : g.nKind[node]); types.add(g.eType[e]);
+      if (Math.abs(front - line) > 0.3) bad.push({ e, node, kind: g.nKind[node], type: g.eType[e], front: +front.toFixed(2), line: +line.toFixed(2) });
+    }
+    boxSamples += gt.vehicles.filter((v: any) => !v.done).length;
+  }
+  ok(held > 20 && bad.length === 0, `${tag}: cars waiting at junctions hold with their front on the stop line (±0.3 m)`, { held, bad: bad.slice(0, 5) });
+  return { kinds, types, boxShare: inBox / Math.max(1, boxSamples) };
+}
+{
+  const s = new Simulation(new World(undefined, 4242)); migrateToGraph(s.world); buildTown(s);
+  s.world.peakPop = 3000; // avenues unlock at 250 people
+  s.apply('avenue', rect(10, 26, 50, 26)); // avenue approaches too
+  s.apply('roundabout', [[30, 18], [31, 18], [30, 19], [31, 19]]);
+  // Two junctions become all-way STOP signs.
+  const g = s.world.roads;
+  const sigs = g.liveNodes().filter((n) => g.nKind[n] === 'signal');
+  for (const n of sigs.slice(0, 2)) g.nKind[n] = 'stop';
+  g.version++;
+  console.log('     avenue edges:', g.liveEdges().filter((e) => g.eType[e] === 'avenue').length, 'stop nodes:', sigs.slice(0, 2));
+  for (let i = 0; i < 400; i++) tick(s);
+  const r = stopLineCheck(s, 'bench town (lights, stops, roundabout, streets + avenues)', 3200);
+  ok(['signal', 'stop', 'roundabout'].every((k) => r.kinds.has(k)) && r.types.has('street') && r.types.has('avenue'), 'stop-line check covered lights, stop signs, roundabout entries, streets and avenues', { kinds: [...r.kinds], types: [...r.types] });
+  ok(r.boxShare < 0.05, 'cars rarely stand still inside a junction box (< 5% of samples)', r.boxShare);
+}
+{
+  const s = loadCode(code);
+  const r = stopLineCheck(s, "Parker's save", 2400);
+  ok(r.boxShare < 0.05, "Parker's save: cars rarely stand still inside a junction box", r.boxShare);
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall avenue checks passed');
