@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    id: '2026-10-16-oasis-farm-machines-calendar',
+    title: 'Working farms and a slower calendar',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'new', text: 'Farms now send machines out into their fields: tractors plough in late winter and autumn, drill seed in spring, spray the crop in early summer and a combine harvests the ripe fields, kicking up dust as they go. Between jobs they wait by the barn. Bigger farms send two. Also in the Model viewer.' },
+      { tag: 'improved', text: 'The calendar is slower: a day now lasts 10 seconds at 1× (5 s at 2×, 2.5 s at 3×). The day/night cycle, traffic, growth and money are unchanged at 1×.' },
+      { tag: 'improved', text: 'The 3× button now runs at 4× game speed. Slow frames at the fast speeds are split into smaller steps so cars never skip past lights or queues, and a safety cap stops a laggy frame from piling up extra work.' },
+    ],
+  },
+  {
     // OASIS-AVENUE: avenue upgrade reaches the road graph + intersection fixes
     // (roads/persist.ts upgradeGraphRoads / demoteStaleJunctions, roads/gtraffic.ts).
     id: '2026-10-16-oasis-avenue-traffic',

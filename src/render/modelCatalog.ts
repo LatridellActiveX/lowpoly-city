@@ -18,6 +18,7 @@ import { bigOilModel } from './oilPlantModel';
 import { constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { commerceModels, homeModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
+import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
 import { HEAVY_SKINS } from './heavyIndustry';
 import { ringIslandModel } from './roundaboutModel';
 import { autoSkinMap, industrialMaterial, texturedHome, texturedShop } from './textures';
@@ -93,6 +94,10 @@ export function buildCatalog(): CatalogItem[] {
   // ---- Resources, farms, processors ----
   add('Resources & farms', 'Farm', () => textured(farmModel()));
   for (let k = 0; k < 3; k++) add('Resources & farms', `Food processing plant ${String.fromCharCode(65 + k)}`, () => textured(foodPlantModel(k)));
+  add('Resources & farms', 'Tractor with plough', () => plain(tractorPlough()));
+  add('Resources & farms', 'Tractor with seed drill', () => plain(tractorSeeder()));
+  add('Resources & farms', 'Tractor with crop sprayer', () => plain(tractorSprayer()));
+  add('Resources & farms', 'Combine harvester', () => plain(combineHarvester()));
   add('Resources & farms', 'Construction yard', () => textured(constructionYardModel()));
   add('Resources & farms', 'Oil rig', () => textured(oilRigModel()));
   for (const [key, g] of Object.entries(roleModels())) if (key !== 'oilRig') add('Resources & farms', LABEL[key] ?? pretty(key), () => textured(g));

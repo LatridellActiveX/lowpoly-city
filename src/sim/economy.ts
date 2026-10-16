@@ -100,6 +100,16 @@ export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
 export const MONTH_TICKS = 30;
 
 /**
+ * CALENDAR (display only): one in-game day is DAY_TICKS simulation ticks, i.e.
+ * 10 s at 1× (5 s at 2×, 2.5 s at 3×), a calendar month is 30 days and a year
+ * 12 months. The budget cycle above (MONTH_TICKS) and everything else that
+ * runs per tick — growth, traffic spawning, goods — is unchanged.
+ */
+export const DAY_TICKS = 10;
+export const MONTH_DAYS = 30;
+export const CALENDAR_MONTH_TICKS = DAY_TICKS * MONTH_DAYS;
+
+/**
  * Monthly tax base per building level at a 100% rate. At the default 9% a
  * level-1 house pays $18/month, a level-3 factory $108/month.
  * PR 3 retune: cut by a third (was 300/450/600). PR 2's test city netted

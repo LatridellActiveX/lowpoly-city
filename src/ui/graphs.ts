@@ -15,7 +15,7 @@
  * values at that point in time.
  */
 import { HistoryPoint, Simulation } from '../sim/simulation';
-import { MONTH_TICKS } from '../sim/economy';
+import { CALENDAR_MONTH_TICKS, DAY_TICKS } from '../sim/economy';
 import { formatAmount, formatRatio } from './format';
 
 interface Series {
@@ -50,7 +50,7 @@ const CHARTS: Array<{ title: string; series: Series[] }> = [
 
 /** "Month 3, day 12" for a tick. */
 function when(tick: number): string {
-  return `Month ${Math.floor(tick / MONTH_TICKS) + 1}, day ${Math.floor(((tick % MONTH_TICKS) / MONTH_TICKS) * 30) + 1}`;
+  return `Month ${Math.floor(tick / CALENDAR_MONTH_TICKS) + 1}, day ${Math.floor((tick % CALENDAR_MONTH_TICKS) / DAY_TICKS) + 1}`;
 }
 
 export class GraphsPanel {

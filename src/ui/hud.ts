@@ -131,7 +131,7 @@ export class Hud {
     const time = el('div', 'group');
     (['⏸', '1×', '2×', '3×'] as const).forEach((label, s) => {
       const b = el('button', 'btn', label) as HTMLButtonElement;
-      b.title = s === 0 ? 'Pause (Space)' : `Speed ${s}x`;
+      b.title = s === 0 ? 'Pause (Space)' : `Speed ${s}x (a calendar day takes ${[0, 10, 5, 2.5][s]} s)`;
       b.onclick = () => actions.setSpeed(s);
       this.speedButtons.push(b);
       time.append(b);

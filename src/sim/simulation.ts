@@ -112,6 +112,12 @@ export interface HistoryPoint {
  * within the first couple of minutes of play.
  */
 export const HISTORY_EVERY_TICKS = 20;
+/** Game-time multiplier of each speed button: paused, 1×, 2× and the third button (4× game time: a calendar day is 10 s, 5 s, 2.5 s). */
+export const SPEED_MULT = [0, 1, 2, 4];
+/** Longest traffic step in game seconds (a slow frame at the fast speeds is split). */
+const MAX_TRAFFIC_STEP = 0.5;
+/** Safety cap so a slow frame at the fast speeds can't snowball into ever more ticks. */
+const MAX_TICKS_PER_FRAME = 6;
 export const HISTORY_MAX = 500;
 /** PR 4: about one car on the road per this many residents (before the Settings cap). */
 /** PR 5: 6 → 12 — half as many commuter cars (rush-hour curve unchanged). */
@@ -269,13 +275,17 @@ export class Simulation {
   update(dt: number): void {
     if (this.speed === 0) return;
     // Clamp dt so a backgrounded tab doesn't run thousands of ticks at once.
-    const gameDt = Math.min(dt, 0.25) * this.speed;
+    const gameDt = Math.min(dt, 0.25) * (SPEED_MULT[this.speed] ?? this.speed);
     // PR 4: the game clock (day/night, traffic lights) and vehicles move
     // continuously every frame, independent of the tick rate.
     this.world.clock += gameDt;
-    this.traffic.update(this.world, gameDt);
-    this.acc += gameDt * (this.settings.tickRate || TICKS_PER_SECOND);
-    while (this.acc >= 1) {
+    // At the fast speeds a slow frame can span a big chunk of game time; move
+    // the vehicles in steps of at most MAX_TRAFFIC_STEP so they never skip
+    // past a light or a queue (no extra cost at a normal frame rate).
+    const parts = Math.min(4, Math.ceil(gameDt / MAX_TRAFFIC_STEP - 1e-9));
+    for (let k = 0; k < parts; k++) this.traffic.update(this.world, gameDt / parts);
+    this.acc = Math.min(this.acc + gameDt * (this.settings.tickRate || TICKS_PER_SECOND), MAX_TICKS_PER_FRAME + 1);
+    for (let n = 0; this.acc >= 1 && n < MAX_TICKS_PER_FRAME; n++) {
       this.acc -= 1;
       this.step();
     }

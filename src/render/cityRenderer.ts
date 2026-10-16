@@ -67,6 +67,7 @@ import { serviceSize, Svc } from '../sim/services';
 import { G_MAX, G_WARN, landfillStage, LANDFILL_STAGES } from '../sim/garbage';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
+import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
 import { constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
 import { CREW_PURPOSE } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
@@ -272,6 +273,8 @@ export class CityRenderer {
   private landfills: Array<{ c: THREE.Vector3; stage: number; phase: number }> = [];
   /** PR 4: crane tops (position + phase) for the spinning jibs. */
   private cranes: Array<{ pos: THREE.Vector3; phase: number; aim: number; reach: number }> = [];
+  /** Per-farm work route for the animated tractors: waypoints (world x/z), cumulative lengths, which are field rows being worked, and the farm's crop offset. */
+  private farmRoutes: Array<{ pts: Array<[number, number]>; cum: number[]; work: boolean[]; total: number; crop: number; machines: number; id: number }> = [];
   /** PR 4: bulb positions of every street lamp (for the night halo billboards). */
   private lamps: THREE.Vector3[] = [];
   /** Hub positions of every turbine (for blade animation). */
@@ -499,6 +502,12 @@ export class CityRenderer {
     for (const k of [0, 1, 2]) add(`foodPlant${k}`, autoSkin(foodPlantModel(k)), industrialMaterial(), 128);
     add('constructionYard', constructionYardModel(), solid, 32);
     add('crewLoad', crewLoadModel(), solid, 64);
+    // Farm machines working the fields (animated in animateFarms) and the dust they kick up.
+    add('farmPlough', tractorPlough(), solid, 128);
+    add('farmSeeder', tractorSeeder(), solid, 128);
+    add('farmSprayer', tractorSprayer(), solid, 128);
+    add('farmCombine', combineHarvester(), solid, 128);
+    add('farmDust', new THREE.IcosahedronGeometry(1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false, flatShading: true }), 512, false);
     add('iconCrew', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('crew'), 256, false);
     add('iconGarbage', new THREE.PlaneGeometry(0.5, 0.5), iconMaterial('garbage'), 256, false);
     this.pools.iconGarbage.mesh.renderOrder = 20;
@@ -707,6 +716,7 @@ export class CityRenderer {
     this.markers = [];
     this.lamps = [];
     this.cranes = [];
+    this.farmRoutes = [];
     this.landfills = [];
     this.junctions = [];
     this.stacks = [];
@@ -1360,6 +1370,7 @@ export class CityRenderer {
     for (const b of w.lots.buildings.values()) {
       if (!b.fields && TPL[b.tpl].kind !== 1) continue;
       if (TPL[b.tpl].zone !== 'industrial' || TPL[b.tpl].kind !== 1) continue;
+      const rows = new Map<number, [number, number]>(); // cell row -> [min cx, max cx] of the growing field cells (for the tractors)
       for (let cz = Math.max(0, b.z0 - 20); cz < Math.min(CELL_GRID, b.z1 + 20); cz++)
         for (let cx = Math.max(0, b.x0 - 20); cx < Math.min(CELL_GRID, b.x1 + 20); cx++) {
           const ci = cz * CELL_GRID + cx;
@@ -1368,6 +1379,8 @@ export class CityRenderer {
           const rowYaw = hash2(b.id, 3, seed) > 0.5 ? 0 : Math.PI / 2;
           P.fieldSoil.add(this.place(pos, rowYaw, Q, 1, Q));
           if (cells.role[ci] === CellRole.Fallow) continue;
+          const row = rows.get(cz);
+          if (row) { if (cx < row[0]) row[0] = cx; if (cx > row[1]) row[1] = cx; } else rows.set(cz, [cx, cx]);
           // Season colour (PR 5 palette), per-farm crop offset.
           const crop = hash2(b.id, 71, seed);
           const k = (((month - 1 + crop * 1.5) % 12) + 12) % 12;
@@ -1375,7 +1388,89 @@ export class CityRenderer {
           this.c.setHex(cols[Math.floor(k)]).lerp(TMP.setHex(cols[(Math.floor(k) + 1) % 12]), k % 1);
           P.fieldCrops.add(this.place(pos, rowYaw, Q, 0.7 + crop * 0.6, Q), this.c);
         }
+      if (rows.size) this.addFarmRoute(b, rows, Q);
     }
+  }
+
+  /**
+   * Work route for a farm's tractors: out of the back of the barn, up and down the
+   * rows of its growing fields (nearest row first, alternating direction) and back.
+   */
+  private addFarmRoute(b: { id: number; ox: number; oz: number; face: number; tpl: string; level: number }, rows: Map<number, [number, number]>, Q: number): void {
+    const tpl = TPL[b.tpl];
+    const [gx, gz] = localToCell(b.ox, b.oz, b.face, Math.floor(tpl.w / 2), tpl.d - 1);
+    const G: [number, number] = [(gx + 0.5) * Q, (gz + 0.5) * Q];
+    const order = [...rows.entries()].sort((a, c) => Math.abs((a[0] + 0.5) * Q - G[1]) - Math.abs((c[0] + 0.5) * Q - G[1]));
+    const pts: Array<[number, number]> = [G], work: boolean[] = [];
+    let x = G[0];
+    for (const [cz, [x0, x1]] of order) {
+      const a = x0 * Q, e = (x1 + 1) * Q, z = (cz + 0.5) * Q;
+      const [s0, s1] = Math.abs(x - a) <= Math.abs(x - e) ? [a, e] : [e, a];
+      pts.push([s0, z]); work.push(false);
+      pts.push([s1, z]); work.push(true);
+      x = s1;
+    }
+    pts.push(G); work.push(false);
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    this.farmRoutes.push({ pts, cum, work, total: cum[cum.length - 1], crop: hash2(b.id, 71, this.sim?.world.seed ?? 0), machines: b.level >= 2 ? 2 : 1, id: b.id });
+  }
+
+  /**
+   * Farm machines: depending on the crop's stage a farm sends its tractors to plough, drill seed
+   * or spray, or a combine to harvest; between jobs they stay parked at the barn. They move with the
+   * game clock, so they follow the speed buttons and stop when paused.
+   */
+  private animateFarms(): void {
+    const P = this.pools;
+    const kinds = [P.farmPlough, P.farmSeeder, P.farmSprayer, P.farmCombine, P.farmDust];
+    for (const p of kinds) p.begin();
+    const sim = this.sim;
+    if (sim) {
+      const clock = sim.world.clock, month = sim.world.month;
+      const SPEED = 0.18, PARK = 0.7; // tiles per game second; park time at the barn as route length
+      const day = (clock / 10) % 30; // days of the month, for a smooth season
+      for (const r of this.farmRoutes) {
+        const k = (((month - 1 + day / 30 + r.crop * 1.5) % 12) + 12) % 12;
+        const stage = k < 1 || (k >= 8 && k < 9) ? 0 : k < 3 ? 1 : k < 5 ? 2 : k < 8 ? 3 : -1;
+        for (let m = 0; m < r.machines; m++) {
+          const model = stage === 1 ? P.farmSeeder : stage === 2 ? P.farmSprayer : stage === 3 ? P.farmCombine : P.farmPlough;
+          const cycle = r.total + PARK;
+          let d = stage < 0 ? r.total : (clock * SPEED + m * cycle * 0.5 + r.crop * cycle) % cycle; // idle: parked
+          let px: number, pz: number, yaw: number, working = false;
+          if (d >= r.total) { // parked at the barn gate, pointing at the first row
+            px = r.pts[0][0] + (m ? 0.14 : 0); pz = r.pts[0][1]; d = r.total;
+            yaw = Math.atan2(-(r.pts[1][1] - pz), r.pts[1][0] - px);
+          } else {
+            let i = 1;
+            while (i < r.cum.length - 1 && r.cum[i] <= d) i++;
+            const [ax, az] = r.pts[i - 1], [bx, bz] = r.pts[i];
+            const len = r.cum[i] - r.cum[i - 1] || 1, f = (d - r.cum[i - 1]) / len;
+            px = ax + (bx - ax) * f; pz = az + (bz - az) * f; working = r.work[i - 1];
+            let h = Math.atan2(-(bz - az), bx - ax);
+            if (i + 1 < r.pts.length) { // swing into the next leg over the last 0.12 tiles
+              const left = r.cum[i] - d;
+              if (left < 0.12) {
+                const h2 = Math.atan2(-(r.pts[i + 1][1] - bz), r.pts[i + 1][0] - bx);
+                h += Math.atan2(Math.sin(h2 - h), Math.cos(h2 - h)) * (1 - left / 0.12);
+              }
+            }
+            yaw = h;
+          }
+          this.pv.set(px, 0.02, pz);
+          model.add(this.place(this.pv, yaw));
+          if (working && stage >= 0) {
+            for (let q = 0; q < 3; q++) {
+              const a = (clock * 0.7 + q / 3 + m * 0.37) % 1;
+              this.pv.set(px - Math.cos(yaw) * (0.12 + a * 0.12), 0.03 + a * 0.07, pz + Math.sin(yaw) * (0.12 + a * 0.12));
+              const sz = 0.012 + a * 0.03, g = 0.62 - a * 0.1;
+              P.farmDust.add(this.place(this.pv, 0, sz, sz, sz), this.c.setRGB(g, g * 0.85, g * 0.62));
+            }
+          }
+        }
+      }
+    }
+    for (const p of kinds) p.end();
   }
 
   /**
@@ -1666,6 +1761,7 @@ export class CityRenderer {
     nac.end();
 
     this.animateTraffic();
+    this.animateFarms();
     // Lamp halos face the camera (billboards), like the warning icons.
     const halo = this.pools.lampHalo;
     halo.begin();
