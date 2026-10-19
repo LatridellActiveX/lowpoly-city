@@ -54,9 +54,12 @@ const sig = graphSignals(g, plans);
 const want = [...plans.entries()].filter(([n, p]) => g.nKind[n] === 'signal' && p.junction).reduce((s, [, p]) => s + p.arms.length, 0);
 ok(sig.length === want && want > 0, 'one signal pole per approach', [sig.length, want]);
 const gt = new GraphTraffic(g as any);
+// OASIS-S3: demand-actuated lights only switch when someone waits; pretend
+// every approach always has cars so each light cycles (MAX_GREEN, amber, all-red).
+gt.signalDemand = () => true;
 let mismatch = 0, multi = 0, amberSeen = 0, amberBad = 0;
 for (let step = 0; step < 400; step++) {
-  gt.time = step * 0.25;
+  gt.update(0.25);
   const goByNode = new Map<number, number>();
   for (const s of sig) {
     const slot = signalSlot(gt, s.node, s.edge);

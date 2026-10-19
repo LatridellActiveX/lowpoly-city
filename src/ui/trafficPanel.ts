@@ -37,7 +37,9 @@ export function nodePanel(n: NodeInfo): [string, string[]] {
   // Signal
   if (n.signal) {
     const s = n.signal;
-    rows.push(`<div class="row">🚦 Phase ${s.phase + 1}/${s.phases}: ${s.state === 'green' ? `<span class="ok">green</span> for ${s.greenEdges.map((e) => cid('edge', e)).join(' + ')}` : '<b>all red</b> (clearing)'} · ${secs(s.remaining)} left</div>`);
+    // OASIS-S3: demand-actuated lights — a green with nobody else waiting rests (no countdown).
+    const what = s.state === 'green' ? `<span class="ok">green</span> for ${s.greenEdges.map((e) => cid('edge', e)).join(' + ')}` : s.state === 'amber' ? `<b>amber</b> (switching to phase ${s.next + 1})` : `<b>all red</b> (clearing for phase ${s.next + 1})`;
+    rows.push(`<div class="row">🚦 Phase ${s.phase + 1}/${s.phases}: ${what} · ${s.resting ? 'stays green until a car waits on another road' : `${secs(s.remaining)} left at most`}</div>`);
   }
   // Lane connections, grouped per incoming lane: "edge 17 L0 → ↰ e5 L0 · ↑ e8 L0"
   if (n.conns.length) {

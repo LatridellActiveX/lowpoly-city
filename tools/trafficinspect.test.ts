@@ -76,11 +76,13 @@ function town() {
 // ---- signal phase mirrors GraphTraffic.green ----
 {
   const T = town(), gt = new GraphTraffic(T.g);
+  // OASIS-S3: drive the demand-actuated controller with "cars everywhere" so it cycles.
+  gt.signalDemand = () => true;
   let agree = 0, total = 0;
   for (let t = 0; t < 120; t += 0.7) {
-    gt.time = t; const s = signalInfo(gt, T.c)!;
-    for (const e of [T.w, T.e, T.n, T.s]) { total++; if (gt.green(T.c, e) === (s.state === 'green' && s.greenEdges.includes(e))) agree++; }
-    if (!(s.remaining > 0 && s.remaining <= 12)) { ok(false, 'remaining within the phase', s); break; }
+    gt.update(0.7); const s = signalInfo(gt, T.c)!;
+    for (const e of [T.w, T.e, T.n, T.s]) { total++; if (gt.green(T.c, e) === (s.state !== 'all-red' && s.greenEdges.includes(e))) agree++; }
+    if (!(s.remaining >= 0 && s.remaining <= 20)) { ok(false, 'remaining within the phase', s); break; }
   }
   ok(agree === total, 'signal state matches GraphTraffic.green at every sampled time', { agree, total });
   ok(signalInfo(gt, T.E) === null, 'non-signal node has no signal info');

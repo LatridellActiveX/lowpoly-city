@@ -21,11 +21,13 @@
  * JUNCTION CONTROL (node kind)
  *   plain       first come: enter when no conflicting connector is occupied.
  *   stop        come to a full stop (STOP_WAIT s) at the line, then as plain.
- *   signal      one PHASE green at a time, SIGNAL_GREEN s each plus
- *               SIGNAL_CLEAR all-red. OASIS-AVENUE: a phase is a pair of
+ *   signal      one PHASE green at a time. OASIS-S3: DEMAND-ACTUATED —
+ *               a green rests while nobody else waits and switches to a
+ *               waiting phase once its own approaches empty (MIN_GREEN …
+ *               MAX_GREEN s, then AMBER_S amber + SIGNAL_CLEAR all-red; see
+ *               stepSignals). OASIS-AVENUE: a phase is a pair of
  *               OPPOSITE approaches (a through road) or a lone approach, so a
- *               T or a cross runs 2 phases; nearby lights (≤ 48 m) are
- *               offset into a green wave (GraphTraffic.offset). RIGHT-ON-RED (the 1.5b fix):
+ *               T or a cross runs 2 phases. RIGHT-ON-RED (the 1.5b fix):
  *               a right-turner on red stops ROR_STOP s, then goes if no
  *               occupied connector shares its EXIT lane and the exit lane's
  *               first ROR_GAP metres are empty. It does not wait for
@@ -77,6 +79,18 @@ import { planAll, rings } from './junctions';
 export const LANE_W = LANE_M;
 export const STRAIGHT_DEG = 30;
 export const SIGNAL_GREEN = 12, SIGNAL_CLEAR = 2;
+/**
+ * OASIS-S3 demand-actuated lights (see GraphTraffic.stepSignals):
+ *  MIN_GREEN  a green always lasts at least this long (s)
+ *  MAX_GREEN  a green that others are waiting for ends after this (s)
+ *  AMBER_S    amber before the all-red, only when cars are still coming (s)
+ *  DETECT     how far before the stop line a car counts as waiting (m)
+ * (SIGNAL_GREEN is no longer a clock; it is kept as the typical green for
+ *  the Inspect panel's wording and old tests.)
+ */
+export const MIN_GREEN = 5, MAX_GREEN = 20, AMBER_S = 2.5, DETECT = 60;
+/** OASIS-S3: one light's controller: current phase, what it is doing, for how long, and which phase goes next. */
+export interface SigState { ph: number; mode: 'green' | 'amber' | 'clear'; t: number; next: number }
 export const ROR_STOP = 1, ROR_GAP = 12;
 export const STOP_WAIT = 1;
 export const YIELD_GAP = 15;
@@ -324,7 +338,9 @@ export class GraphTraffic {
     // New graph: identity key → edge id (only edges that survived the edit match).
     const byKey = new Map<string, number>();
     for (const e of g.liveEdges()) byKey.set(this.edgeKey(e), e);
-    this.time = old.time; // signals keep their timing
+    this.time = old.time;
+    // OASIS-S3: every light that is still a light keeps its controller state.
+    for (const [n, st] of old.sig) if (g.nAlive[n] && g.nKind[n] === 'signal') this.sig.set(n, { ...st });
     this.nextId = Math.max(this.nextId, old.nextId);
     const res = { kept: 0, moved: 0, finished: 0, why: {} as Record<string, number> }, finished: Vehicle[] = [];
     /** Why cars could not be put back (diagnostics: Inspect / tests). */
@@ -769,34 +785,94 @@ export class GraphTraffic {
     for (let i = 0; i < J.conns.length; i++) { const c = J.conns[i]; if (c.inEdge === inEdge && c.outEdge === outEdge) { if (c.inLane === inLane || inLane < 0) return i; if (any < 0) any = i; } }
     return any;
   }
-  /** Signal state: is the approach on edge e green at node n? */
+  /* ---------------- OASIS-S3: DEMAND-ACTUATED TRAFFIC LIGHTS ----------------
+   * Parker: "traffic lights are green for cars waiting if there are no cars
+   * in the other roads instead of it being timed".
+   *
+   * Before: every light ran a fixed clock (12 s green per phase, 2 s all-red,
+   * nearby lights offset into a "green wave"), so a lone car could sit at a
+   * red light on an empty crossing for up to ~14 s.
+   *
+   * Now every light has a small controller that LOOKS at the roads, like a
+   * real light with sensor loops in the road:
+   *   - DEMAND: a phase "has cars" when a car heading through the junction
+   *     is within DETECT m of the stop line on one of its approaches.
+   *   - A green phase STAYS green while nobody else is waiting ("rest on
+   *     green") — however long that is.
+   *   - When another phase has cars and this green has run MIN_GREEN s, it
+   *     switches as soon as its own approaches are empty, or at MAX_GREEN s
+   *     at the latest (so busy cross traffic can never starve anyone).
+   *   - Switching: AMBER_S s amber if cars are still coming on the old green
+   *     (they may still go, as before), then SIGNAL_CLEAR s all-red so the
+   *     box empties, then the next waiting phase (in turn order) gets green.
+   *     With nobody left on the old green the amber is skipped, so a lone
+   *     car on an empty crossing gets green about 2 s after it arrives.
+   *   - GREEN WAVE: the old fixed offsets are gone; a group of cars released
+   *     by one light shows up as demand at the next one and holds or calls
+   *     its green there instead.
+   * Phases are the same as before (opposite approaches together), right on
+   * red still works, and the controllers run in node order every tick, so
+   * a replay is still identical.
+   * ------------------------------------------------------------------------ */
+  private sig = new Map<number, SigState>();
+  /**
+   * Tests / tools: override the demand sensor (true = cars waiting). With
+   * `() => true` every light cycles at MAX_GREEN like a fixed-time light.
+   */
+  signalDemand?: (n: number, phase: number) => boolean;
+  /** The controller of signal node n (created green on phase 0). */
+  signalState(n: number): Readonly<SigState> { return this.sigOf(n); }
+  private sigOf(n: number): SigState {
+    let st = this.sig.get(n);
+    if (!st) { st = { ph: 0, mode: 'green', t: 0, next: 0 }; this.sig.set(n, st); }
+    const k = this.junctions.get(n)?.phases.length ?? 1;
+    if (st.ph >= k) { st.ph = 0; st.next = 0; st.mode = 'green'; st.t = 0; } // the junction lost an approach
+    return st;
+  }
+  /** Tests / tools: put signal n straight onto `phase`, green (or another mode), timer 0. */
+  forcePhase(n: number, phase: number, mode: SigState['mode'] = 'green'): void { const st = this.sigOf(n); st.ph = phase; st.next = phase; st.mode = mode; st.t = 0; }
+  /** Is a car heading THROUGH node n within DETECT m of the stop line on an approach of `phase`? */
+  phaseDemand(n: number, phase: number): boolean {
+    if (this.signalDemand) return this.signalDemand(n, phase);
+    const g = this.g, J = this.junctions.get(n)!;
+    for (const e of J.phases[phase]) {
+      const dir: 0 | 1 = g.eB[e] === n ? 0 : 1, L = this.laneLen(e);
+      for (let lane = 0; lane < this.lanes(e); lane++) {
+        const l = this.onSeg.get(laneKey(e, dir, lane));
+        if (!l) continue;
+        // Leaders are at the end of the list: walk back while within range.
+        for (let k = l.length - 1; k >= 0 && L - l[k].s <= DETECT; k--) { const v = l[k]; if (v.i + 1 < v.path.length && v.path[v.i] === e) return true; }
+      }
+    }
+    return false;
+  }
+  /** Run every signal controller for dt seconds (once per update, node order). */
+  private stepSignals(dt: number): void {
+    for (const [n, J] of this.junctions) {
+      const k = J.phases.length;
+      if (k <= 1 || this.g.nKind[n] !== 'signal') continue;
+      const st = this.sigOf(n);
+      st.t += dt;
+      if (st.mode === 'green') {
+        if (st.t < MIN_GREEN) continue;
+        // The next phase in turn order that has cars waiting, if any.
+        let next = -1;
+        for (let q = 1; q < k && next < 0; q++) { const p = (st.ph + q) % k; if (this.phaseDemand(n, p)) next = p; }
+        if (next < 0) continue; // nobody else waiting: rest on green
+        const mine = this.phaseDemand(n, st.ph);
+        if (mine && st.t < MAX_GREEN) continue; // keep serving the flow (up to MAX_GREEN)
+        st.next = next; st.mode = mine ? 'amber' : 'clear'; st.t = 0;
+      } else if (st.mode === 'amber') {
+        if (st.t >= AMBER_S) { st.mode = 'clear'; st.t = 0; }
+      } else if (st.t >= SIGNAL_CLEAR) { st.mode = 'green'; st.ph = st.next; st.t = 0; }
+    }
+  }
+  /** Signal state: is the approach on edge e green (or amber: cars may still go) at node n? */
   green(n: number, e: number): boolean {
     const J = this.junctions.get(n)!, k = J.phases.length;
     if (k <= 1) return true; // one phase (a through road with no side road): always green
-    const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (this.time + this.offset(n)) % (cyc * k), ph = Math.floor(tt / cyc);
-    return J.phases[ph].includes(e) && tt - ph * cyc < SIGNAL_GREEN;
-  }
-  /**
-   * OASIS-AVENUE fix #4b: a per-node phase OFFSET (seconds) so lights close
-   * together run as a GREEN WAVE instead of independently. A signal that is
-   * joined by a short edge (≤ 48 m) to a lower-numbered signal copies that
-   * node's offset plus the travel time, so a platoon released by one light
-   * arrives on green at the next. Cached per graph version.
-   */
-  private offsets = new Map<number, number>();
-  private offsetsVersion = -1;
-  offset(n: number): number {
-    if (this.offsetsVersion !== this.g.version) { this.offsets.clear(); this.offsetsVersion = this.g.version; }
-    const hit = this.offsets.get(n); if (hit !== undefined) return hit;
-    this.offsets.set(n, 0); // cycle guard
-    const g = this.g;
-    let off = 0;
-    for (const e of g.nEdges[n]) {
-      const m = g.other(e, n);
-      if (m < n && g.nKind[m] === 'signal' && g.eLen[e] <= 48) { off = this.offset(m) - g.eLen[e] / ROAD_SPEC[g.eType[e]].speed; break; }
-    }
-    this.offsets.set(n, off);
-    return off;
+    const st = this.sigOf(n);
+    return st.mode !== 'clear' && J.phases[st.ph].includes(e);
   }
   /** May vehicle v, at the end of its lane, enter connector ci at node n now? */
   private mayEnter(v: Vehicle, n: number, ci: number, dt: number): boolean {
@@ -873,6 +949,7 @@ export class GraphTraffic {
     // OASIS-AVENUE anti-starvation: last frame's longest claim becomes the one honoured this frame.
     for (const J of this.junctions.values()) { J.held = J.claim; J.claim = -1; J.claimWait = 0; }
     if (this.cacheVersion !== this.g.version) this.build();
+    this.stepSignals(dt); // OASIS-S3: lights look at the waiting cars first
     for (const [, l] of this.onSeg) {
       // leader first (largest s)
       for (let k = l.length - 1; k >= 0; k--) this.move(l[k], l, k, dt);

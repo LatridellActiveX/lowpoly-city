@@ -21,7 +21,9 @@
 import { at, tangent, tAtLength, V2 } from '../roads/bezier';
 import { isStraight, RoadGraph } from '../roads/graph';
 import { armFrame, JunctionPlan, kerbHalfOf, Ring } from '../roads/junctions';
-import { GraphTraffic, SIGNAL_CLEAR, SIGNAL_GREEN } from '../roads/gtraffic';
+import { GraphTraffic } from '../roads/gtraffic';
+/** OASIS-S3: amber length now lives with the controller (roads/gtraffic.ts); re-exported for old imports. */
+export { AMBER_S } from '../roads/gtraffic';
 
 const U = 1 / 32;
 
@@ -187,23 +189,18 @@ export function graphSignals(g: RoadGraph, plans: Map<number, JunctionPlan>): Gr
   return out;
 }
 
-/** Seconds of AMBER at the end of each green (taken out of SIGNAL_GREEN, display only). */
-export const AMBER_S = 2.5;
-
 /**
  * Which lamp is lit for approach `e` at node `n`: 0 red, 1 amber, 2 green.
- * Reads the LIVE controller (GraphTraffic.green — the very test cars use to
- * stop), and only adds amber as the last AMBER_S of that green, so the
- * display can never show go while cars are held (right-on-red, which lets
- * cars turn right through a red, is untouched: it never changes the phase).
+ * OASIS-S3: reads the LIVE demand-actuated controller (GraphTraffic
+ * signalState — the very state cars use to stop): amber is the controller's
+ * own amber step before it switches (cars may still go on amber, as before),
+ * so the display can never show go while cars are held.
  */
 export function signalSlot(gt: GraphTraffic, n: number, e: number): 0 | 1 | 2 {
   const J = gt.junctions.get(n);
   if (!J || !J.phases.length) return 0;
   if (!gt.green(n, e)) return 0;
-  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (gt.time + gt.offset(n)) % (cyc * J.phases.length); // OASIS-AVENUE: paired phases + green-wave offset
-  const into = tt - Math.floor(tt / cyc) * cyc;
-  return into >= SIGNAL_GREEN - AMBER_S ? 1 : 2;
+  return J.phases.length > 1 && gt.signalState(n).mode === 'amber' ? 1 : 2;
 }
 
 /* --------------------------------------------------------------- helpers */

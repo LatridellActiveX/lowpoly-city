@@ -30,7 +30,7 @@
  */
 import { nearest, V2 } from '../roads/bezier';
 import { RoadGraph, RoadType, ROAD_SPEC, TILE_M } from '../roads/graph';
-import { GraphTraffic, nodeClear, SIGNAL_CLEAR, SIGNAL_GREEN, Vehicle } from '../roads/gtraffic';
+import { AMBER_S, GraphTraffic, MAX_GREEN, MIN_GREEN, nodeClear, SIGNAL_CLEAR, Vehicle } from '../roads/gtraffic';
 
 /** Seconds stationary before a car counts as STUCK (the "Show stuck cars" highlight). */
 export const STUCK_SECONDS = 10;
@@ -65,10 +65,16 @@ export interface SignalInfo {
   greenEdges: number[];
   /** Phase index / phase count (one phase per approach). */
   phase: number; phases: number;
-  /** 'green' while the approach runs, 'all-red' during the clearance. */
-  state: 'green' | 'all-red';
-  /** Seconds until this state ends. */
+  /** 'green' while the approach runs, 'amber' just before it switches, 'all-red' during the clearance. */
+  state: 'green' | 'amber' | 'all-red';
+  /**
+   * Seconds until this state ends. OASIS-S3: for a green this is the most it
+   * can still last (MAX_GREEN), or Infinity when nobody else is waiting
+   * (it rests on green).
+   */
   remaining: number;
+  /** OASIS-S3: phase that goes next (the waiting one), and whether this green is resting (nobody else waiting). */
+  next: number; resting: boolean;
 }
 export interface QueueRow { edge: number; queued: number; longestWait: number }
 export interface NodeInfo {
@@ -160,19 +166,19 @@ export function nodeShape(g: RoadGraph, n: number, outside = false): NodeShape {
 }
 
 /**
- * Signal phase at node n, mirroring GraphTraffic.green exactly: phases cycle
- * over J.phases, SIGNAL_GREEN s green then SIGNAL_CLEAR s all-red each.
- * Null when the node isn't a signal or has ≤ 1 approach (always green).
+ * Signal state at node n, read from GraphTraffic's live controller
+ * (OASIS-S3 demand-actuated lights: signalState), so it mirrors green()
+ * exactly. Null when the node isn't a signal or has ≤ 1 approach (always green).
  */
 export function signalInfo(gt: GraphTraffic, n: number): SignalInfo | null {
   if (gt.g.nKind[n] !== 'signal') return null;
   const J = gt.junctions.get(n); if (!J) return null;
-  // OASIS-AVENUE: cycle over J.phases (paired opposite approaches) with the
-  // node's green-wave offset — the same expression as GraphTraffic.green.
   const k = J.phases.length; if (k <= 1) return null;
-  const cyc = SIGNAL_GREEN + SIGNAL_CLEAR, tt = (gt.time + gt.offset(n)) % (cyc * k), ph = Math.floor(tt / cyc), into = tt - ph * cyc;
-  const green = into < SIGNAL_GREEN;
-  return { greenEdge: J.phases[ph][0], greenEdges: J.phases[ph], phase: ph, phases: k, state: green ? 'green' : 'all-red', remaining: green ? SIGNAL_GREEN - into : cyc - into };
+  const st = gt.signalState(n);
+  let waiting = false; for (let q = 0; q < k; q++) if (q !== st.ph && gt.phaseDemand(n, q)) waiting = true;
+  const state = st.mode === 'clear' ? 'all-red' : st.mode;
+  const remaining = st.mode === 'amber' ? AMBER_S - st.t : st.mode === 'clear' ? SIGNAL_CLEAR - st.t : waiting ? Math.max(MIN_GREEN, MAX_GREEN) - st.t : Infinity;
+  return { greenEdge: J.phases[st.ph][0], greenEdges: J.phases[st.ph], phase: st.ph, phases: k, state, remaining: Math.max(0, remaining), next: st.mode === 'green' ? st.ph : st.next, resting: st.mode === 'green' && !waiting };
 }
 
 /* ------------------------------------------------------------------ */

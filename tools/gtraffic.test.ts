@@ -97,26 +97,28 @@ const plus = (kind: 'plain' | 'signal' | 'stop' = 'plain', type: 'street' | 'ave
   const edgeTo = (n: number) => g.nEdges[c].find((e) => g.other(e, c) === n)!;
   const J = tr.junctions.get(c)!;
   const rightTo = J.conns[tr.connector(c, edgeTo(W), edgeTo(N), -1)].turn === 'right' ? N : S;
-  // find a moment when W is red
-  while (tr.green(c, edgeTo(W))) tr.time += 0.5;
+  // OASIS-S3: lights are demand-actuated now, so instead of waiting for a
+  // clock moment, put the light on the CROSS phase (W red) directly.
+  const Jw = tr.junctions.get(c)!, phW = Jw.phases.findIndex((p) => p.includes(edgeTo(W))), phX = (phW + 1) % Jw.phases.length;
+  tr.forcePhase(c, phX);
   const t0 = tr.time;
   const straight = tr.spawn(W, E)!, rt = tr.spawn(S === rightTo ? N : S, E); void rt;
   const r = tr.spawn(W, rightTo);
   void r;
   run(tr, 30);
   ok(tr.stats.rightOnRed >= 0, 'signal: right on red counted');
-  // OASIS-SAFEGAP: the approach time depends on the speed rule, so instead of
-  // one fixed start phase, try start phases across a whole cycle: in at least
-  // one the car reaches the line on red and must turn right on red.
-  let v2 = new GraphTraffic(g), wasRed = false;
-  for (let ph = 0; ph < 30 && !(v2.stats.rightOnRed === 1 && wasRed); ph++) {
-    v2 = new GraphTraffic(g); v2.time = ph;
-    v2.spawn(W, rightTo);
-    let at = -1; for (let t = 0; t < 60 && at < 0; t += 0.1) { v2.update(0.1); if (v2.stats.rightOnRed > 0 || v2.stats.arrived) at = t; }
-    wasRed = !v2.green(c, edgeTo(W));
+  // Right on red: make the controller believe only the CROSS phase has
+  // cars (signalDemand override), so it rests on the cross green and the
+  // right-turner from W reaches its line on red and must turn right on red.
+  const v2 = new GraphTraffic(g); v2.forcePhase(c, phX); v2.signalDemand = (_n, p) => p === phX;
+  let wasRed = false, ror = false;
+  v2.spawn(W, rightTo);
+  for (let t = 0; t < 150 && !ror; t += 0.1) {
+    v2.update(0.1);
+    if (v2.stats.rightOnRed > 0) { ror = true; wasRed = !v2.green(c, edgeTo(W)); }
   }
   ok(v2.stats.rightOnRed === 1 && wasRed, 'signal: a right-turner goes on red after stopping', { ror: v2.stats.rightOnRed });
-  const v3 = new GraphTraffic(g); while (v3.green(c, edgeTo(W))) v3.time += 0.5;
+  const v3 = new GraphTraffic(g); v3.forcePhase(c, phX);
   const s3 = v3.spawn(W, E)! as Vehicle;
   let crossedOnRed = false; for (let t = 0; t < 160; t += 0.1) { v3.update(0.1); if (s3.seg.kind === 'conn' && !v3.green(c, edgeTo(W)) && s3.s < 0.5) crossedOnRed = true; }
   ok(!crossedOnRed && v3.stats.arrived === 1, 'signal: straight traffic waits for green, then arrives');

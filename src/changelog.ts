@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S3: roads/gtraffic.ts actuated controller (stepSignals, phaseDemand, MIN/MAX_GREEN, amber) replaces the fixed timer; render/graphUtilities.ts amber lamp; sim/trafficInspect.ts + ui/trafficPanel.ts show it; tools/actuated.test.ts.
+    id: '2026-10-19-oasis-s3-demand-actuated-lights',
+    title: 'Traffic lights react to waiting cars',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'improved', text: 'Traffic lights are no longer on a fixed timer. A light stays green while cars are using it, and when a car pulls up to a red light with nobody on the other roads it turns green for it after a short all-red, instead of making it wait out the cycle.' },
+      { tag: 'improved', text: 'Busy junctions still take turns fairly: a green lasts at least 5 seconds and at most 20 seconds while another road is waiting, then shows amber before switching.' },
+      { tag: 'improved', text: 'The traffic inspector shows the new amber and all-red steps, which road is next, and when a light is resting on green because nobody else is waiting.' },
+    ],
+  },
+  {
     // OASIS-S2: roads/graph.ts beforeChange hook, roads/gtraffic.ts takeSnapshot/adopt, sim/livegraph.ts adopts instead of finishAll; tools/keeptraffic.test.ts.
     id: '2026-10-19-oasis-s2-keep-traffic-on-road-edits',
     title: 'Building roads no longer clears traffic',

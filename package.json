@@ -41,6 +41,7 @@
     "test:avenue": "esbuild tools/avenue.test.ts --bundle --platform=node --format=esm --outfile=/tmp/avenue-test.mjs --log-level=error && node /tmp/avenue-test.mjs",
     "test:safegap": "esbuild tools/safegap.test.ts --bundle --platform=node --format=esm --outfile=/tmp/safegap-test.mjs --log-level=error && node /tmp/safegap-test.mjs",
     "test:menuyard": "esbuild tools/menuyard.test.ts --bundle --platform=node --format=esm --outfile=/tmp/menuyard-test.mjs --log-level=error && node /tmp/menuyard-test.mjs",
+    "test:actuated": "esbuild tools/actuated.test.ts --bundle --platform=node --format=esm --outfile=/tmp/actuated-test.mjs --log-level=error && node /tmp/actuated-test.mjs",
     "test:keeptraffic": "esbuild tools/keeptraffic.test.ts --bundle --platform=node --format=esm --outfile=/tmp/keeptraffic-test.mjs --log-level=error && node /tmp/keeptraffic-test.mjs",
     "test:format": "esbuild tools/format.test.ts --bundle --platform=node --format=esm --outfile=/tmp/format-test.mjs --log-level=error && node /tmp/format-test.mjs",
     "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs"
