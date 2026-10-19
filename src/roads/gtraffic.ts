@@ -73,7 +73,7 @@
  */
 import { at, buildLut, Cubic, lengthAtT, nearest, polyline, segX, tAtLength, tangent, V2 } from './bezier';
 import { LANE_M, RoadGraph, ROAD_SPEC } from './graph';
-import { planAll, rings } from './junctions';
+import { edgeTapers, planAll, rings, Taper, taperBlend } from './junctions';
 
 /** Lane width = the B6 cross-section's lane (cars must fit visibly). */
 export const LANE_W = LANE_M;
@@ -215,6 +215,8 @@ export class GraphTraffic {
   private onSeg = new Map<string, Vehicle[]>();
   private cache = new Map<string, { edges: number[]; nodes: number[] } | null>();
   private cacheVersion = -1;
+  /** OASIS-S5: edge → [taper at its a-end, at its b-end] (junctions.ts edgeTapers), rebuilt with the junctions. */
+  private readonly tapers = new Map<number, [Taper | null, Taper | null]>();
   private nextId = 1;
   time = 0;
   stats = { spawned: 0, arrived: 0, rightOnRed: 0, yields: 0, noRoute: 0, gaveUp: 0 };
@@ -494,7 +496,22 @@ export class GraphTraffic {
     const sa = dir === 0 ? s0 + s : L - (L - s1) - s; // along a→b
     const t = tAtLength(this.g.eLut[e], Math.max(0, Math.min(L, sa)));
     const p = at(this.g.eCurve[e], t), d = tangent(this.g.eCurve[e], t);
-    const sg = dir === 0 ? 1 : -1, o = this.laneOff(lane, e);
+    const sg = dir === 0 ? 1 : -1;
+    let o = this.laneOff(lane, e);
+    // OASIS-S5 TAPER: near a node where this (wider) road runs on as a
+    // narrower one, the lane centre slides smoothly (same smoothstep as the
+    // drawn asphalt, junctions.ts taperBlend) to the narrow road's lane, so
+    // cars follow the narrowing road instead of driving off its edge. Only
+    // the drawn position bends — arc lengths, gaps and timing are unchanged.
+    const tp = this.tapers.get(e);
+    if (tp) {
+      const blendAt = (t: Taper | null, d: number) => {
+        if (!t) return;
+        const sp = ROAD_SPEC[t.narrow], on = sp.median / 2 + (Math.min(lane, sp.lanes - 1) + 0.5) * LANE_W;
+        o = on + (o - on) * taperBlend(d, t.len);
+      };
+      blendAt(tp[0], sa); blendAt(tp[1], L - sa);
+    }
     // right of travel: travel dir = sg·d → right normal = (sg·d.z, −sg·d.x)
     return { x: p.x + sg * d.z * o, z: p.z - sg * d.x * o };
   }
@@ -509,6 +526,9 @@ export class GraphTraffic {
   build(): void {
     const g = this.g;
     this.junctions.clear();
+    // OASIS-S5: which edge ends taper (lanePoint bends lanes there).
+    this.tapers.clear();
+    for (const e of g.liveEdges()) { const t = edgeTapers(g, e); if (t[0] || t[1]) this.tapers.set(e, t); }
     this.buildStopLines(); // before the connectors: they start at the lane ends
     for (const n of g.liveNodes()) this.junctions.set(n, this.buildNode(n));
     this.cache.clear(); this.cacheVersion = g.version;

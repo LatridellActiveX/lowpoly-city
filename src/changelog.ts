@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S5: roads/junctions.ts Taper / TAPER_M / taperBlend / edgeTapers on straight degree-2 nodes of different width; render/graphRoads.ts extrude halfAt/medAt in 1 m slices; roads/gtraffic.ts lanePoint follows the taper; tools/junctions.test.ts.
+    id: '2026-10-19-oasis-s5-avenue-street-taper',
+    title: 'Avenues narrow smoothly into streets',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'improved', text: 'Where an avenue carries straight on as an ordinary street, it no longer steps abruptly from four lanes to two. Over its last 30 metres the avenue narrows in a smooth curve: the kerbs and sidewalks bend in to meet the street\'s, the double yellow median closes to a point, and the two lanes on each side merge into one.' },
+      { tag: 'improved', text: 'Cars follow the narrowing road too, gliding over into the single lane instead of driving off the edge of the street. The same smooth narrowing applies wherever a wider road runs straight on as a narrower one, for example a highway into an avenue.' },
+    ],
+  },
+  {
     // OASIS-S4: sim/environment.ts parkReach (road BFS ≤ PARK_ROAD_REACH + fronting lots) replaces the 10×10 square; rules.ts PARK_ROAD_REACH / PARK_FRONT_DEPTH; main.ts park preview; ui/tools.ts hint; tools/parkroads.test.ts.
     id: '2026-10-19-oasis-s4-parks-serve-by-road',
     title: 'Parks serve the streets they are on',

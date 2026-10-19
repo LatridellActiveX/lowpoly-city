@@ -16,6 +16,11 @@
  * CROSSWALK and a STOP LINE across its inbound lanes. Dead ends get a
  * round asphalt cap with a kerb ring.
  *
+ * TAPERS (OASIS-S5): where an avenue runs straight on as a street (or any
+ * wider road as a narrower one) the wider edge narrows over its last ~30 m
+ * in 1 m slices (extrude halfAt/medAt), median closing to a nose, instead of
+ * stepping at the node.
+ *
  * Everything static is merged into ONE vertex-coloured mesh (one draw
  * call), rebuilt only when world.roads.version changes.
  *
@@ -37,7 +42,7 @@ import { ZoneBlocks } from '../roads/blocks';
 import { GraphTraffic } from '../roads/gtraffic';
 import type { Simulation } from '../sim/simulation';
 import { GRID_SIZE } from '../sim/types';
-import { CROSSWALK_ROOM, edgeTrims, JunctionPlan, planAll, Ring, rings } from '../roads/junctions';
+import { CROSSWALK_ROOM, edgeTrims, JunctionPlan, planAll, Ring, rings, Taper, taperBlend } from '../roads/junctions';
 
 const U = 1 / TILE_M;
 const Y_ASPHALT = 0.041, Y_MARK = 0.0425, Y_KERB = 0.06, Y_WALK = 0.056, Y_ZONE = 0.064;
@@ -52,7 +57,7 @@ const PAINT_W = 0.15, DASH = 3, GAP = 6;
 const hash = (a: number, b: number, c: number) => { let h = (a * 374761393 + b * 668265263 + c * 2147483647) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 
 /** Growable vertex/colour/index buffers. */
-class Mesher {
+export class Mesher {
   pos: number[] = []; col: number[] = []; idx: number[] = [];
   quad(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, ca: THREE.Color, cb = ca, cc = cb, cd = ca): void {
     const n = this.pos.length / 3;
@@ -108,55 +113,95 @@ const v3 = (p: V2, n: V2, off: number, y: number) => new THREE.Vector3((p.x + n.
  * markings start (junction arms keep room for the crosswalk + stop line, so
  * no dash or edge line runs through them).
  */
-export function extrude(m: Mesher, c: Cubic, lut: Float32Array, len: number, type: RoadType, seed: number, trimA: number, trimB: number, ghost = false, markA = 0, markB = 0): void {
-  const sp = ROAD_SPEC[type], half = sp.width / 2, med = sp.median / 2;
+export function extrude(m: Mesher, c: Cubic, lut: Float32Array, len: number, type: RoadType, seed: number, trimA: number, trimB: number, ghost = false, markA = 0, markB = 0, tapers: [Taper | null, Taper | null] = [null, null]): void {
+  const sp = ROAD_SPEC[type];
+  // OASIS-S5 TAPER: the cross-section can narrow towards either end (where
+  // this wider road runs on as a narrower one, junctions.ts Taper). halfAt /
+  // medAt give the asphalt half-width and the median half-width at arc s:
+  // the full width away from a taper, exactly the narrow road's at the node,
+  // smoothstep in between. Every band (gutter, kerb, sidewalk, paint) is
+  // offset from these, so the whole road narrows as one piece. Without a
+  // taper both are the old constants and the output is unchanged.
+  const [tA, tB] = tapers;
+  const blendA = (s: number) => (tA ? taperBlend(s, tA.len) : 1), blendB = (s: number) => (tB ? taperBlend(len - s, tB.len) : 1);
+  const across = (pick: (r: (typeof ROAD_SPEC)[RoadType]) => number) => {
+    const w = pick(sp), a = tA ? pick(ROAD_SPEC[tA.narrow]) : w, b = tB ? pick(ROAD_SPEC[tB.narrow]) : w;
+    return (s: number) => w + (a - w) * (1 - blendA(s)) + (b - w) * (1 - blendB(s));
+  };
+  const halfAt = across((r) => r.width / 2), medAt = across((r) => r.median / 2);
+  const half = sp.width / 2, med = sp.median / 2;
+  const tapered = !!(tA || tB);
+  // Where the full cross-section (and so lane separators) holds.
+  const fullA = tA ? tA.len : 0, fullB = len - (tB ? tB.len : 0);
   const aLen = Math.max(0.01, len - trimA - trimB);
-  const n = Math.max(2, Math.ceil(aLen / 2));
+  // Slices: 2 m as before, 1 m on a tapering edge so the narrowing is smooth.
+  const n = Math.max(2, Math.ceil(aLen / (tapered ? 1 : 2)));
   const S = (k: number) => trimA + (k / n) * aLen; // asphalt only between the trims
   const tmp = new THREE.Color();
   // Asphalt across the full width in 6 lateral columns, with seeded brightness.
   const cols = 6;
   for (let k = 0; k < n; k++) {
-    const f0 = frame(c, lut, S(k)), f1 = frame(c, lut, S(k + 1));
+    const s0 = S(k), s1 = S(k + 1), f0 = frame(c, lut, s0), f1 = frame(c, lut, s1), h0 = halfAt(s0), h1 = halfAt(s1);
     for (let j = 0; j < cols; j++) {
-      const o0 = -half + (2 * half * j) / cols, o1 = -half + (2 * half * (j + 1)) / cols;
+      const o = (h: number, jj: number) => -h + (2 * h * jj) / cols;
       const shade = (kk: number, jj: number) => tmp.copy(C.asphalt).multiplyScalar(ghost ? 1.2 : 0.95 + 0.1 * hash(seed, kk, jj)).clone();
-      m.quad(v3(f0.p, f0.n, o0, Y_ASPHALT), v3(f0.p, f0.n, o1, Y_ASPHALT), v3(f1.p, f1.n, o1, Y_ASPHALT), v3(f1.p, f1.n, o0, Y_ASPHALT), shade(k, j), shade(k, j + 1), shade(k + 1, j + 1), shade(k + 1, j));
+      m.quad(v3(f0.p, f0.n, o(h0, j), Y_ASPHALT), v3(f0.p, f0.n, o(h0, j + 1), Y_ASPHALT), v3(f1.p, f1.n, o(h1, j + 1), Y_ASPHALT), v3(f1.p, f1.n, o(h1, j), Y_ASPHALT), shade(k, j), shade(k, j + 1), shade(k + 1, j + 1), shade(k + 1, j));
     }
   }
   if (ghost) return;
   // Strips along [s0, s1] at lateral offsets [o0, o1] (both sides when mirror).
-  const strip = (o0: number, o1: number, y: number, col: THREE.Color, s0 = trimA, s1 = len - trimB, mirror = true, face = false) => {
+  // Offsets are functions of s so bands follow a taper (constants otherwise).
+  type Off = number | ((s: number) => number);
+  const ev = (o: Off, s: number) => (typeof o === 'number' ? o : o(s));
+  const step = tapered ? 1 : 2;
+  const strip = (o0: Off, o1: Off, y: number, col: THREE.Color, s0 = trimA, s1 = len - trimB, mirror = true, face = false) => {
     if (s1 - s0 < 0.2) return;
-    const k = Math.max(1, Math.ceil((s1 - s0) / 2));
+    const k = Math.max(1, Math.ceil((s1 - s0) / step));
     for (const sg of mirror ? [1, -1] : [1]) for (let i = 0; i < k; i++) {
-      const a = frame(c, lut, s0 + ((s1 - s0) * i) / k), b = frame(c, lut, s0 + ((s1 - s0) * (i + 1)) / k);
-      const A = sg * o0, B = sg * o1;
-      m.quad(v3(a.p, a.n, A, y), v3(a.p, a.n, B, y), v3(b.p, b.n, B, y), v3(b.p, b.n, A, y), col);
-      if (face) m.quad(v3(a.p, a.n, A, Y_ASPHALT), v3(a.p, a.n, A, y), v3(b.p, b.n, A, y), v3(b.p, b.n, A, Y_ASPHALT), C.gutter); // kerb face
+      const sa = s0 + ((s1 - s0) * i) / k, sb = s0 + ((s1 - s0) * (i + 1)) / k;
+      const a = frame(c, lut, sa), b = frame(c, lut, sb);
+      const A0 = sg * ev(o0, sa), B0 = sg * ev(o1, sa), A1 = sg * ev(o0, sb), B1 = sg * ev(o1, sb);
+      m.quad(v3(a.p, a.n, A0, y), v3(a.p, a.n, B0, y), v3(b.p, b.n, B1, y), v3(b.p, b.n, A1, y), col);
+      if (face) m.quad(v3(a.p, a.n, A0, Y_ASPHALT), v3(a.p, a.n, A0, y), v3(b.p, b.n, A1, y), v3(b.p, b.n, A1, Y_ASPHALT), C.gutter); // kerb face
     }
   };
   const mA = trimA + markA, mB = len - trimB - markB; // painted span
-  const dashed = (o: number, col: THREE.Color, mirror: boolean) => {
-    for (let s = mA + 2; s + DASH < mB - 2; s += DASH + GAP) strip(o - PAINT_W / 2, o + PAINT_W / 2, Y_MARK, col, s, s + DASH, mirror);
+  const dashed = (o: number, col: THREE.Color, mirror: boolean, from = mA, to = mB) => {
+    for (let s = from + 2; s + DASH < to - 2; s += DASH + GAP) strip(o - PAINT_W / 2, o + PAINT_W / 2, Y_MARK, col, s, s + DASH, mirror);
   };
+  const H = (d: number): Off => (tapered ? (s: number) => halfAt(s) + d : half + d);
   // gutter, kerb (raised with a face), sidewalk
-  strip(half, half + GUTTER_M, Y_ASPHALT + 0.0005, C.gutter);
-  strip(half + GUTTER_M, half + GUTTER_M + KERB_M, Y_KERB, C.kerb, trimA, len - trimB, true, true);
-  strip(half + GUTTER_M + KERB_M, half + GUTTER_M + KERB_M + SIDEWALK_M, Y_WALK, C.walk);
+  strip(H(0), H(GUTTER_M), Y_ASPHALT + 0.0005, C.gutter);
+  strip(H(GUTTER_M), H(GUTTER_M + KERB_M), Y_KERB, C.kerb, trimA, len - trimB, true, true);
+  strip(H(GUTTER_M + KERB_M), H(GUTTER_M + KERB_M + SIDEWALK_M), Y_WALK, C.walk);
   // edge lines (solid, thin) at the shoulder
-  strip(half - SHOULDER_M - PAINT_W, half - SHOULDER_M, Y_MARK, C.white, mA, mB);
-  // centre: avenue median double yellow; street a thin dashed yellow line
-  if (med > 0) { strip(med - PAINT_W, med, Y_MARK, C.yellow, mA, mB); strip(med - 3 * PAINT_W, med - 2 * PAINT_W, Y_MARK, C.yellow, mA, mB); }
-  else if (type !== 'oneway') dashed(0, C.yellow, false);
-  // lane separators between same-direction lanes: thin white dashes
-  for (let l = 1; l < sp.lanes; l++) dashed(med + l * LANE_M, C.white, true);
+  strip(H(-SHOULDER_M - PAINT_W), H(-SHOULDER_M), Y_MARK, C.white, mA, mB);
+  // centre: avenue median double yellow; street a thin dashed yellow line.
+  // OASIS-S5: on a taper the median closes to a point at the node (a painted
+  // nose that meets the street's centre line); the inner line's offsets are
+  // clamped at 0 so the two lines never cross the centre.
+  if (med > 0) {
+    const M = (d: number): Off => (tapered ? (s: number) => Math.max(0, medAt(s) - d) : med - d);
+    strip(M(PAINT_W), M(0), Y_MARK, C.yellow, mA, mB); strip(M(3 * PAINT_W), M(2 * PAINT_W), Y_MARK, C.yellow, mA, mB);
+  } else if (type !== 'oneway') dashed(0, C.yellow, false);
+  // lane separators between same-direction lanes: thin white dashes —
+  // only where all the lanes exist (outside a taper, where lanes merge).
+  for (let l = 1; l < sp.lanes; l++) dashed(med + l * LANE_M, C.white, true, Math.max(mA, fullA), Math.min(mB, fullB));
   // manholes in the lanes, drains in the gutters
-  for (let s = trimA + 20, k = 0; s < len - trimB - 10; s += 45, k++) { const f = frame(c, lut, s); const o = (k % 2 ? 1 : -1) * (med + LANE_M * 0.5); const q = v3(f.p, f.n, o, Y_MARK + 0.0003); m.disc(q.x, q.z, 0.6 * U, q.y, C.manhole, 10); }
+  for (let s = trimA + 20, k = 0; s < len - trimB - 10; s += 45, k++) { const f = frame(c, lut, s); const o = (k % 2 ? 1 : -1) * (medAt(s) + LANE_M * 0.5); const q = v3(f.p, f.n, o, Y_MARK + 0.0003); m.disc(q.x, q.z, 0.6 * U, q.y, C.manhole, 10); }
   for (let s = trimA + 8; s < len - trimB - 4; s += 25) for (const sg of [1, -1]) {
-    const a = frame(c, lut, s), b = frame(c, lut, s + 1);
-    m.quad(v3(a.p, a.n, sg * (half + 0.1), Y_ASPHALT + 0.001), v3(a.p, a.n, sg * (half + GUTTER_M - 0.1), Y_ASPHALT + 0.001), v3(b.p, b.n, sg * (half + GUTTER_M - 0.1), Y_ASPHALT + 0.001), v3(b.p, b.n, sg * (half + 0.1), Y_ASPHALT + 0.001), C.drain);
+    const a = frame(c, lut, s), b = frame(c, lut, s + 1), ha = halfAt(s), hb = halfAt(s + 1);
+    m.quad(v3(a.p, a.n, sg * (ha + 0.1), Y_ASPHALT + 0.001), v3(a.p, a.n, sg * (ha + GUTTER_M - 0.1), Y_ASPHALT + 0.001), v3(b.p, b.n, sg * (hb + GUTTER_M - 0.1), Y_ASPHALT + 0.001), v3(b.p, b.n, sg * (hb + 0.1), Y_ASPHALT + 0.001), C.drain);
   }
+}
+
+/** OASIS-S5: tapers of edge e at its a- and b-end, read from this build's plans. */
+function edgeTapersOf(g: RoadGraph, plans: Map<number, JunctionPlan>, e: number): [Taper | null, Taper | null] {
+  const f = (n: number, atA: boolean): Taper | null => {
+    const p = plans.get(n), t = p?.taper;
+    return p && t && p.arms[t.arm].edge === e && p.arms[t.arm].atA === atA ? t : null;
+  };
+  return [f(g.eA[e], true), f(g.eB[e], false)];
 }
 
 /** Zebra crosswalk + stop line on the approach of edge e at node n. */
@@ -303,7 +348,8 @@ export class GraphRoadLayer {
         if (ringEdge.has(e)) continue; // the ring disc is its surface
         const [ta, tb] = edgeTrims(g, plans, e);
         const room = (n: number) => (plans.get(n)?.junction ? CROSSWALK_ROOM : 0);
-        extrude(m, g.eCurve[e], g.eLut[e], g.eLen[e], g.eType[e], g.eBorn[e] + this.seed, ta, tb, false, room(g.eA[e]), room(g.eB[e]));
+        // OASIS-S5: a wider road running on as a narrower one tapers into it.
+        extrude(m, g.eCurve[e], g.eLut[e], g.eLen[e], g.eType[e], g.eBorn[e] + this.seed, ta, tb, false, room(g.eA[e]), room(g.eB[e]), edgeTapersOf(g, plans, e));
       }
       for (const n of g.liveNodes()) {
         const deg = g.nEdges[n].length, plan = plans.get(n)!;

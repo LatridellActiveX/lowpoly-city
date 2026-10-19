@@ -34,9 +34,24 @@
  *   A trim never exceeds 45% of its edge (very short edges keep a sliver).
  *   A degree-2 node that is (almost) straight — a traced run — gets trim 0
  *   and no plate: the road just continues.
+ *
+ * TAPER (OASIS-S5, Parker 2026-10-19: "I want avenues connecting to regular
+ * roads to curve / connect into the road with a natural graphic, use as many
+ * polys as it takes")
+ *   Where a straight degree-2 node joins two road types of DIFFERENT width
+ *   (an avenue running on as a street, a highway into an avenue, …) the
+ *   cross-section used to step from one width to the other at the node. Now
+ *   the WIDER arm narrows smoothly over its last TAPER_M metres (at most 45 %
+ *   of its edge): at the node it has exactly the narrow road's width, so the
+ *   kerbs and sidewalks run on unbroken, and it widens with a smoothstep
+ *   (zero slope at both ends, no kink) to its full width. The avenue's median
+ *   lines close to a point (a painted nose) and its lanes fan out of the one
+ *   street lane; graphRoads.ts extrudes the taper in 1 m slices and
+ *   gtraffic.ts bends the lane centrelines the same way, so cars follow it.
+ *   Junctions (degree ≥ 3) and bends keep their plates — no taper there.
  */
 import { at, tangent, tAtLength, V2 } from './bezier';
-import { GUTTER_M, RoadGraph, ROAD_SPEC, roadHalf } from './graph';
+import { GUTTER_M, RoadGraph, RoadType, ROAD_SPEC, roadHalf } from './graph';
 
 /** One arm (edge end) at a node. */
 export interface Arm {
@@ -84,8 +99,19 @@ export function rings(g: RoadGraph): Ring[] {
   return out;
 }
 
+/** OASIS-S5: a taper on one arm of a straight degree-2 node (see TAPER above). */
+export interface Taper {
+  /** Index into plan.arms of the WIDER arm, which narrows towards the node. */
+  arm: number;
+  /** Taper length from the node along that arm (m). */
+  len: number;
+  /** The narrow road's type: the wide arm has exactly its cross-section at the node. */
+  narrow: RoadType;
+}
 export interface JunctionPlan {
   node: number; arms: Arm[]; corners: Corner[];
+  /** OASIS-S5: set on a straight degree-2 node joining roads of different width. */
+  taper?: Taper;
   /** Draw a plate (junction or bend). False: straight pass-through or dead end. */
   plate: boolean;
   /** Junction proper (degree ≥ 3): crosswalks + stop lines on every arm. */
@@ -94,6 +120,15 @@ export interface JunctionPlan {
 
 /** Treat a degree-2 node as a straight continuation below this bend angle. */
 export const STRAIGHT_BEND = (6 * Math.PI) / 180;
+/** OASIS-S5: how far (m) a wider road narrows into the narrower one it continues as. */
+export const TAPER_M = 30;
+/** OASIS-S5: smoothstep 0 → 1 on [0, 1] (zero slope at both ends). */
+export const smooth01 = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+/**
+ * OASIS-S5: blend factor of a taper at distance `d` from its node: 0 at the
+ * node (narrow cross-section) → 1 at `len` (the arm's own full width).
+ */
+export const taperBlend = (d: number, len: number) => (len > 0 ? smooth01(d / len) : 1);
 /** Corner curve samples. */
 export const CORNER_SEG = 10;
 /** Crosswalk depth + stop line clearance kept outside the plate (m). */
@@ -138,7 +173,18 @@ export function planNode(g: RoadGraph, n: number): JunctionPlan {
     const straight = Math.acos(Math.max(-1, Math.min(1, -(d0.x * d1.x + d0.z * d1.z))));
     plate = straight > STRAIGHT_BEND;
   }
-  if (!plate) return { node: n, arms, corners: [], plate: false, junction: false };
+  if (!plate) {
+    // OASIS-S5: a straight run between two widths → taper the wider arm.
+    let taper: Taper | undefined;
+    if (k === 2 && arms[0].edge !== arms[1].edge) {
+      const w0 = ROAD_SPEC[g.eType[arms[0].edge]].width, w1 = ROAD_SPEC[g.eType[arms[1].edge]].width;
+      if (Math.abs(w0 - w1) > 1e-6) {
+        const wide = w0 > w1 ? 0 : 1, narrowArm = arms[1 - wide];
+        taper = { arm: wide, len: Math.min(TAPER_M, g.eLen[arms[wide].edge] * 0.45), narrow: g.eType[narrowArm.edge] };
+      }
+    }
+    return { node: n, arms, corners: [], plate: false, junction: false, taper };
+  }
   // ---- trims ----
   const W = Math.max(...arms.map((a) => roadHalf(g.eType[a.edge])));
   for (let i = 0; i < k; i++) {
@@ -216,9 +262,22 @@ export function planAll(g: RoadGraph, rs: Ring[] = rings(g)): Map<number, Juncti
     const p = planNode(g, n);
     const d = Math.hypot(g.nx[n] - ring.cx, g.nz[n] - ring.cz);
     for (const a of p.arms) a.trim = Math.min(g.eLen[a.edge] * 0.45, Math.max(0, ring.outer - d) + 1);
-    out.set(n, { ...p, plate: false, junction: false, corners: [] });
+    out.set(n, { ...p, plate: false, junction: false, corners: [], taper: undefined });
   }
   return out;
+}
+/**
+ * OASIS-S5: tapers of edge e at its a-end and b-end ([len, narrow type] or
+ * null each), straight from the graph (no plan map needed) so gtraffic can
+ * bend its lanes exactly like the renderer bends the asphalt.
+ */
+export function edgeTapers(g: RoadGraph, e: number): [Taper | null, Taper | null] {
+  const f = (n: number, atA: boolean): Taper | null => {
+    if (g.nEdges[n].length !== 2 || g.nKind[n] === 'roundabout') return null;
+    const p = planNode(g, n), t = p.taper;
+    return t && p.arms[t.arm].edge === e && p.arms[t.arm].atA === atA ? t : null;
+  };
+  return [f(g.eA[e], true), f(g.eB[e], false)];
 }
 /** Trim of edge e at its a-end and b-end from a plan map. */
 export function edgeTrims(g: RoadGraph, plans: Map<number, JunctionPlan>, e: number): [number, number] {
