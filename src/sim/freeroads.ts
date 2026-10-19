@@ -161,10 +161,13 @@ export function zoneDryRun(sim: Simulation, cells: ZoneCell[], code: number): { 
     for (const [k] of log) tiles.add(Math.floor(Math.floor(k / W) / 4) * GRID_SIZE + Math.floor((k % W) / 4));
     log.push(...syncKerbFill(w, w.blocks, tiles));
   }
-  const keys = new Set<number>();
-  for (const [k, old] of log) if (old !== code || painted.has(k)) keys.add(k);
+  // Net effect: a cell counts if its FINAL value differs from its original one
+  // (syncKerbFill may also clear stale grid cells next to graph roads).
+  const final = new Map<number, number>();
+  for (const [k] of log) final.set(k, zone[k]);
   for (let i = log.length - 1; i >= 0; i--) zone[log[i][0]] = log[i][1]; // restore
-  for (const k of [...keys]) if (zone[k] === code) keys.delete(k); // net no-op
+  const keys = new Set<number>();
+  for (const [k, f] of final) if (zone[k] !== f) keys.add(k);
   const S = TILE_M / 4, fill: Float64Array[] = [];
   for (const k of keys) {
     if (painted.has(k)) continue;
@@ -233,7 +236,9 @@ export function paintCells(sim: Simulation, cells: ZoneCell[], code: number): nu
   const w = sim.world, old: Array<[number, number]> = [];
   for (const c of cells) {
     const k = gridCellOf(c);
-    if (k < 0 || w.cells.owner[k] !== 0 || w.cells.zone[k] === code) continue;
+    if (k < 0 || w.cells.owner[k] !== 0) continue;
+    // NEBULA: a second block cell over an already-painted grid cell (tight curves) still takes the code.
+    if (w.cells.zone[k] === code) { c.code = code; continue; }
     old.push([k, w.cells.zone[k]]);
     c.code = code; w.cells.zone[k] = code;
     const cx = k % (GRID_SIZE * 4), cz = Math.floor(k / (GRID_SIZE * 4));

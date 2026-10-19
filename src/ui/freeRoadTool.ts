@@ -21,7 +21,7 @@
  */
 import { buildLut, Cubic, dist, lineCubic, quadCubic, V2 } from '../roads/bezier';
 import { RoadType, SNAP_EDGE, SNAP_NODE, TILE_M } from '../roads/graph';
-import { placeFreeRoad, undo, redo, paintBlocks, cellsInRect, paintCells } from '../sim/freeroads';
+import { placeFreeRoad, undo, redo } from '../sim/freeroads';
 import type { Simulation } from '../sim/simulation';
 import type { GraphRoadLayer } from '../render/graphRoads';
 
@@ -161,11 +161,6 @@ export class FreeRoadTool {
   }
 }
 
-/** Zoning brush on block cells (zone tools over a freeform road's block). */
-export function brushBlocks(sim: Simulation, p: V2, code: number, depthTiles: number): number {
-  return paintBlocks(sim, p, code, 2, depthTiles * 4);
-}
-/** Zoning drag: the free block cells between two points (metres), and painting them. */
-export function dragCells(sim: Simulation, a: V2, b: V2, depthTiles: number) { return cellsInRect(sim, a, b, depthTiles * 4); }
-export function paintDragged(sim: Simulation, a: V2, b: V2, code: number, depthTiles: number): number { return paintCells(sim, cellsInRect(sim, a, b, depthTiles * 4), code); }
+/* NEBULA: the zoning brush (brushBlocks) and the depth drag (dragCells / paintDragged) were
+ * removed — rectangle zoning (sim/zoneRect.ts) is the only way to zone. */
 export const toMetres = (x: number, z: number): V2 => ({ x: x * TILE_M, z: z * TILE_M });

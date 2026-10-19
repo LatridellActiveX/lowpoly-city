@@ -11,7 +11,7 @@ import { ZoneBlocks } from '../roads/blocks';
  *                                      z = floor(index / GRID_SIZE)
  */
 import { GRID_SIZE, Tile } from './types';
-import { defaultTaxRates, emptyLedger, Ledger, MONTH_TICKS, STARTING_CASH, TaxRates } from './economy';
+import { CALENDAR_MONTH_TICKS, DAY_TICKS, defaultTaxRates, emptyLedger, Ledger, MONTH_DAYS, STARTING_CASH, TaxRates } from './economy';
 import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
 import { computeResources, Resource } from './resources';
@@ -145,6 +145,10 @@ export class World {
   tier = 0;
   /** PR 6: highest population ever reached (medium housing unlock at 1,000, progression.ts). */
   peakPop = 0;
+  /** Landfills (anchor tiles) the player switched OFF automatic hauling for: their stored garbage only goes to recycling centers when sent by hand. */
+  noAutoHaul = new Set<number>();
+  /** Landfills the player told to unload to recycling centers now (not saved; cleared when the store is nearly empty). */
+  haulNow = new Set<number>();
   private resourceCache: Uint8Array | null = null;
   /**
    * PR 6 cell grid (cells.ts): per-cell zone codes, owners and roles; the
@@ -217,12 +221,12 @@ export class World {
 
   /** Current month number (1-based), for the clock. */
   get month(): number {
-    return Math.floor(this.tick / MONTH_TICKS) + 1;
+    return Math.floor(this.tick / CALENDAR_MONTH_TICKS) + 1;
   }
 
   /** Day within the month (1..30), for the clock. */
   get day(): number {
-    return Math.floor(((this.tick % MONTH_TICKS) / MONTH_TICKS) * 30) + 1;
+    return Math.floor((this.tick % CALENDAR_MONTH_TICKS) / DAY_TICKS) % MONTH_DAYS + 1;
   }
 
   /** Get the tile at (x, z). Callers must check inBounds first. */

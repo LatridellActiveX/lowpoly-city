@@ -29,6 +29,8 @@ export class GameMenu {
   onChangelog: () => void = () => {};
   /** Saves and returns to the title screen (set by main.ts). */
   onMainMenu: () => void = () => {};
+  /** Opens the Model viewer (set by main.ts). */
+  onModels: () => void = () => {};
 
   constructor(private readonly getSim: () => Simulation) {
     this.button.className = 'btn menu-btn';
@@ -63,9 +65,10 @@ export class GameMenu {
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
         <button class="menu-item" data-go="debug">🐞 Debug code<span>Copy this city as a code to share for bug reports, or load one</span></button>
         <button class="menu-item" data-go="changelog">📰 What's new<span>Change log: what each update added or changed</span></button>
+        <button class="menu-item" data-go="models">🏛 Model viewer<span>Browse every building and vehicle model — rotate and zoom</span></button>
         <button class="menu-item" data-go="mainmenu">🏠 Main menu<span>Save this city and return to the title screen</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
-        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log' | 'debug');
+        if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'models') { this.toggle(false); this.onModels(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log' | 'debug');
       }));
     } else if (view === 'settings') {
       const s = this.getSim().settings;
@@ -81,6 +84,7 @@ export class GameMenu {
           ${[['high', 'High (detailed models up close)'], ['low', 'Low (simple models, faster)']].map(([v, l]) => `<option value="${v}" ${s.detail === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select></label>
         <label class="set check"><input type="checkbox" data-k="dayNight" ${s.dayNight ? 'checked' : ''}><span>🌗 Day/night cycle (1 hour per day at 1×)</span></label>
+        <label class="set check"><input type="checkbox" data-k="showFps" ${s.showFps ? 'checked' : ''}><span>📈 Show FPS counter on the HUD</span></label>
         <h4>🔊 Sound</h4>
         <label class="set"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" data-a="volume" value="${sound.settings.volume}"><b>${Math.round(sound.settings.volume * 100)}%</b></label>
         <label class="set"><span>UI sounds</span><input type="range" min="0" max="1" step="0.05" data-a="ui" value="${sound.settings.ui}"><b>${Math.round(sound.settings.ui * 100)}%</b></label>
@@ -101,6 +105,7 @@ export class GameMenu {
           const st = this.getSim().settings;
           const k = inp.dataset.k as keyof typeof st;
           if (k === 'dayNight') st.dayNight = (inp as HTMLInputElement).checked;
+          else if (k === 'showFps') st.showFps = (inp as HTMLInputElement).checked;
           else if (k === 'detail') st.detail = inp.value as 'high' | 'low';
           else st[k] = Number(inp.value) as never;
           const label = inp.parentElement?.querySelector('b');

@@ -15,7 +15,8 @@ import { DEPOT_BONUS, depotOf } from '../sim/goods';
 import { resLevel } from '../sim/footprints';
 import { rangeOf } from '../sim/parking';
 import { Simulation } from '../sim/simulation';
-import { ToolId, ZoneType } from '../sim/types';
+import { GRID_SIZE, ToolId, ZoneType } from '../sim/types';
+import { TILE_M } from '../roads/graph';
 import { BUILD_COST, growthFactor, ledgerNet, MAX_PROPERTY, MAX_TAX, monthlyTax, propertyTax, UPKEEP } from '../sim/economy';
 import { coords } from '../sim/grid';
 import { OverlayMode } from '../render/cityRenderer';
@@ -23,18 +24,24 @@ import { ToolGroupId, TOOL_GROUPS, TOOLS, toolDef } from './tools';
 import { GraphsPanel } from './graphs';
 import { Notifier } from './notifications';
 import { DemandBars } from './demandBars';
+import { formatAmount, formatRatio } from './format';
 import { output } from '../sim/networks';
 import { windFrom, windLabel } from '../sim/wind';
 import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services';
-import { G_MAX, G_WARN, LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
+import { garbageMax, garbageWarn } from '../sim/garbageRules';
+import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
-import { FARM_FIELDS, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
+import { FARM_FIELDS, farmFieldMult, fieldCount, isFarmLot, isFoodPlant, YARD_FLEET } from '../sim/industry';
 import { CONSTRUCT_TICKS, FUEL_MAX, POWER_OUTPUT } from "../sim/rules";
+// OASIS traffic diagnostics: junction / road / car panels + stuck-car pill.
+import { GraphTraffic } from '../roads/gtraffic';
+import { defaultOutside, edgeInfo, GraphPick, nodeInfo, stuckReport, StuckReport, vehicleInfo } from '../sim/trafficInspect';
+import { edgePanel, nodePanel, stuckPill, vehiclePanel } from './trafficPanel';
 
 /** Small wind gauge for the stats bar: a bar plus a word ("Calm", "Gusty"...). */
 function windGauge(wind: number, dir: number): string {
@@ -98,6 +105,17 @@ export class Hud {
   readonly demandBars = new DemandBars();
   private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
+  /** OASIS: graph thing (junction / road edge / car) shown in the info panel instead of a tile. */
+  private infoGraph: GraphPick | null = null;
+  /** OASIS: "Show stuck cars" pill (visible with the Inspect tool, or while the highlight is on). */
+  private readonly stuckBtn = el('button', 'stuck-pill hidden') as HTMLButtonElement;
+  /** OASIS: is the stuck-car highlight on? main.ts reads it every frame to draw the rings. */
+  showStuck = false;
+  /** OASIS: the latest stuck report (refresh() recomputes it; main.ts draws it). */
+  stuck: StuckReport = { vehicles: [], nodes: [] };
+  /** OASIS: a static GraphTraffic (no cars) for inspecting junctions before any live trip exists. */
+  private staticGt: GraphTraffic | null = null;
+  private staticVer = -1;
   private currentTool: ToolId = 'inspect';
   /** PR 6: cell under the cursor when Inspect was clicked (main.ts sets it), so the panel shows THAT building. */
   pickCell: [number, number] | null = null;
@@ -114,7 +132,7 @@ export class Hud {
     const time = el('div', 'group');
     (['⏸', '1×', '2×', '3×'] as const).forEach((label, s) => {
       const b = el('button', 'btn', label) as HTMLButtonElement;
-      b.title = s === 0 ? 'Pause (Space)' : `Speed ${s}x`;
+      b.title = s === 0 ? 'Pause (Space)' : `Speed ${s}x (a calendar day takes ${[0, 10, 5, 2.5][s]} s)`;
       b.onclick = () => actions.setSpeed(s);
       this.speedButtons.push(b);
       time.append(b);
@@ -226,7 +244,23 @@ export class Hud {
     });
 
     this.buildBudget(actions);
-    root.append(top, this.gridLegend, this.info, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
+    // OASIS: click a <code class="cid"> id (node 42 / edge 17 / car 311) to copy it.
+    this.info.addEventListener('click', (ev) => {
+      const lf = (ev.target as HTMLElement).closest('[data-lf]') as HTMLElement | null;
+      if (lf && this.lastSim) { // landfill: switch automatic hauling to recycling centers on/off, or send a haul now
+        const w = this.lastSim.world, a = Number(lf.dataset.a);
+        if (lf.dataset.lf === 'auto') { if (w.noAutoHaul.has(a)) w.noAutoHaul.delete(a); else w.noAutoHaul.add(a); }
+        else w.haulNow.add(a);
+        this.refresh(this.lastSim);
+        return;
+      }
+      const c = (ev.target as HTMLElement).closest('.cid');
+      if (!c) return;
+      const txt = c.textContent ?? '';
+      void navigator.clipboard?.writeText(txt).then(() => this.flash(`Copied "${txt}"`), () => this.flash(txt));
+    });
+    this.stuckBtn.onclick = () => { this.showStuck = !this.showStuck; this.paintStuck(); };
+    root.append(top, this.gridLegend, this.info, this.stuckBtn, this.budget, this.regions.el, this.graphs.el, this.hint, bar, this.toast, this.tip, this.notices.el, this.demandBars.el);
   }
 
   /** Create the budget panel's static structure + tax sliders. */
@@ -426,6 +460,7 @@ export class Hud {
 
   setTool(id: ToolId): void {
     this.currentTool = id;
+    this.paintStuck();
     this.toolButtons.forEach((b, k) => b.classList.toggle('active', k === id));
     // PR 5: remember the tool in its group and highlight the group button.
     const gid = toolDef(id).group;
@@ -457,7 +492,57 @@ export class Hud {
   /** Show the info panel for a tile index (or hide with null). */
   inspect(i: number | null): void {
     this.infoTile = i;
+    this.infoGraph = null;
     this.info.classList.toggle('hidden', i === null);
+  }
+
+  /** OASIS: show a junction / road edge / car from the road graph (Inspect click). */
+  inspectGraph(p: GraphPick): void {
+    this.infoTile = null;
+    this.infoGraph = p;
+    this.info.classList.remove('hidden');
+    if (this.lastSim) this.renderGraphInfo(this.lastSim);
+  }
+
+  /**
+   * OASIS: the GraphTraffic to inspect. The live one when it matches the
+   * current road graph (same object and version); otherwise a car-less one
+   * built on demand, so junction plans can be inspected before the first
+   * trip or right after an edit (the live one is rebuilt lazily on a trip).
+   */
+  inspectTraffic(sim: Simulation): GraphTraffic | null {
+    const roads = sim.world.roads, gt = sim.traffic.graph.gt;
+    if (!roads || roads.edgeCount() === 0) return null;
+    if (gt && gt.g === roads && gt.junctions.size) return gt; // (update() rebuilds it on a version change)
+    if (!this.staticGt || this.staticGt.g !== roads || this.staticVer !== roads.version) { this.staticGt = new GraphTraffic(roads); this.staticVer = roads.version; }
+    return this.staticGt;
+  }
+
+  /** OASIS: repaint the stuck pill (label, counter, visibility). */
+  private paintStuck(): void {
+    this.stuckBtn.classList.toggle('hidden', this.currentTool !== 'inspect' && !this.showStuck);
+    this.stuckBtn.classList.toggle('active', this.showStuck);
+    this.stuckBtn.innerHTML = stuckPill(this.showStuck, this.stuck.vehicles.length, this.stuck.nodes.length);
+    this.stuckBtn.title = 'Highlight cars that have not moved for over 10 s (red) and the junctions they are waiting at (orange)';
+  }
+
+  /** OASIS: render the graph panel for this.infoGraph. */
+  private renderGraphInfo(sim: Simulation): void {
+    const gt = this.inspectTraffic(sim), p = this.infoGraph!;
+    let title = 'Gone', rows: string[] = ['<div class="row muted">This item no longer exists (the road was edited or the car arrived).</div>'];
+    if (gt) {
+      const g = gt.g, mapM = GRID_SIZE * TILE_M;
+      // Outside connection = dead end on a highway connection tile (or by the map border).
+      const outside = (n: number) => {
+        const tx = Math.floor(g.nx[n] / TILE_M), tz = Math.floor(g.nz[n] / TILE_M);
+        return g.nEdges[n].length === 1 && (!!sim.world.tiles[tz * GRID_SIZE + tx]?.edge || defaultOutside(g, n, mapM));
+      };
+      if (p.kind === 'node' && g.nAlive[p.id]) [title, rows] = nodePanel(nodeInfo(gt, p.id, outside));
+      else if (p.kind === 'edge' && g.eAlive[p.id]) [title, rows] = edgePanel(edgeInfo(gt, p.id));
+      else if (p.kind === 'vehicle') { const v = gt.vehicles.find((q) => q.id === p.id && !q.done); if (v) [title, rows] = vehiclePanel(vehicleInfo(gt, v)); else title = `Car ${p.id}`, rows = ['<div class="row muted">This car has arrived or given up.</div>']; }
+    }
+    this.info.innerHTML = `<button class="close" aria-label="Close">×</button><h3>${title}</h3>${rows.join('')}`;
+    (this.info.querySelector('.close') as HTMLButtonElement).onclick = () => this.inspect(null);
   }
 
   /** Refresh numbers. Called a few times per second from main.ts. */
@@ -474,7 +559,9 @@ export class Hud {
     const bar = (used: number, cap: number) => {
       const pct = cap > 0 ? Math.min(100, (used / cap) * 100) : used > 0 ? 100 : 0;
       const cls = used > cap ? 'over' : pct > 85 ? 'warn' : '';
-      return `<span class="meter ${cls}"><i style="width:${pct}%"></i></span>${used}/${cap}`;
+      // NEBULA: formatAmount so float demand (residents÷5 …) never prints as
+      // 1184.3000000000002 in the top bar.
+      return `<span class="meter ${cls}"><i style="width:${pct}%"></i></span>${formatRatio(used, cap)}`;
     };
     this.lastSim = sim;
     const cash = sim.world.cash;
@@ -529,6 +616,11 @@ export class Hud {
     void this.currentTool;
 
     if (this.infoTile !== null) this.renderInfo(sim, this.infoTile);
+    // OASIS traffic diagnostics.
+    if (this.infoGraph) this.renderGraphInfo(sim);
+    const lgt = sim.traffic.graph.gt;
+    this.stuck = lgt ? stuckReport(lgt) : { vehicles: [], nodes: [] };
+    this.paintStuck();
   }
 
   /** PR 4: "🏘 Village · 612 / 2,000" progress toward the next tier. */
@@ -644,7 +736,8 @@ export class Hud {
       const id = kind === 'power' ? svc.powerNet : svc.waterNet;
       if (id < 0) return 'not connected';
       const n = (kind === 'power' ? sim.net.power : sim.net.water)[id];
-      return `network #${id + 1}: ${n.demand}/${n.capacity} used${n.outages ? `, <b class="bad">${n.outages} in outage</b>` : ''}`;
+      // NEBULA: same formatter as the top bar — demand can be fractional.
+      return `network #${id + 1}: ${formatRatio(n.demand, n.capacity)} used${n.outages ? `, <b class="bad">${n.outages} in outage</b>` : ''}`;
     };
     if (t.zone || t.structure === 'waterTower' || t.structure === 'pumpStation') {
       const st = sim.status(i);
@@ -678,7 +771,7 @@ export class Hud {
     } else if (t.structure === 'powerPlant' || t.structure === 'windTurbine' || t.structure === 'nuclearPlant') {
       // Turbine output follows the wind (sim/wind.ts); plants are constant.
       const out = output(t, 'power', sim.world.wind);
-      rows.push(`<div class="row">Output: ${out} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
+      rows.push(`<div class="row">Output: ${formatAmount(out)} power${t.structure === 'windTurbine' ? ` <span class="muted">(max 1,000, wind ${Math.round(sim.world.wind * 100)}%)</span>` : ''}</div>`);
       rows.push(`<div class="row">Upkeep: ${this.money(UPKEEP[t.structure])}/month</div>`);
       if (t.part) rows.push('<div class="row muted">Part of a 2×2 nuclear plant (output is counted on its top-left tile).</div>');
       rows.push(`<div class="row muted">${netLine('power')}</div>`);
@@ -690,7 +783,7 @@ export class Hud {
       if (t.waterPipe) rows.push(`<div class="row">Water: <span class="muted">${netLine('water')}</span></div>`);
     }
     // PR 5 farm / food plant / yard rows.
-    if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)]}</b></div>`);
+    if (t.zone === 'industrial' && isFarmLot(sim.world, i) && t.level > 0) rows.push(`<div class="row">🌾 Fields: <b>${fieldCount(sim.world, i)} / ${FARM_FIELDS[Math.min(3, t.level)] * farmFieldMult(sim.world, i)}</b></div>`);
     if (t.zone === 'industrial' && isFoodPlant(t)) rows.push(`<div class="row">Food in hopper: <b>${t.input.toFixed(1)}</b>${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 food on the way' : ''}</div>`);
     if (fieldOf) rows.push(`<div class="row">Crop field of the farm at tile ${coords(fieldOf.host).join(', ')}. Bulldoze to leave it fallow.</div>`);
     if (t.structure === 'constructionYard') {
@@ -700,7 +793,8 @@ export class Hud {
     // V1.5b services: the building itself, then garbage + coverage on any tile.
     if (t.structure === 'service') {
       const d = SERVICE_DEFS[t.kind], a = t.part ? t.part - 1 : i;
-      rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      if (d.svc === Svc.Dump || d.svc === Svc.Recycling) rows.push(`<div class="row">Serves <b>every building on connected roads</b>${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
+      else rows.push(`<div class="row">Covers <b>${d.radius}</b> tiles around it${serviceSize(sim.world.tiles, a) === 2 ? ' (2×2)' : ''}. Upkeep: ${this.money(d.upkeep)}/month</div>`);
       if (d.svc === Svc.Police || d.svc === Svc.Clinic || d.svc === Svc.Hospital) rows.push(`<div class="row">${d.svc === Svc.Police ? 'Patrol cars' : 'Ambulances'} out: <b>${sim.responders.outOf(a)} / ${d.fleet}</b></div>`);
       if (d.svc === Svc.Dump) {
         const lf = sim.world.tiles[a], fill = landfillFill(lf);
@@ -708,9 +802,12 @@ export class Hud {
         if (landfillFull(lf)) rows.push('<div class="row bad">FULL — it takes no more garbage. Build a new landfill (recycling centers slow the flow).</div>');
         else if (fill >= 0.8) rows.push('<div class="row bad">Almost full — plan a new landfill.</div>');
         rows.push(`<div class="row">Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · collected so far ${Math.round(sim.garbage.stats.collected)}</div>`);
+        const auto = !sim.world.noAutoHaul.has(a);
+        rows.push(`<div class="row">♻️ Unload to recycling centers: <b>${auto ? 'automatic' : 'only when I send it'}</b> <button class="btn" data-lf="auto" data-a="${a}">${auto ? 'Switch to manual' : 'Switch to automatic'}</button></div>`);
+        if (!auto) rows.push(`<div class="row"><button class="btn" data-lf="now" data-a="${a}"${sim.world.haulNow.has(a) ? ' disabled' : ''}>${sim.world.haulNow.has(a) ? 'Hauling to recycling…' : 'Unload to recycling now'}</button></div>`);
       }
       if (d.svc === Svc.Recycling) {
-        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage.</div>');
+        rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage, and its trucks collect from the whole road network.</div>');
         rows.push(`<div class="row">🔥 Burns garbage for <b>${POWER_OUTPUT.powerPlant}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
         rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
       }
@@ -721,7 +818,7 @@ export class Hud {
       }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
-    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= G_WARN ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${G_MAX}${t.garbage >= G_WARN ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
+    if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= garbageWarn(t.zone) ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${garbageMax(t.zone)}${t.garbage >= garbageWarn(t.zone) ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
     if (t.zone) {
       const c = sim.cov.by;
       // V1.5b stage G: workforce education.

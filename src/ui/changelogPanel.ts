@@ -29,7 +29,11 @@ export class ChangelogPanel {
   /** True when the player has not yet seen the newest entry. */
   get hasUnseen(): boolean { return lastSeen() !== CHANGELOG_LATEST; }
 
-  open(): void {
+  /**
+   * `full` = the whole history (menus / title screen). Without it (the automatic
+   * pop-up after an update) only the newest entry is shown, with a link to the rest.
+   */
+  open(full = true): void {
     const seen = lastSeen();
     // Entries before the last-seen one are old; everything above it is new (all of them on a first visit).
     const seenAt = seen ? CHANGELOG.findIndex((c) => c.id === seen) : -1;
@@ -37,15 +41,17 @@ export class ChangelogPanel {
     this.el.innerHTML = `<div class="changelog-card panel" role="dialog" aria-label="What's new">
       <button class="close" aria-label="Close">×</button>
       <h2>📰 What's new</h2>
-      <div class="changelog-list">${CHANGELOG.map((c, k) => `
+      <div class="changelog-list">${CHANGELOG.slice(0, full ? CHANGELOG.length : 1).map((c, k) => `
         <section class="cl-entry${isNew(k) ? ' fresh' : ''}">
           <h3>${esc(c.title)} ${isNew(k) ? '<span class="cl-badge">NEW</span>' : ''}<span class="cl-date">${esc(c.date)}</span></h3>
           <ul>${c.changes.map((ch) => `<li><span class="cl-tag cl-${ch.tag}">${TAG_LABEL[ch.tag]}</span> ${esc(ch.text)}</li>`).join('')}</ul>
         </section>`).join('')}</div>
-      <div class="changelog-foot"><span class="muted">v${__APP_VERSION__}</span><button class="btn primary">Got it</button></div>
+      <div class="changelog-foot"><span class="muted">v${__APP_VERSION__}</span>${full ? '' : '<button class="btn" data-a="history">Full history</button>'}<button class="btn primary" data-a="ok">Got it</button></div>
     </div>`;
     (this.el.querySelector('.close') as HTMLButtonElement).onclick = () => this.close();
-    (this.el.querySelector('.changelog-foot .btn') as HTMLButtonElement).onclick = () => this.close();
+    (this.el.querySelector('[data-a=ok]') as HTMLButtonElement).onclick = () => this.close();
+    const hist = this.el.querySelector('[data-a=history]') as HTMLButtonElement | null;
+    if (hist) hist.onclick = () => this.open(true);
     this.el.classList.remove('hidden');
     markSeen();
   }
@@ -53,5 +59,5 @@ export class ChangelogPanel {
   close(): void { this.el.classList.add('hidden'); }
 
   /** Start-up hook: open automatically once per update. */
-  openIfUnseen(): void { if (this.hasUnseen) this.open(); }
+  openIfUnseen(): void { if (this.hasUnseen) this.open(false); }
 }

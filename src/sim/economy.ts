@@ -75,7 +75,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   clinic: 6000,
   hospital: 24000,
   elementarySchool: 4000,
-  shippingDepot: 15000, // V1.5b stage C
+  shippingDepot: 100000, // V1.5b stage C
   highSchool: 9000,
   college: 30000,
   recyclingCenter: 8000, // V1.6
@@ -98,6 +98,16 @@ export const isUpkeepKind = (s: string): s is UpkeepKind => s in UPKEEP;
 
 /** Simulation ticks per in-game month (2 ticks/s at 1x => a month is 15 s). */
 export const MONTH_TICKS = 30;
+
+/**
+ * CALENDAR (display only): one in-game day is DAY_TICKS simulation ticks, i.e.
+ * 10 s at 1× (5 s at 2×, 2.5 s at 3×), a calendar month is 30 days and a year
+ * 12 months. The budget cycle above (MONTH_TICKS) and everything else that
+ * runs per tick — growth, traffic spawning, goods — is unchanged.
+ */
+export const DAY_TICKS = 10;
+export const MONTH_DAYS = 30;
+export const CALENDAR_MONTH_TICKS = DAY_TICKS * MONTH_DAYS;
 
 /**
  * Monthly tax base per building level at a 100% rate. At the default 9% a

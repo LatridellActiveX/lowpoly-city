@@ -25,7 +25,7 @@
  *
  * Milestone 2 (traffic) and 3 (economy) will add their own steps here.
  */
-import { syncGraphToTiles, absorbTileRoads } from '../roads/persist';
+import { syncGraphToTiles, absorbTileRoads, upgradeGraphRoads } from '../roads/persist';
 import { coords, World } from './grid';
 import { prof } from './prof';
 import { computeNetworks, NetworkResult, isBigPlant, servedRev } from './networks';
@@ -51,6 +51,7 @@ import { isUnlocked, updateTier, upkeepFactor } from './progression';
 import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment, lvFinish } from './environment';
+import { garbageNorm } from './garbageRules';
 import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
@@ -112,6 +113,12 @@ export interface HistoryPoint {
  * within the first couple of minutes of play.
  */
 export const HISTORY_EVERY_TICKS = 20;
+/** Game-time multiplier of each speed button: paused, 1×, 2× and the third button (4× game time: a calendar day is 10 s, 5 s, 2.5 s). */
+export const SPEED_MULT = [0, 1, 2, 4];
+/** Longest traffic step in game seconds (a slow frame at the fast speeds is split). */
+const MAX_TRAFFIC_STEP = 0.5;
+/** Safety cap so a slow frame at the fast speeds can't snowball into ever more ticks. */
+const MAX_TICKS_PER_FRAME = 6;
 export const HISTORY_MAX = 500;
 /** PR 4: about one car on the road per this many residents (before the Settings cap). */
 /** PR 5: 6 → 12 — half as many commuter cars (rush-hour curve unchanged). */
@@ -227,7 +234,7 @@ export class Simulation {
     // Only garbage moved: redo the last step of land value for those tiles.
     const env = inc.env, lvArr = env.landValue, sf = this.safety;
     for (const i of ch.takeGarbageDirty()) {
-      const base = Math.fround(lvFinish(w, inc.pre[i], w.tiles[i].garbage));
+      const base = Math.fround(lvFinish(w, inc.pre[i], garbageNorm(w.tiles[i])));
       lvArr[i] = serviceEffectOne(base, sf.crime[i], sf.care[i], LV_MAX);
     }
     return env;
@@ -269,13 +276,17 @@ export class Simulation {
   update(dt: number): void {
     if (this.speed === 0) return;
     // Clamp dt so a backgrounded tab doesn't run thousands of ticks at once.
-    const gameDt = Math.min(dt, 0.25) * this.speed;
+    const gameDt = Math.min(dt, 0.25) * (SPEED_MULT[this.speed] ?? this.speed);
     // PR 4: the game clock (day/night, traffic lights) and vehicles move
     // continuously every frame, independent of the tick rate.
     this.world.clock += gameDt;
-    this.traffic.update(this.world, gameDt);
-    this.acc += gameDt * (this.settings.tickRate || TICKS_PER_SECOND);
-    while (this.acc >= 1) {
+    // At the fast speeds a slow frame can span a big chunk of game time; move
+    // the vehicles in steps of at most MAX_TRAFFIC_STEP so they never skip
+    // past a light or a queue (no extra cost at a normal frame rate).
+    const parts = Math.min(4, Math.ceil(gameDt / MAX_TRAFFIC_STEP - 1e-9));
+    for (let k = 0; k < parts; k++) this.traffic.update(this.world, gameDt / parts);
+    this.acc = Math.min(this.acc + gameDt * (this.settings.tickRate || TICKS_PER_SECOND), MAX_TICKS_PER_FRAME + 1);
+    for (let n = 0; this.acc >= 1 && n < MAX_TICKS_PER_FRAME; n++) {
       this.acc -= 1;
       this.step();
     }
@@ -578,8 +589,14 @@ export class Simulation {
       // OASIS: in a graph world the tile road tools feed the graph too, so the
       // graph stays the complete LIVE network (roads/persist.ts absorbTileRoads).
       if (!this.noAbsorb && (tool === 'road' || tool === 'avenue' || tool === 'roundabout')) {
-        const n = absorbTileRoads(this.world, tiles.map(([x, z]) => z * GRID_SIZE + x));
-        if (n) this.version++; // graph renderer redraws, tile renderer hands the tiles over
+        const idxs = tiles.map(([x, z]) => z * GRID_SIZE + x);
+        const n = absorbTileRoads(this.world, idxs);
+        // OASIS-AVENUE fix #1: dragging the Avenue tool over a street that the
+        // GRAPH already owns used to change only the tiles (absorbTileRoads
+        // skips graph tiles), so traffic kept one lane. Retype the graph
+        // edges under the upgraded tiles too (roads/persist.ts).
+        const up = tool === 'avenue' ? upgradeGraphRoads(this.world, idxs) : 0;
+        if (n || up) this.version++; // graph renderer redraws, tile renderer hands the tiles over
       }
     }
     return r;

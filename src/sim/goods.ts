@@ -72,12 +72,12 @@ export const PROCESS_RATE = 0.15;
 
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged'
   | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics'
-  | 'apparel' | 'medicine' | 'beverages';
+  | 'apparel' | 'medicine' | 'beverages' | 'books' | 'toys';
 
 export const GOOD_NAMES: Record<GoodType, string> = {
   goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Crude oil', coal: 'Coal', packaged: 'Packaged food',
   wood: 'Logs', materials: 'Building materials', furniture: 'Furniture', fuel: 'Fuel', plastics: 'Plastics', electronics: 'Electronics',
-  apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages',
+  apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages', books: 'Books', toys: 'Toys',
 };
 /** Units in one truckload (PR 5: 16). */
 export const LOAD = 16;
@@ -94,7 +94,7 @@ export const FACTORY_MAX = 48;
 export const EXPORT_PRICE: Record<GoodType, number> = {
   goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0, packaged: 420,
   wood: 140, materials: 360, furniture: 520, fuel: 400, plastics: 380, electronics: 760,
-  apparel: 460, medicine: 640, beverages: 300,
+  apparel: 460, medicine: 640, beverages: 300, books: 340, toys: 420,
 };
 /** V1.5: an imported load costs this × its export price (freight + middlemen). */
 export const IMPORT_PREMIUM = 1.5;
@@ -124,7 +124,7 @@ export function factoryGood(world: World, i: number): GoodType {
  */
 export function shopGood(world: World, i: number): GoodType {
   const r = hash2(i % GRID_SIZE, Math.floor(i / GRID_SIZE), world.seed + 321);
-  return r < 0.27 ? 'goods' : r < 0.45 ? 'food' : r < 0.53 ? 'materials' : r < 0.61 ? 'furniture' : r < 0.69 ? 'electronics' : r < 0.75 ? 'fuel' : r < 0.86 ? 'apparel' : 'medicine';
+  return r < 0.24 ? 'goods' : r < 0.40 ? 'food' : r < 0.47 ? 'materials' : r < 0.54 ? 'furniture' : r < 0.61 ? 'electronics' : r < 0.66 ? 'fuel' : r < 0.75 ? 'apparel' : r < 0.81 ? 'medicine' : r < 0.90 ? 'books' : 'toys';
 }
 
 const manhattan = (a: number, b: number) => Math.abs((a % GRID_SIZE) - (b % GRID_SIZE)) + Math.abs(Math.floor(a / GRID_SIZE) - Math.floor(b / GRID_SIZE));

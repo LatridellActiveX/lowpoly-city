@@ -3,7 +3,7 @@
  * procedural textures: corrugated metal, brick, concrete, rust/stains,
  * hazard stripes, rooftop vents, signage").
  *
- * One 512×256 seeded canvas holds 8 grey-scale-ish SURFACES in a 4×2 grid
+ * One 512×512 seeded canvas holds 16 grey-scale-ish SURFACES in a 4×4 grid (8 industrial + 4 for homes + 4 heavy-industry)
  * (128 px cells). Industrial geometry keeps Three.js primitive UVs (0..1
  * per face); `skinned()` squeezes each part's UVs into its surface's cell,
  * so ONE material (map × vertex colour × instance colour) textures every
@@ -16,8 +16,8 @@
 import * as THREE from 'three';
 import { seededStream } from '../sim/random';
 
-export enum Skin { Plain = 0, Metal = 1, Brick = 2, Concrete = 3, Rust = 4, Hazard = 5, Roof = 6, Glass = 7 }
-const COLS = 4, ROWS = 2, CELL = 128, INSET = 0.04;
+export enum Skin { Plain = 0, Metal = 1, Brick = 2, Concrete = 3, Rust = 4, Hazard = 5, Roof = 6, Glass = 7, Siding = 8, Stucco = 9, Shingle = 10, Boards = 11, Plate = 12, Cladding = 13, Louvre = 14, Grate = 15 }
+const COLS = 4, ROWS = 4, CELL = 128, INSET = 0.04;
 
 /** Tag a geometry with the surface it should use (applied by `skinned`). */
 export function skin<T extends THREE.BufferGeometry>(g: T, s: Skin): T {
@@ -120,6 +120,74 @@ export function industrialAtlas(): THREE.CanvasTexture {
     for (let x = 0; x < CELL; x += 21) g.fillRect(x0 + x, y0, 3, CELL);
     for (let y = 0; y < CELL; y += 32) g.fillRect(x0, y0 + y, CELL, 3);
   });
+  // 8 Clapboard siding: horizontal boards with a shadow line under each and wood grain.
+  cell(Skin.Siding, (x0, y0) => {
+    g.fillStyle = grey(244); g.fillRect(x0, y0, CELL, CELL);
+    for (let y = 0; y < CELL; y += 12) {
+      g.fillStyle = grey(232); g.fillRect(x0, y0 + y, CELL, 8);
+      g.fillStyle = grey(255); g.fillRect(x0, y0 + y, CELL, 2);
+      g.fillStyle = grey(176); g.fillRect(x0, y0 + y + 9, CELL, 3);
+      for (let i = 0; i < 4; i++) { g.fillStyle = grey(210 + Math.floor(rnd() * 30)); g.fillRect(x0 + rnd() * CELL, y0 + y + 2 + rnd() * 6, 10 + rnd() * 30, 1); }
+    }
+  });
+  // 9 Stucco: rough render with soft trowel patches and fine pitting.
+  cell(Skin.Stucco, (x0, y0) => {
+    g.fillStyle = grey(240); g.fillRect(x0, y0, CELL, CELL);
+    for (let i = 0; i < 30; i++) { g.fillStyle = grey(226 + Math.floor(rnd() * 28), 0.5); g.beginPath(); g.arc(x0 + rnd() * CELL, y0 + rnd() * CELL, 6 + rnd() * 16, 0, Math.PI * 2); g.fill(); }
+    speckle(x0, y0, 700, 196, 255);
+    stains(x0, y0, 4, 'rgba(110,100,90,0.16)');
+  });
+  // 10 Roof shingles: staggered rows of rounded tiles, each a slightly different grey.
+  cell(Skin.Shingle, (x0, y0) => {
+    g.fillStyle = grey(150); g.fillRect(x0, y0, CELL, CELL);
+    for (let r = 0; r < CELL / 10; r++) for (let c = -1; c < CELL / 14 + 1; c++) {
+      const x = x0 + c * 14 + (r % 2) * 7, y = y0 + r * 10, v = 196 + Math.floor(rnd() * 56);
+      g.fillStyle = grey(v); g.fillRect(x + 1, y + 1, 12, 8);
+      g.fillStyle = grey(v - 46); g.fillRect(x + 1, y + 8, 12, 2); // shadow under the tile
+    }
+  });
+  // 11 Boards: vertical planks with grain, knots and gaps.
+  cell(Skin.Boards, (x0, y0) => {
+    g.fillStyle = grey(170); g.fillRect(x0, y0, CELL, CELL);
+    for (let x = 0; x < CELL; x += 16) {
+      const v = 214 + Math.floor(rnd() * 34);
+      g.fillStyle = grey(v); g.fillRect(x0 + x + 1, y0, 14, CELL);
+      for (let i = 0; i < 6; i++) { g.fillStyle = grey(v - 26 + Math.floor(rnd() * 14)); g.fillRect(x0 + x + 2 + rnd() * 11, y0 + rnd() * CELL, 1, 12 + rnd() * 40); }
+      if (rnd() < 0.5) { g.fillStyle = grey(v - 60); g.beginPath(); g.arc(x0 + x + 8, y0 + rnd() * CELL, 2.2, 0, Math.PI * 2); g.fill(); }
+    }
+  });
+  // 12 Riveted steel plate: bolted panels with weld seams, rivet rows and a little weeping rust (tanks, columns, furnaces).
+  cell(Skin.Plate, (x0, y0) => {
+    g.fillStyle = grey(222); g.fillRect(x0, y0, CELL, CELL); speckle(x0, y0, 260, 196, 240);
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const x = x0 + c * 32, y = y0 + r * 32, v = 206 + Math.floor(rnd() * 40);
+      g.fillStyle = grey(v); g.fillRect(x + 1, y + 1, 30, 30);
+      g.fillStyle = grey(168); g.fillRect(x, y, 32, 2); g.fillRect(x, y, 2, 32);
+      g.fillStyle = grey(250); g.fillRect(x + 2, y + 2, 29, 1);
+      for (const [dx, dy] of [[5, 5], [26, 5], [5, 26], [26, 26]]) { g.fillStyle = grey(150); g.beginPath(); g.arc(x + dx, y + dy, 2, 0, Math.PI * 2); g.fill(); g.fillStyle = grey(255); g.fillRect(x + dx - 1, y + dy - 1, 1, 1); }
+    }
+    stains(x0, y0, 5, 'rgba(130,80,40,0.22)');
+  });
+  // 13 Insulated cladding: horizontal sandwich-panel ribs with bolt lines and panel joints (big halls, white tanks).
+  cell(Skin.Cladding, (x0, y0) => {
+    g.fillStyle = grey(240); g.fillRect(x0, y0, CELL, CELL);
+    for (let y = 0; y < CELL; y += 10) { g.fillStyle = grey(200); g.fillRect(x0, y0 + y, CELL, 2); g.fillStyle = grey(255); g.fillRect(x0, y0 + y + 2, CELL, 2); }
+    for (let x = 0; x < CELL; x += 64) { g.fillStyle = grey(176); g.fillRect(x0 + x, y0, 2, CELL); for (let y = 6; y < CELL; y += 20) { g.fillStyle = grey(140); g.fillRect(x0 + x + 4, y0 + y, 2, 2); } }
+    stains(x0, y0, 5, 'rgba(100,100,100,0.18)');
+  });
+  // 14 Louvres: angled slats with dark gaps (cooling towers, plant-room vents, fan housings).
+  cell(Skin.Louvre, (x0, y0) => {
+    g.fillStyle = grey(110); g.fillRect(x0, y0, CELL, CELL);
+    for (let y = 0; y < CELL; y += 8) { const gr = g.createLinearGradient(0, y0 + y, 0, y0 + y + 6); gr.addColorStop(0, grey(252)); gr.addColorStop(1, grey(196)); g.fillStyle = gr; g.fillRect(x0, y0 + y, CELL, 6); }
+    g.fillStyle = grey(150); for (let x = 0; x < CELL; x += 42) g.fillRect(x0 + x, y0, 2, CELL);
+  });
+  // 15 Grating: expanded-metal walkway mesh with a diamond pattern and edge rails.
+  cell(Skin.Grate, (x0, y0) => {
+    g.fillStyle = grey(150); g.fillRect(x0, y0, CELL, CELL);
+    g.strokeStyle = grey(250); g.lineWidth = 2;
+    for (let k = -CELL; k < CELL * 2; k += 10) { g.beginPath(); g.moveTo(x0 + k, y0); g.lineTo(x0 + k + CELL, y0 + CELL); g.stroke(); g.beginPath(); g.moveTo(x0 + k + CELL, y0); g.lineTo(x0 + k, y0 + CELL); g.stroke(); }
+    g.fillStyle = grey(210); g.fillRect(x0, y0, CELL, 5); g.fillRect(x0, y0 + CELL - 5, CELL, 5);
+  });
   atlas = new THREE.CanvasTexture(cv);
   atlas.colorSpace = THREE.SRGBColorSpace;
   atlas.anisotropy = 4;
@@ -172,4 +240,86 @@ let indMat: THREE.MeshLambertMaterial | null = null;
 /** The shared textured industrial material (atlas × vertex colour × instance colour). */
 export function industrialMaterial(): THREE.MeshLambertMaterial {
   return (indMat ??= new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true, map: industrialAtlas() }));
+}
+
+/**
+ * V1.6: texture a merged geometry with TRIPLANAR UVs — each triangle takes
+ * the surface `s` and projects the model's bounding box onto it along the
+ * triangle's dominant normal axis, so walls, roof slopes and gables all get
+ * an even texture density whatever their own UVs were (extruded gable roofs
+ * have none that are usable). Non-indexed geometry only.
+ */
+export function skinProjected(g: THREE.BufferGeometry, s: Skin): THREE.BufferGeometry {
+  if (g.index) return g;
+  const pos = g.getAttribute('position') as THREE.BufferAttribute;
+  g.computeBoundingBox();
+  const bb = g.boundingBox!;
+  const sz = [bb.max.x - bb.min.x || 1, bb.max.y - bb.min.y || 1, bb.max.z - bb.min.z || 1];
+  const uv = new Float32Array(pos.count * 2);
+  const A = new THREE.Vector3(), B = new THREE.Vector3(), C = new THREE.Vector3(), N = new THREE.Vector3();
+  const cx = s % COLS, row = Math.floor(s / COLS);
+  for (let t = 0; t + 2 < pos.count; t += 3) {
+    A.fromBufferAttribute(pos, t); B.fromBufferAttribute(pos, t + 1); C.fromBufferAttribute(pos, t + 2);
+    N.subVectors(B, A).cross(C.sub(A));
+    const ax = Math.abs(N.x), ay = Math.abs(N.y), az = Math.abs(N.z);
+    for (let k = 0; k < 3; k++) {
+      const x = pos.getX(t + k), y = pos.getY(t + k), z = pos.getZ(t + k);
+      let u: number, v: number;
+      if (ay >= ax && ay >= az) { u = (x - bb.min.x) / sz[0]; v = (z - bb.min.z) / sz[2]; }
+      else if (ax >= az) { u = (z - bb.min.z) / sz[2]; v = (y - bb.min.y) / sz[1]; }
+      else { u = (x - bb.min.x) / sz[0]; v = (y - bb.min.y) / sz[1]; }
+      u = Math.min(1, Math.max(0, u)); v = Math.min(1, Math.max(0, v));
+      uv[(t + k) * 2] = (cx + INSET + u * (1 - 2 * INSET)) / COLS;
+      uv[(t + k) * 2 + 1] = (ROWS - 1 - row + INSET + v * (1 - 2 * INSET)) / ROWS;
+    }
+  }
+  g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return g;
+}
+
+/**
+ * Surfaces for the low-density HOMES (zone designs 0–7, levels 1–3):
+ * walls get siding / stucco / boards by design, roofs (accent) get shingles.
+ * Trim and details stay colour-picked (autoSkin).
+ */
+const HOME_WALL: Skin[] = [Skin.Siding, Skin.Siding, Skin.Stucco, Skin.Boards, Skin.Boards, Skin.Siding, Skin.Brick, Skin.Stucco];
+export function texturedHome(parts: { walls: THREE.BufferGeometry; accent: THREE.BufferGeometry; fixed: THREE.BufferGeometry }, k: number, flatRoof = k === 2 || k === 7): void {
+  skinProjected(parts.walls, HOME_WALL[k % HOME_WALL.length]);
+  skinProjected(parts.accent, flatRoof ? Skin.Roof : Skin.Shingle);
+  autoSkin(parts.fixed);
+}
+
+/**
+ * V1.6: like autoSkin, but a table of exact vertex colours (0xRRGGBB) can force
+ * a surface (stucco walls, glass towers, roof slabs...); every other colour
+ * falls back to the colour guess. Keeps each face's own 0..1 UVs.
+ */
+export function autoSkinMap(g: THREE.BufferGeometry, table: Record<number, Skin>): THREE.BufferGeometry {
+  const uv = g.getAttribute('uv') as THREE.BufferAttribute | undefined;
+  const col = g.getAttribute('color') as THREE.BufferAttribute | undefined;
+  if (!uv || g.index) return g;
+  const c = new THREE.Color();
+  for (let t = 0; t + 2 < uv.count; t += 3) {
+    let s: Skin = Skin.Plain;
+    if (col) { c.setRGB(col.getX(t), col.getY(t), col.getZ(t)); s = table[c.getHex()] ?? skinForColor(c); }
+    const cx = s % COLS, row = Math.floor(s / COLS);
+    for (let k = t; k < t + 3; k++) {
+      const u = Math.min(1, Math.max(0, uv.getX(k))), v = Math.min(1, Math.max(0, uv.getY(k)));
+      uv.setXY(k, (cx + INSET + u * (1 - 2 * INSET)) / COLS, (ROWS - 1 - row + INSET + v * (1 - 2 * INSET)) / ROWS);
+    }
+  }
+  uv.needsUpdate = true;
+  return g;
+}
+
+/**
+ * Surfaces for the generic SHOP designs (commercial 0–4, levels 1–3): brick /
+ * siding / concrete / stucco walls by design, flat roof membrane on the
+ * accent parapets and awnings; trim and glass stay colour-picked.
+ */
+const SHOP_WALL: Skin[] = [Skin.Brick, Skin.Siding, Skin.Concrete, Skin.Stucco, Skin.Brick];
+export function texturedShop(parts: { walls: THREE.BufferGeometry; accent: THREE.BufferGeometry; fixed: THREE.BufferGeometry }, k: number): void {
+  skinProjected(parts.walls, SHOP_WALL[k % SHOP_WALL.length]);
+  skinProjected(parts.accent, k === 2 ? Skin.Glass : Skin.Roof);
+  autoSkin(parts.fixed);
 }

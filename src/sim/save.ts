@@ -35,7 +35,7 @@ import { GREW_FROM_1X1 } from './services';
 import { localToCell } from './lots';
 import { MAP_SIZES, setGridSize } from './mapsize';
 import { allRegions } from './regions';
-import { loadGraph, migrateToGraph, rebuildBlocks, saveGraph } from '../roads/persist';
+import { demoteStaleJunctions, loadGraph, migrateToGraph, rebuildBlocks, saveGraph, upgradeGraphRoads } from '../roads/persist';
 
 const KEY = 'lowpoly-city-save';
 /** v5 (PR 5): tile kind/farm/input/crew + windDir/windDirVel. */
@@ -116,6 +116,7 @@ export function serializeWorld(world: World): string {
     clock: world.clock,
     tier: world.tier,
     peakPop: world.peakPop,
+    noAutoHaul: [...world.noAutoHaul],
     // v9: big maps store run-length columns; the 64 map keeps the v8 layout
     // (a tiles array + base64 cells, ~1 MB) so every older tool can read it.
     // The loader picks the layout by which fields are present.
@@ -176,6 +177,7 @@ export function deserializeWorld(raw: string): World | null {
     const seed: number = data.seed ?? Math.floor(Math.random() * 1e9);
     const w = new World(tiles, seed);
     w.tick = data.tick ?? 0;
+    if (Array.isArray(data.noAutoHaul)) for (const a of data.noAutoHaul) if (typeof a === 'number') w.noAutoHaul.add(a);
     w.regionsOwned = version >= 9 && typeof data.regionsOwned === 'number' ? data.regionsOwned : allRegions(size); // v9
     if (version < 2) {
       // ---- v1 -> v2 migration ----
@@ -246,6 +248,12 @@ export function deserializeWorld(raw: string): World | null {
       // stale LONE road nodes (no edges) where a junction was edited; they
       // would capture the next road built there (see roads/persist.ts).
       for (const m of w.roads.liveNodes()) if (!w.roads.nEdges[m].length) w.roads.tidyNode(m);
+      // OASIS-AVENUE repair: lights / stop signs left on nodes that lost an
+      // arm (fewer than 3 roads) — they throttled straight roads for nothing.
+      demoteStaleJunctions(w.roads);
+      // OASIS-AVENUE repair: streets the player upgraded with the Avenue tool
+      // before the graph followed (tiles say avenue, graph edge says street).
+      { const ave: number[] = []; w.graphTiles.forEach((i) => { if (w.tiles[i].roadType === 1) ave.push(i); }); if (ave.length) upgradeGraphRoads(w, ave); }
     }
     // ---- oasis merge (1.6 + models) ----
     // 1.6 (above) restores/migrates the road graph; the models branch adds

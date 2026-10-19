@@ -12,6 +12,8 @@
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
 import { slab } from './landfillModel';
+import { heavyIndustryModels } from './heavyIndustry';
+import { combineHarvester, tractorPlough } from './farmVehicles';
 
 const STEEL = 0xc5cbd2, STEEL_D = 0x8d949c, CONCRETE = 0xb9b5ac, ROOF = 0x5c6670, WOOD = 0x8a6440;
 const cyl = (r: number, h: number, seg = 14) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
@@ -23,7 +25,7 @@ const dome = (r: number) => new THREE.SphereGeometry(r, 14, 6, 0, Math.PI * 2, 0
  * facing the road), a tall silo with a dome, a small farmhouse shed, hay
  * bales and a fenced yard. Fields are separate instances (fieldSoil/Crops).
  */
-export function farmModel(): THREE.BufferGeometry {
+function farmParts(fenceSides = true): THREE.BufferGeometry[] {
   const RED = 0xb23a2e, TRIM = 0xf1ece2, ROOFC = 0x4d4a48, GRN = 0x3f8f3a;
   const p: THREE.BufferGeometry[] = [
     part(box(0.96, 0.012, 0.96), 0x9c8a62), // packed-earth yard
@@ -127,11 +129,98 @@ export function farmModel(): THREE.BufferGeometry {
   // Yard fence along the back and the sides (front stays open to the road).
   for (const x of [-0.46, -0.23, 0, 0.23, 0.46]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [x, 0.012, -0.46]));
   p.push(part(box(0.94, 0.012, 0.01), WOOD, [0, 0.06, -0.46]), part(box(0.94, 0.012, 0.01), WOOD, [0, 0.035, -0.46]));
-  for (const x of [-0.465, 0.465]) {
+  if (fenceSides) for (const x of [-0.465, 0.465]) {
     for (const z of [-0.3, -0.15, 0, 0.15]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [x, 0.012, z]));
     p.push(part(box(0.01, 0.012, 0.62), WOOD, [x, 0.06, -0.075]), part(box(0.01, 0.012, 0.62), WOOD, [x, 0.035, -0.075]));
   }
-  return merge(p);
+  return p;
+}
+
+export const farmModel = (): THREE.BufferGeometry => merge(farmParts());
+
+/**
+ * The second half of the LARGE FARM (two farms that merged): a machinery shed with a parked combine
+ * and tractor, a grain store (three silos, a conveyor tower and a dryer), a greenhouse, a paddock with
+ * two horses, a farm stand, a duck pond, an orchard and a water tower — in the same style and level of
+ * detail as the original farm, which fills the other half.
+ */
+function farmAnnexParts(): THREE.BufferGeometry[] {
+  const TRIM = 0xf1ece2, ROOFC = 0x4d4a48, RED = 0xb23a2e, GLASS = 0x9fd7ff, STEELC = 0x8d949c;
+  const put = (g: THREE.BufferGeometry, x: number, z: number, yaw = 0) => g.rotateY(yaw).translate(x, 0.012, z);
+  const p: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0x9c8a62)];
+  // Machinery shed (back-left): green steel walls, gable roof, three bays, parked combine + plough tractor.
+  p.push(part(box(0.56, 0.17, 0.3), 0x4f7a4a, [-0.12, 0.012, -0.3]), part(gable(0.6, 0.1, 0.34), ROOFC, [-0.12, 0.182, -0.3]), part(box(0.62, 0.012, 0.022), 0x35332f, [-0.12, 0.282, -0.3]));
+  for (let k = 0; k < 3; k++) {
+    const x = -0.3 + k * 0.18;
+    p.push(part(box(0.15, 0.12, 0.006), 0x2a2d30, [x, 0.012, -0.146]), part(box(0.16, 0.012, 0.008), TRIM, [x, 0.132, -0.146]));
+    for (const s of [-1, 1]) p.push(part(box(0.008, 0.12, 0.008), TRIM, [x + s * 0.078, 0.012, -0.146]));
+  }
+  p.push(part(box(0.08, 0.05, 0.004), RED, [-0.12, 0.2, -0.146])); // shed sign
+  p.push(put(combineHarvester(), -0.3, -0.04, -Math.PI / 2 + 0.2), put(tractorPlough(), -0.02, -0.03, -Math.PI / 2 - 0.15));
+  for (const [x, z] of [[-0.44, -0.08], [-0.44, 0.0], [-0.44, 0.08]]) { // round bales stacked by the shed
+    p.push(part(new THREE.CylinderGeometry(0.04, 0.04, 0.055, 10).rotateZ(Math.PI / 2), 0xe0c46a, [x, 0.052, z]), part(new THREE.CylinderGeometry(0.042, 0.042, 0.006, 10).rotateZ(Math.PI / 2), 0xb08c3a, [x, 0.052, z]));
+  }
+  // Grain store (back-right): three silos with rings, domes and a ladder, a conveyor tower and a dryer.
+  for (const [sx, sz, h] of [[0.32, -0.34, 0.54], [0.32, -0.16, 0.44], [0.16, -0.38, 0.36]] as const) {
+    p.push(part(cyl(0.07, h), 0xd8dde2, [sx, 0.012, sz]), part(dome(0.07), 0x9aa3ab, [sx, 0.012 + h, sz]), part(cyl(0.012, 0.04, 6), 0x555c63, [sx, 0.012 + h + 0.07, sz]));
+    for (let r = 1; r <= 4; r++) p.push(part(new THREE.CylinderGeometry(0.074, 0.074, 0.012, 14), 0xaab2ba, [sx, 0.012 + (h * r) / 5, sz]));
+    p.push(part(box(0.012, h, 0.02), 0x6d747b, [sx + 0.075, 0.012, sz]));
+  }
+  p.push(part(box(0.1, 0.32, 0.1), 0x8f989f, [0.18, 0.012, -0.1]), part(box(0.11, 0.014, 0.11), 0x3d4a55, [0.18, 0.332, -0.1])); // conveyor tower
+  p.push(slab([0.18, 0.3, -0.1], [0.32, 0.46, -0.16], 0.03, 0.03, 0x4d555d), slab([0.18, 0.3, -0.1], [0.16, 0.34, -0.3], 0.03, 0.03, 0x4d555d));
+  p.push(part(box(0.12, 0.14, 0.1), 0xc8cdd2, [0.42, 0.012, -0.08]), part(cyl(0.012, 0.1, 8), 0x555c63, [0.45, 0.152, -0.08])); // grain dryer + flue
+  // Greenhouse (front-left): glass walls and gable roof with ribs, seedling trays and pots outside.
+  p.push(part(box(0.32, 0.09, 0.2), GLASS, [-0.3, 0.012, 0.36]), part(gable(0.34, 0.06, 0.22), GLASS, [-0.3, 0.102, 0.36]));
+  for (let k = 0; k <= 5; k++) p.push(part(box(0.006, 0.09, 0.006), STEELC, [-0.46 + k * 0.064, 0.012, 0.462]));
+  p.push(part(box(0.34, 0.006, 0.006), STEELC, [-0.3, 0.1, 0.462]), part(box(0.05, 0.07, 0.006), 0x6b4a2b, [-0.3, 0.012, 0.464]));
+  for (let k = 0; k < 4; k++) p.push(part(box(0.05, 0.012, 0.035), 0x5f442b, [-0.42 + k * 0.08, 0.02, 0.3]), part(new THREE.IcosahedronGeometry(0.012, 0).translate(0, 0.012, 0), 0x6cc551, [-0.42 + k * 0.08, 0.034, 0.3]));
+  for (const x of [-0.46, -0.42]) p.push(part(cyl(0.012, 0.025, 8), 0xb5543c, [x, 0.012, 0.18]), part(new THREE.IcosahedronGeometry(0.014, 0).translate(0, 0.03, 0), 0xe85d8a, [x, 0.012, 0.18]));
+  // Paddock (left-middle): post-and-rail fence, a trough and two horses.
+  for (const x of [-0.45, -0.3, -0.15]) for (const z of [0.1, 0.22]) p.push(part(box(0.012, 0.06, 0.012), WOOD, [x, 0.012, z]));
+  for (const y of [0.035, 0.06]) p.push(part(box(0.32, 0.008, 0.008), WOOD, [-0.3, y, 0.1]), part(box(0.32, 0.008, 0.008), WOOD, [-0.3, y, 0.22]), part(box(0.008, 0.008, 0.12), WOOD, [-0.45, y, 0.16]));
+  p.push(part(box(0.07, 0.025, 0.03), 0x8d949c, [-0.22, 0.012, 0.115]), part(box(0.06, 0.006, 0.022), 0x3d95d9, [-0.22, 0.034, 0.115]));
+  const horse = (x: number, z: number, yaw: number, coat: number) => {
+    const h: THREE.BufferGeometry[] = [part(box(0.08, 0.04, 0.03), coat, [0, 0.04, 0]), part(box(0.03, 0.05, 0.024), coat, [0.05, 0.065, 0], [0, 0, -0.5]), part(box(0.02, 0.02, 0.022), coat, [0.075, 0.1, 0]), part(box(0.05, 0.008, 0.008), 0x2a2018, [0.03, 0.095, 0], [0, 0, -0.5]), part(box(0.01, 0.02, 0.006), 0x2a2018, [-0.042, 0.05, 0])];
+    for (const [lx, lz] of [[-0.03, -0.01], [-0.03, 0.01], [0.03, -0.01], [0.03, 0.01]]) h.push(part(box(0.008, 0.04, 0.008), 0x3a2a20, [lx, 0, lz]));
+    return h.map((g) => put(g, x, z, yaw));
+  };
+  p.push(...horse(-0.34, 0.15, 0.4, 0x7a4a2a), ...horse(-0.22, 0.19, -0.7, 0x2f2a28));
+  // Farm stand (front-centre): counter, striped awning, crates of produce and a sign.
+  p.push(part(box(0.2, 0.05, 0.07), 0xc89a5e, [0.0, 0.012, 0.36]), part(box(0.22, 0.008, 0.09), 0x8a6440, [0.0, 0.062, 0.36]));
+  for (const x of [-0.1, 0.1]) p.push(part(box(0.008, 0.11, 0.008), WOOD, [x, 0.012, 0.325]));
+  for (let k = 0; k < 6; k++) p.push(part(box(0.037, 0.008, 0.07), k % 2 ? 0xf4f1ea : RED, [-0.092 + k * 0.037, 0.115, 0.335], [0.3, 0, 0]));
+  p.push(part(box(0.05, 0.03, 0.04), 0xd9432f, [-0.06, 0.07, 0.36]), part(box(0.05, 0.03, 0.04), 0xe08a1f, [0.0, 0.07, 0.36]), part(box(0.05, 0.03, 0.04), 0x6cc551, [0.06, 0.07, 0.36]));
+  p.push(part(box(0.14, 0.04, 0.006), 0x2b4fa6, [0.0, 0.14, 0.325]));
+  // Duck pond (front-right): water, stone rim, reeds and two ducks.
+  p.push(part(box(0.24, 0.01, 0.17), 0x7a735f, [0.32, 0.012, 0.2]), part(box(0.2, 0.006, 0.13), 0x4d7f8f, [0.32, 0.02, 0.2]));
+  for (let k = 0; k < 7; k++) p.push(part(new THREE.IcosahedronGeometry(0.014, 0).translate(0, 0.01, 0), k % 2 ? 0xaaa293 : 0x8a847a, [0.21 + k * 0.036, 0.015, 0.285]));
+  for (const [x, z] of [[0.43, 0.15], [0.44, 0.18], [0.2, 0.13]]) p.push(part(cyl(0.003, 0.05, 4), 0x5f9c34, [x, 0.02, z]));
+  for (const [x, z] of [[0.3, 0.2], [0.35, 0.22]]) p.push(part(box(0.025, 0.012, 0.016), 0xf4f1ea, [x, 0.026, z]), part(box(0.012, 0.014, 0.012), 0x2f7a4c, [x + 0.014, 0.034, z]), part(box(0.01, 0.004, 0.006), 0xf28c1d, [x + 0.024, 0.036, z]));
+  // Orchard (front): a row of fruit trees with a few red apples.
+  for (const x of [0.16, 0.3, 0.44]) { p.push(part(cyl(0.012, 0.08, 6), 0x6b4a2b, [x, 0.012, 0.42]), part(new THREE.IcosahedronGeometry(0.06, 0).translate(0, 0.14, 0), 0x4f9e45, [x, 0, 0.42])); for (const [dx, dy] of [[-0.03, 0.12], [0.03, 0.16], [0.0, 0.1]]) p.push(part(new THREE.IcosahedronGeometry(0.008, 0), 0xd9432f, [x + dx, 0.012 + dy, 0.45])); }
+  // Water tower on legs (right).
+  for (const [dx, dz] of [[-0.03, -0.03], [0.03, -0.03], [-0.03, 0.03], [0.03, 0.03]]) p.push(slab([0.44 + dx, 0.012, 0.0 + dz], [0.44 + dx * 0.8, 0.22, 0.0 + dz * 0.8], 0.008, 0.008, STEELC));
+  p.push(part(cyl(0.045, 0.07, 10), 0x7b8288, [0.44, 0.22, 0.0]), part(new THREE.ConeGeometry(0.05, 0.035, 10).translate(0, 0.0175, 0), 0x5c6670, [0.44, 0.29, 0.0]));
+  // Fence along the back and the right side, a mailbox at the front.
+  for (const x of [-0.46, -0.23, 0, 0.23, 0.46]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [x, 0.012, -0.46]));
+  p.push(part(box(0.94, 0.012, 0.01), WOOD, [0, 0.06, -0.46]), part(box(0.94, 0.012, 0.01), WOOD, [0, 0.035, -0.46]));
+  for (const z of [-0.3, -0.15, 0, 0.15, 0.3]) p.push(part(box(0.016, 0.07, 0.016), WOOD, [0.465, 0.012, z]));
+  p.push(part(box(0.01, 0.012, 0.76), WOOD, [0.465, 0.06, -0.08]), part(box(0.01, 0.012, 0.76), WOOD, [0.465, 0.035, -0.08]));
+  p.push(part(box(0.006, 0.05, 0.006), 0x6b4a2b, [-0.46, 0.012, 0.465]), part(box(0.03, 0.02, 0.02), 0xb23a2e, [-0.46, 0.062, 0.465]));
+  return p;
+}
+
+/**
+ * Large farm: the original farm yard on the left and the annex on the right, side by side (2 × 1 tile),
+ * with the outer fence closed at both ends.
+ */
+export function bigFarmModel(): THREE.BufferGeometry {
+  const left = farmParts(false).map((g) => g.translate(-0.48, 0, 0));
+  const right = farmAnnexParts().map((g) => g.translate(0.48, 0, 0));
+  const ends: THREE.BufferGeometry[] = [];
+  for (const z of [-0.3, -0.15, 0, 0.15]) ends.push(part(box(0.016, 0.07, 0.016), WOOD, [-0.945, 0.012, z]));
+  ends.push(part(box(0.01, 0.012, 0.62), WOOD, [-0.945, 0.06, -0.075]), part(box(0.01, 0.012, 0.62), WOOD, [-0.945, 0.035, -0.075]));
+  return merge([...left, ...right, ...ends]);
 }
 
 /** Field soil: a slightly raised tilled bed with furrows (not tinted). */
@@ -616,6 +705,7 @@ function quarryModel(): THREE.BufferGeometry {
 
 /** Every role model by name (keys match sim/chains.ts Role). */
 export function roleModels(): Record<string, THREE.BufferGeometry> {
+  const heavy = heavyIndustryModels();
   return {
     // Logging camp: cabin, log piles, stumps and forest edge.
     logging: merge([
@@ -637,37 +727,8 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
       part(cyl(0.03, 0.42, 8), STEEL_D, [0.32, 0.012, -0.3]),
       ...logs(8, -0.2, 0.25), ...[0, 1, 2, 3].map((k) => part(box(0.26, 0.025, 0.12), 0xd8b47a, [0.25, 0.012 + k * 0.026, 0.25])),
     ]),
-    // Refinery: tank farm, distillation column and a flare stack.
-    refinery: merge([
-      part(box(0.96, 0.012, 0.96), 0x8b8478),
-      part(cyl(0.07, 0.7, 10), STEEL, [-0.25, 0.012, -0.2]), ...[0.2, 0.4, 0.6].map((y) => part(new THREE.CylinderGeometry(0.08, 0.08, 0.02, 10), STEEL_D, [-0.25, y, -0.2])),
-      part(cyl(0.025, 0.85, 6), 0x8d949c, [0.35, 0.012, -0.35]), part(new THREE.ConeGeometry(0.03, 0.08, 6).translate(0, 0.9, 0), 0xff8a1f, [0.35, 0, -0.35]),
-      ...[[0.12, -0.15], [0.12, 0.2], [-0.15, 0.22]].map(([x, z]) => part(cyl(0.12, 0.16), 0xe9e4da, [x, 0.012, z])),
-      part(box(0.6, 0.02, 0.02), STEEL_D, [0, 0.2, 0.02]),
-    ]),
-    // Building-materials plant: cement silos, aggregate bins and pallets.
-    materials: merge([
-      part(box(0.96, 0.012, 0.96), CONCRETE),
-      part(box(0.5, 0.26, 0.3), 0xd5d1c7, [-0.15, 0.012, -0.2]), part(box(0.52, 0.03, 0.32), ROOF, [-0.15, 0.27, -0.2]),
-      ...[-0.05, 0.12, 0.29].map((x) => part(cyl(0.065, 0.5, 10), 0xe2ddd2, [x + 0.05, 0.012, 0.15])),
-      ...[-0.38, -0.24].map((x) => part(new THREE.ConeGeometry(0.08, 0.1, 7).translate(0, 0.05, 0), 0x9f8f78, [x, 0.012, 0.3])),
-      ...[0, 1].map((k) => part(box(0.14, 0.08, 0.14), 0xc04a32, [0.3, 0.012 + k * 0.08, -0.3])),
-    ]),
-    // Furniture factory: brick workshop, timber store, sofas on pallets.
-    furniture: merge([
-      part(box(0.96, 0.012, 0.96), 0xb9b5ac),
-      part(box(0.62, 0.26, 0.42), 0xa45a3e, [0, 0.012, -0.15]), part(box(0.64, 0.04, 0.44), 0x4d4a48, [0, 0.27, -0.15]),
-      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.08, 0.012), 0xffd98a, [x, 0.1, 0.07])),
-      part(box(0.2, 0.06, 0.1), 0x3d6fa8, [-0.25, 0.012, 0.3]), part(box(0.2, 0.06, 0.1), 0xc0784a, [0.05, 0.012, 0.3]),
-      ...[0, 1, 2].map((k) => part(box(0.22, 0.02, 0.1), 0xd8b47a, [0.3, 0.012 + k * 0.022, 0.32])),
-    ]),
-    // Electronics plant: clean white hall, glass band, rooftop units.
-    electronics: merge([
-      part(box(0.96, 0.012, 0.96), 0xc7ccd2),
-      part(box(0.7, 0.22, 0.5), 0xf3f5f7, [0, 0.012, -0.12]), part(box(0.71, 0.05, 0.51), 0x4ea3d8, [0, 0.13, -0.12]),
-      ...[-0.2, 0, 0.2].map((x) => part(box(0.1, 0.05, 0.1), STEEL_D, [x, 0.232, -0.2])),
-      part(box(0.2, 0.012, 0.2), 0x2c4a6e, [0.28, 0.02, 0.3]), part(box(0.06, 0.08, 0.06), 0x55a868, [-0.3, 0.012, 0.3]),
-    ]),
+    // Refinery / materials / electronics: detailed versions live in heavyIndustry.ts.
+    refinery: heavy.refinery, materials: heavy.materials, electronics: heavy.electronics,
   };
 }
 
@@ -678,7 +739,7 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
 // mid-grey corrugated metal, light concrete, dark roofs, yellow hazard
 // stripes, orange-brown rust. Signage boards are bright saturated colours.
 // ----------------------------------------------------------------------------
-const BRICK = 0x9a4a35, MET = 0x8f989f, MET_D = 0x5b636a, CON = 0xc4c0b6, ROOFD = 0x4b535b, HAZ = 0xf2c230, RUST = 0x8a4f26;
+const BRICK = 0x9a4a35, MET = 0x8f989f, CON = 0xc4c0b6, ROOFD = 0x4b535b, HAZ = 0xf2c230;
 /** Rooftop HVAC unit with a fan grille. */
 function hvac(p: THREE.BufferGeometry[], x: number, y: number, z: number): void {
   p.push(part(box(0.1, 0.05, 0.07), 0xb8bec4, [x, y, z]));
@@ -709,42 +770,6 @@ export function newIndustryModels(): Record<string, THREE.BufferGeometry> {
     hazardKerb(p, 0.3, 0.42, 0.2);
     out.warehouse = merge(p);
   }
-  { // CHEMICAL PLANT: process columns, spherical tanks, pipe racks, flare stack.
-    const p = [apron()];
-    p.push(part(box(0.36, 0.2, 0.26), CON, [-0.26, 0.012, 0.2]));
-    p.push(part(box(0.38, 0.015, 0.28), ROOFD, [-0.26, 0.212, 0.2]));
-    for (const [x, z, h] of [[0.05, -0.15, 0.62], [0.17, -0.2, 0.5], [0.05, 0.02, 0.42]] as const) {
-      p.push(part(cyl(0.045, h, 12), 0xd0d4d8, [x, 0.012, z]));
-      for (let r = 1; r < 4; r++) p.push(part(box(0.11, 0.006, 0.11), MET_D, [x, 0.012 + (h * r) / 4, z]));
-    }
-    for (const [x, z] of [[0.32, 0.2], [0.32, -0.05]]) { p.push(part(new THREE.SphereGeometry(0.1, 14, 8), 0xe6e8ea, [x, 0.17, z])); for (const s of [-1, 1]) p.push(part(box(0.012, 0.1, 0.012), MET_D, [x + s * 0.07, 0.012, z])); }
-    p.push(part(new THREE.CylinderGeometry(0.015, 0.015, 0.7, 6).rotateZ(Math.PI / 2), RUST, [0, 0.3, -0.32]));
-    p.push(part(new THREE.CylinderGeometry(0.012, 0.012, 0.7, 6).rotateZ(Math.PI / 2), 0x3f8a5a, [0, 0.26, -0.32]));
-    for (const x of [-0.3, 0, 0.3]) p.push(part(box(0.015, 0.3, 0.015), MET_D, [x, 0.012, -0.32]));
-    p.push(part(cyl(0.018, 0.85, 8), 0xc23b2e, [-0.38, 0.012, -0.36]));
-    p.push(part(new THREE.ConeGeometry(0.03, 0.06, 8).translate(0, 0.03, 0), 0xff8a20, [-0.38, 0.86, -0.36]));
-    barrels(p, -0.4, 0.38);
-    hazardKerb(p, -0.2, 0.36, 0.18);
-    sign(p, -0.26, 0.15, 0.335, 0.22, 0xe07a1f);
-    out.chemical = merge(p);
-  }
-  { // STEEL MILL: tall brick-and-rust melt shop, blast furnace, stacks, ore piles.
-    const p = [apron()];
-    p.push(part(box(0.5, 0.42, 0.42), RUST, [-0.18, 0.012, 0.1]));
-    p.push(part(gable(0.52, 0.1, 0.44, 0.02), ROOFD, [-0.18, 0.43, 0.1]));
-    p.push(part(box(0.5, 0.12, 0.006), BRICK, [-0.18, 0.012, 0.32]));
-    p.push(part(new THREE.CylinderGeometry(0.08, 0.12, 0.55, 12).translate(0, 0.275, 0), MET_D, [0.25, 0.012, -0.15]));
-    p.push(part(new THREE.CylinderGeometry(0.03, 0.03, 0.4, 8).rotateZ(0.9), RUST, [0.12, 0.5, -0.15]));
-    for (const [x, h] of [[0.36, 0.95], [0.18, 0.85]] as const) {
-      p.push(part(new THREE.CylinderGeometry(0.03, 0.045, h, 10).translate(0, h / 2, 0), 0xb9b2a6, [x, 0.012, -0.38]));
-      p.push(part(new THREE.CylinderGeometry(0.033, 0.033, 0.04, 10), 0xc23b2e, [x, h - 0.08, -0.38]));
-    }
-    p.push(part(new THREE.ConeGeometry(0.14, 0.1, 8).translate(0, 0.05, 0).scale(1.4, 1, 1), 0x7a4a36, [0.28, 0.012, 0.3]));
-    conveyor(p, 0.2, 0.05, -0.05, 0.38, 0.22);
-    for (let k = 0; k < 3; k++) p.push(part(box(0.12, 0.025, 0.08), 0x6d6f73, [-0.35 + k * 0.14, 0.012, 0.42])); // slabs
-    sign(p, -0.18, 0.3, 0.325, 0.2, 0x3d5a80);
-    out.steel = merge(p);
-  }
   { // TEXTILE MILL: classic red-brick multi-storey mill with tall windows + chimney + water tower.
     const p = [apron()];
     p.push(part(box(0.72, 0.4, 0.34), BRICK, [-0.05, 0.012, 0.0]));
@@ -771,18 +796,7 @@ export function newIndustryModels(): Record<string, THREE.BufferGeometry> {
     sign(p, -0.1, 0.27, 0.14, 0.32, 0xd02c2c);
     out.bottling = merge(p);
   }
-  { // ASSEMBLY PLANT: big sawtooth-roof hall, paint shop with stacks, finished-goods lot.
-    const p = [apron()];
-    p.push(part(box(0.78, 0.26, 0.5), MET, [0, 0.012, -0.18]));
-    for (let s = 0; s < 4; s++) p.push(part(gable(0.78, 0.08, 0.125, 0.12), ROOFD, [0, 0.272, -0.37 + s * 0.125]));
-    for (let s = 0; s < 4; s++) p.push(part(box(0.76, 0.05, 0.006), 0x9fd7ff, [0, 0.29, -0.42 + s * 0.125])); // sawtooth glazing
-    p.push(part(box(0.22, 0.18, 0.18), CON, [-0.26, 0.012, 0.2])); // paint shop
-    for (const x of [-0.32, -0.2]) exhaustStack(p, x, 0.192, 0.2, 0.2);
-    for (let r = 0; r < 2; r++) for (let c = 0; c < 4; c++) p.push(part(box(0.06, 0.04, 0.1), [0x2f6fb0, 0xe8e8e8, 0xc23b2e, 0x3a3a3a][(r + c) % 4], [0.02 + c * 0.1, 0.012, 0.18 + r * 0.16])); // finished products
-    docks(p, 0.1, 3, 0.07, 0.24);
-    hazardKerb(p, 0.24, 0.12, 0.3);
-    sign(p, 0.0, 0.2, 0.074, 0.18, 0x1f7a3d);
-    out.assembly = merge(p);
-  }
+  const heavy = heavyIndustryModels();
+  out.chemical = heavy.chemical; out.steel = heavy.steel; out.assembly = heavy.assembly;
   return out;
 }

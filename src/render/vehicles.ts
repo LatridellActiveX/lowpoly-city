@@ -231,7 +231,6 @@ export function roofColor(id: number, body: number): number {
 }
 
 /** Cargo colours for truck boxes (goods.ts types). */
-export const CARGO_COLORS: Record<string, number> = { goods: 0x5b8def, food: 0x6cc551, lumber: 0xb07a45, stone: 0xa9a9a9, oil: 0x2b2b2b, coal: 0x4a4038, residents: 0xffffff };
 
 // ---------------------------------------------------------------------------
 // PR 5 SMOOTH DRIVING PATHS

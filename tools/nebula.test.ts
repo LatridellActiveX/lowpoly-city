@@ -61,12 +61,14 @@ for (let step = 0; step < 400; step++) {
   for (const s of sig) {
     const slot = signalSlot(gt, s.node, s.edge);
     if ((slot > 0) !== gt.green(s.node, s.edge)) mismatch++;
-    if (slot > 0) goByNode.set(s.node, (goByNode.get(s.node) ?? 0) + 1);
+    // OASIS-AVENUE: opposite approaches share a phase now, so count the
+    // distinct PHASES showing go at a node (must be ≤ 1), not approaches.
+    if (slot > 0) { const J = gt.junctions.get(s.node)!; const ph = J.phases.findIndex((p) => p.includes(s.edge)); const prev = goByNode.get(s.node); goByNode.set(s.node, prev === undefined || prev === ph ? ph : -1); }
     if (slot === 1) { amberSeen++; if (!gt.green(s.node, s.edge)) amberBad++; }
   }
-  for (const v of goByNode.values()) if (v > 1) multi++;
+  for (const v of goByNode.values()) if (v < 0) multi++;
 }
 ok(mismatch === 0, 'lamp shows go exactly when the controller is green', mismatch);
-ok(multi === 0, 'one approach at a time shows green/amber', multi);
+ok(multi === 0, 'one phase at a time shows green/amber (opposite approaches together)', multi);
 ok(amberSeen > 0 && amberBad === 0, 'amber appears, only at the end of a green', amberSeen);
 console.log(fail ? `${fail} FAILED` : 'all passed'); if (fail) process.exit(1);

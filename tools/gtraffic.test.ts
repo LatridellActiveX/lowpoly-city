@@ -105,10 +105,16 @@ const plus = (kind: 'plain' | 'signal' | 'stop' = 'plain', type: 'street' | 'ave
   void r;
   run(tr, 30);
   ok(tr.stats.rightOnRed >= 0, 'signal: right on red counted');
-  const v2 = new GraphTraffic(g); while (v2.green(c, edgeTo(W))) v2.time += 0.5;
-  v2.spawn(W, rightTo);
-  let at = -1; for (let t = 0; t < 60 && at < 0; t += 0.1) { v2.update(0.1); if (v2.stats.rightOnRed > 0 || v2.stats.arrived) at = t; }
-  const wasRed = !v2.green(c, edgeTo(W));
+  // OASIS-SAFEGAP: the approach time depends on the speed rule, so instead of
+  // one fixed start phase, try start phases across a whole cycle: in at least
+  // one the car reaches the line on red and must turn right on red.
+  let v2 = new GraphTraffic(g), wasRed = false;
+  for (let ph = 0; ph < 30 && !(v2.stats.rightOnRed === 1 && wasRed); ph++) {
+    v2 = new GraphTraffic(g); v2.time = ph;
+    v2.spawn(W, rightTo);
+    let at = -1; for (let t = 0; t < 60 && at < 0; t += 0.1) { v2.update(0.1); if (v2.stats.rightOnRed > 0 || v2.stats.arrived) at = t; }
+    wasRed = !v2.green(c, edgeTo(W));
+  }
   ok(v2.stats.rightOnRed === 1 && wasRed, 'signal: a right-turner goes on red after stopping', { ror: v2.stats.rightOnRed });
   const v3 = new GraphTraffic(g); while (v3.green(c, edgeTo(W))) v3.time += 0.5;
   const s3 = v3.spawn(W, E)! as Vehicle;

@@ -105,16 +105,25 @@ export const FARM_FIELDS = [0, 2, 4, 6];
 /** Field cells per PR 5 "field tile" for the production formula. */
 const CELLS_PER_FIELD = 16;
 
+/** Field quota multiplier: a large farm (merged from neighbours) shares a field as wide as its barn row (w ÷ 3 of an ordinary farm's). */
+export const fieldMult = (tplW: number) => Math.max(1, Math.round(tplW / 3));
+/** The field multiplier of the farm(s) hosted on tile i (HUD). */
+export function farmFieldMult(world: World, i: number): number {
+  let m = 1;
+  for (const b of world.lots.buildings.values()) if (b.host === i) m = Math.max(m, fieldMult(TPL[b.tpl].w));
+  return m;
+}
+
 export function updateFarms(world: World): void {
   const lots = world.lots;
   const { owner, role, zone } = world.cells;
   for (const b of lots.buildings.values()) {
     const tpl = TPL[b.tpl];
     if (tpl.zone !== 'industrial' || tpl.kind !== KIND_FARM || b.level <= 0) continue;
-    const want = FIELD_CELLS[Math.min(3, b.level)];
+    const mult = fieldMult(tpl.w), want = FIELD_CELLS[Math.min(3, b.level)] * mult;
     if (b.fields >= want || (world.tick + b.id) % 4 !== 0) continue; // stagger: claim every 4th tick
     // Walk the region behind the barn row by row (local u from −1 to w, v from d onward).
-    outer: for (let v = tpl.d; v < tpl.d + 14; v++) {
+    outer: for (let v = tpl.d; v < tpl.d + 14 * Math.ceil(mult * 0.75); v++) {
       for (let u = -1; u <= tpl.w; u++) {
         if (b.fields >= want) break outer;
         const [cx, cz] = localToCell(b.ox, b.oz, b.face, u, v);

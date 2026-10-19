@@ -21,6 +21,136 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-SAFEGAP: roads/gtraffic.ts safe-gap car following, real model lengths, junction slot checks; tools/safegap.test.ts.
+    id: '2026-10-16-oasis-safegap-traffic',
+    title: 'Smoother traffic: cars keep a safe gap',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Cars now keep a safe distance from the car in front. They speed up gently, brake smoothly, and only drive as fast as they could still stop behind the car ahead. Traffic moves evenly instead of bunching up.' },
+      { tag: 'fix', text: 'Cars and trucks no longer drive into or through each other. The traffic now knows how long every model really is, and drivers also watch the car that has just turned in front of them.' },
+      { tag: 'improved', text: 'At junctions a car only enters when its path is clear and there is room for its whole length on the road it is turning into. If not, it waits at the stop line. Cars only pick a lane where there is room for them, and cars pulling out wait for a gap in the traffic.' },
+    ],
+  },
+  {
+    id: '2026-10-16-oasis-garbage-depot',
+    title: 'Garbage across the whole road network',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Landfills and recycling centers now serve every building on their connected roads, anywhere on the map, instead of a fixed radius. The garbage view shows the served buildings.' },
+      { tag: 'improved', text: 'Garbage trucks now hold 200 each and keep visiting nearby piles on one run until they are nearly full, then head home. Landfills also have an Inspect option to unload to recycling centers automatically or only when you send it.' },
+      { tag: 'balance', text: 'Industry makes 3× the garbage of housing and shops 2×, and their buildings hold proportionally more before they pile up.' },
+      { tag: 'balance', text: 'The Shipping Depot now costs $100,000.' },
+      { tag: 'new', text: 'Neighbouring fully-grown farms can now merge into one large farm with a bigger shared field. It has the same detailed barn, silo and yard, plus an annex with extra barns, silos and machinery.' },
+      { tag: 'improved', text: 'Farm yards now fill their whole plot, so the barn, silo and farmhouse are about 1.5× larger and easier to see.' },
+      { tag: 'new', text: 'Settings has a new option to show an FPS counter on the HUD.' },
+    ],
+  },
+  {
+    id: '2026-10-16-oasis-farm-machines-calendar',
+    title: 'Working farms and a slower calendar',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'new', text: 'Farms now send machines out into their fields: tractors plough in late winter and autumn, drill seed in spring and spray the crop in early summer, and each farm sends a single combine out only while its crops are being harvested, kicking up dust as they go. Between jobs they wait by the barn. Bigger farms send two. Also in the Model viewer.' },
+      { tag: 'improved', text: 'The calendar is slower: a day now lasts 10 seconds at 1× (5 s at 2×, 2.5 s at 3×). The day/night cycle, traffic, growth and money are unchanged at 1×.' },
+      { tag: 'improved', text: 'The 3× button now runs at 4× game speed. Slow frames at the fast speeds are split into smaller steps so cars never skip past lights or queues, and a safety cap stops a laggy frame from piling up extra work.' },
+    ],
+  },
+  {
+    // HOTFIX: update reload on a big map kept the 64-tile ground, so clicks did nothing (main.ts fitSceneToMap).
+    id: '2026-10-16-oasis-hotfix-build-after-update',
+    title: 'Building works again after an update',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'fix', text: 'On bigger maps, clicking to build roads, zones or buildings did nothing after the game updated itself. Building works right after an update again.' },
+    ],
+  },
+  {
+    // OASIS-AVENUE: avenue upgrade reaches the road graph + intersection fixes
+    // (roads/persist.ts upgradeGraphRoads / demoteStaleJunctions, roads/gtraffic.ts).
+    id: '2026-10-16-oasis-avenue-traffic',
+    title: 'Avenue upgrades and smoother intersections',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'fix', text: 'Upgrading a street to an avenue now really gives it four lanes. Before, the road only changed colour while cars kept driving one lane, which caused jams. Cities saved earlier are repaired when loaded.' },
+      { tag: 'fix', text: 'Leftover traffic lights on plain straight roads (where a side road was removed) are gone, and short road pieces next to junctions no longer trap cars.' },
+      { tag: 'improved', text: 'Traffic lights give the through road one shared green in both directions, so T and four-way junctions cycle twice as fast, and lights close together are timed as a green wave.' },
+      { tag: 'improved', text: 'Cars going straight on an avenue use both lanes instead of queuing in one.' },
+      { tag: 'fix', text: 'Cars waiting at lights, stop signs and roundabouts now stop on the painted stop line instead of on the crosswalk or inside the junction, and only drive in when they can get all the way across.' },
+      { tag: 'fix', text: 'At junctions without lights, a driver who has waited a while now gets a turn instead of waiting forever for a gap in busy traffic.' },
+    ],
+  },
+  {
+    // OASIS: Inspect traffic diagnostics (sim/trafficInspect.ts, ui/trafficPanel.ts, render/stuckOverlay.ts).
+    id: '2026-10-16-oasis-inspect-traffic-diagnostics',
+    title: 'Inspect traffic: junctions, roads and stuck cars',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'new', text: 'Inspect a junction to see its ID, type, connected roads with lanes in and out, which lanes can turn where (missing connections are flagged in red), the traffic light phase and time left, cars queued per approach and the longest wait.' },
+      { tag: 'new', text: 'Inspect a road to see its ID, end junctions, type, length, lanes each way, cars on it, average speed and how many are stuck. Inspect a car to see its trip, road, lane, next junction, route left and how long it has been waiting.' },
+      { tag: 'new', text: 'A "Show stuck cars" button (with the Inspect tool) rings every car that has not moved for over 10 seconds in red and the junctions they are stuck at in orange, with a live count. Click any ID like "node 42" to copy it.' },
+    ],
+  },
+  {
+    // OASIS zoning UI cleanup: one short hint + segmented density control.
+    id: '2026-10-16-oasis-zoning-ui-declutter',
+    title: 'Tidier zoning bar',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Zoning shows one short hint, "Drag to zone · Click for one square", next to a compact Density switch, instead of long overlapping text. Hover a zone button for the full explanation.' },
+    ],
+  },
+  {
+    id: '2026-10-16-b',
+    title: 'Heavy industry overhaul',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Chemical plant, steel mill and assembly plant rebuilt with far more detail: process columns with platforms and ladders, spherical tanks, pipe racks, cooling towers, a blast furnace with hot-blast stoves, a gantry crane, a ladle car on rails, sawtooth halls, car lots and more.' },
+      { tag: 'improved', text: 'Refinery, building-materials (cement) plant and electronics plant get the same treatment: floating-roof tank farms, a rotary kiln and silos, a fab hall with rooftop air handlers and utility yard.' },
+      { tag: 'new', text: 'Four new surfaces for heavy industry: riveted steel plate, insulated cladding, louvres and walkway grating. All visible in the Model viewer under Industry and Resources.' },
+    ],
+  },
+  {
+    id: '2026-10-16-a',
+    title: 'Cleaner zoning and update notes',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'Zoning no longer shows a cost / size tooltip next to the cursor, so it stops covering the menu. The coloured squares show what you are about to zone.' },
+      { tag: 'improved', text: 'After an update, the pop-up shows only what changed in the latest patch. The full history is still in What\'s new on the title screen and the ☰ menu.' },
+    ],
+  },
+  {
+    // OASIS: merged nebula (d2d8890..5eb1845) and models (97ae17f..2b4c14e).
+    id: '2026-10-16-oasis-merge-nebula-models',
+    title: 'Nebula and new models arrive',
+    date: '2026-10-16',
+    changes: [
+      { tag: 'improved', text: 'This update brings together rectangle zoning, the power fix for lots past a junction, cleaner power and water numbers, debug codes and the new tab icon, plus the Model viewer, textured houses and shops, new businesses, and the books and toys goods.' },
+    ],
+  },
+  {
+    // NEBULA: top-bar power/water showed raw floats (1184.3000000000002/5930).
+    // Descriptive id so it can't collide with other workers' letter ids.
+    id: '2026-10-15-hud-amount-format',
+    title: 'Cleaner power and water numbers',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Power and water in the top bar (and the inspect network line, graphs tip and debug-load text) no longer show long floating-point leftovers like 1184.3000000000002 — they round to a whole number with commas, or one decimal when the value is under 10.' },
+    ],
+  },
+  {
+    // NEBULA rectangle zoning (descriptive id: can't collide with letter ids).
+    id: '2026-10-15-zone-rectangle',
+    title: 'Zoning: drag a rectangle',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'Zoning is now one simple rectangle: press on one corner and drag to the opposite corner. Every free small square inside gets zoned; a click zones a single small square.' },
+      { tag: 'new', text: 'Beside curved or angled roads the rectangle follows the road — along it and away from it — so zones line up with the road instead of making a staircase.' },
+      { tag: 'improved', text: 'Squares in the rectangle that cannot be zoned (road, water, buildings, too far from a road) show red, and the tip shows the size, squares, price and how many are skipped.' },
+      { tag: 'improved', text: 'Zone colours on empty land now show only while a zoning tool is selected (or in the Zoning overlay), so the normal view stays clean.' },
+      { tag: 'improved', text: 'The old zoning depth buttons and road-following strips are gone — the rectangle is the only way to zone.' },
+    ],
+  },
+  {
     // NEBULA: merged the latest origin/models (descriptive id: no collisions).
     id: '2026-10-15-models-merge',
     title: 'New buildings arrive on nebula',
@@ -68,6 +198,46 @@ export const CHANGELOG: ChangeEntry[] = [
     changes: [
       { tag: 'new', text: '☰ Menu → 🐞 Debug code: "Copy debug code" turns your whole city (roads, buildings, zoning, power and water, money and time) into one line of text you can paste into a bug report.' },
       { tag: 'new', text: '"Load debug code" opens a city from a pasted code, so a reported problem can be reproduced exactly.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-roof-cinema-textures',
+    title: 'Roof fixes, cinema and factory textures',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'fix', text: 'Townhouse and mansard roofs no longer hang over the edge: the rowhouse blocks (A, C, E, G at level 4), the mansard apartment block (H at level 5), the terraced townhouses and the print works now have roofs that match their walls.' },
+      { tag: 'improved', text: 'The multiplex cinema is rebuilt with brick and concrete textures, a glass lobby, a curved lit marquee, a neon blade sign, poster cases, a ticket booth, a popcorn cart, queue posts, a fly tower and a searchlight.' },
+      { tag: 'improved', text: 'The brewery, pharmaceutical lab, clothing factory, cold storage, industrial park and mega-factory now have proper surface textures (concrete, metal, brick, stucco, glass and roof membrane).' },
+      { tag: 'improved', text: 'Removed the old 1x1 landfill, police station and school models. Any left over in very old saves are drawn at half size using the current models.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-textured-shops',
+    title: 'Textured shops and new businesses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'All shops are now textured (brick, siding, stucco, concrete, roof membrane and glass) with much more street-level detail: striped awnings, cornices, window mullions, double doors, sign letters, planters, sandwich boards, bike racks, crates and rooftop water tanks.' },
+      { tag: 'new', text: 'Ten new, fully textured businesses: bakery, bookstore, toy store, garden centre, restaurant, bank, car dealership, gym & pool, laundromat and vet clinic.' },
+      { tag: 'new', text: 'Two new factories - a print works (lumber into books) and a toy factory (plastics into toys) - and two new goods, books and toys, which shops now sell.' },
+      { tag: 'improved', text: 'The supermarket, petrol station, pharmacy, hotel, cinema, department store, outlet mall, office tower and business park are textured too.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-textured-houses',
+    title: 'Better-looking houses',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'improved', text: 'Low-density homes (levels 1-3) now have textured walls (clapboard siding, stucco, vertical boards, brick) and shingled roofs, plus a lot more detail: roof courses and ridge caps, eave boards, shutters, flower boxes, door panels and porch lamps, stepping stones, picket fences with gates, flower beds, and rounded trees and bushes.' },
+      { tag: 'improved', text: 'The terraced townhouses are rebuilt with much more detail: textured siding, brick and stucco, bay windows, fanlights, chimney pots, dormers, front walls with hedges and flower beds, bins, and street trees.' },
+      { tag: 'fix', text: 'The "update available" prompt now shows on top of the Model viewer and What\'s new screens too.' },
+    ],
+  },
+  {
+    id: '2026-10-15-models-viewer',
+    title: 'Model viewer',
+    date: '2026-10-15',
+    changes: [
+      { tag: 'new', text: 'New 🏛 Model viewer, in the ☰ menu and on the title screen: a grid of every building, power and water plant, service and vehicle model, with titles and categories (homes, apartments & towers, shops & offices, industry, resources & farms, power & water, services, vehicles, roads) and a search box. Hover a model to spin it, drag to turn it, click for a big view with zoom.' },
     ],
   },
   {
