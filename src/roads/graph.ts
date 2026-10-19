@@ -100,6 +100,18 @@ export class RoadGraph {
   private hash = new Map<number, Set<number>>();
   /** Bumped on every change. */
   version = 0;
+  /**
+   * OASIS-S2 (Parker: "building roads that connect to existing roads
+   * shouldn't clear traffic on the existing road"): callbacks run just
+   * BEFORE the graph's shape changes (a node or edge added or removed),
+   * while the old geometry is still intact. Live traffic
+   * (roads/gtraffic.ts GraphTraffic.snapshot) uses it to note where every
+   * car is, so after the edit it can put each car back on the new roads
+   * instead of clearing the map. Called once per primitive change; a
+   * listener that only needs the first call of an edit ignores the rest.
+   */
+  readonly beforeChange = new Set<() => void>();
+  private changing(): void { for (const f of this.beforeChange) f(); }
 
   /* ================= basic records ================= */
   nodeCount(): number { return this.nAlive.filter(Boolean).length; }
@@ -109,15 +121,17 @@ export class RoadGraph {
   nodePos(n: number): V2 { return { x: this.nx[n], z: this.nz[n] }; }
 
   addNode(p: V2, kind: NodeKind = 'plain'): number {
+    this.changing(); // OASIS-S2: let live traffic note car positions first
     const id = this.freeN.length ? this.freeN.pop()! : this.nx.length;
     this.nx[id] = p.x; this.nz[id] = p.z; this.nKind[id] = kind; this.nEdges[id] = []; this.nAlive[id] = true;
     this.version++;
     return id;
   }
-  private killNode(n: number): void { this.nAlive[n] = false; this.nEdges[n] = []; this.freeN.push(n); this.version++; }
+  private killNode(n: number): void { this.changing(); this.nAlive[n] = false; this.nEdges[n] = []; this.freeN.push(n); this.version++; }
 
   /** Add an edge WITHOUT any checks (placeRoad does the checking). The curve's ends are pinned to the nodes. */
   addEdge(a: number, b: number, c: Cubic, type: RoadType): number {
+    this.changing(); // OASIS-S2
     const id = this.freeE.length ? this.freeE.pop()! : this.eA.length;
     const curve = Float64Array.from(c);
     curve[0] = this.nx[a]; curve[1] = this.nz[a]; curve[6] = this.nx[b]; curve[7] = this.nz[b];
@@ -132,6 +146,7 @@ export class RoadGraph {
   /** Remove an edge (nodes stay; see removeRoad for cleanup). */
   removeEdge(e: number): void {
     if (!this.eAlive[e]) return;
+    this.changing(); // OASIS-S2: before the edge's curve can be reused by the next addEdge
     this.unregister(e);
     const a = this.eA[e], b = this.eB[e];
     this.nEdges[a] = this.nEdges[a].filter((x) => x !== e);

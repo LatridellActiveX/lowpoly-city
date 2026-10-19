@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S2: roads/graph.ts beforeChange hook, roads/gtraffic.ts takeSnapshot/adopt, sim/livegraph.ts adopts instead of finishAll; tools/keeptraffic.test.ts.
+    id: '2026-10-19-oasis-s2-keep-traffic-on-road-edits',
+    title: 'Building roads no longer clears traffic',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'fix', text: 'Building a road that connects to an existing road no longer makes every car on the map disappear. Cars on roads you did not touch stay exactly where they are, and cars on the road you joined onto stay on it and simply plan a new route. This also works for undo and redo.' },
+      { tag: 'improved', text: 'Only a car whose road you actually bulldozed (or that has no way to its destination any more) finishes its trip on the spot, as before, so no delivery or commuter is ever lost.' },
+    ],
+  },
+  {
     // OASIS-S1: ui/menu.ts Save city / Load city items (hud.ts top-bar buttons removed); render/industryModels.ts YARD_TRUCK_SLOTS + parkedCrewTruckModel; tools/menuyard.test.ts.
     id: '2026-10-19-oasis-s1-menu-save-yard-trucks',
     title: 'Save & Load in the menu, 8 trucks in the yard',

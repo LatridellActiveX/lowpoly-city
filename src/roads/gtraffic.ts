@@ -69,7 +69,7 @@
  *   That single rule is the only speed authority (lanes, connectors, stop
  *   lines, destinations).
  */
-import { at, buildLut, Cubic, polyline, segX, tAtLength, tangent, V2 } from './bezier';
+import { at, buildLut, Cubic, lengthAtT, nearest, polyline, segX, tAtLength, tangent, V2 } from './bezier';
 import { LANE_M, RoadGraph, ROAD_SPEC } from './graph';
 import { planAll, rings } from './junctions';
 
@@ -144,6 +144,19 @@ export interface Junction {
   claim: number; claimWait: number; held: number;
 }
 
+/**
+ * OASIS-S2: how far (m) a car whose road changed under it may be moved to
+ * the nearest new road (a split keeps the road where it was, so this only
+ * has to absorb small shifts of a re-traced road).
+ */
+export const SNAP_BACK = 12;
+/** OASIS-S2: where a vehicle was just before a road edit (see GraphTraffic.takeSnapshot). */
+interface Snap {
+  /** position and heading on the map */ x: number; z: number; hx: number; hz: number;
+  /** map point of its stop */ dx: number; dz: number;
+  /** identity key of every edge on its route */ keys: string[];
+  /** arc metres along its current edge (lanes only) and along its last edge to the stop */ arc: number; endArc: number; endDir: 0 | 1;
+}
 /** Segment ids: lanes are (edge, dir, lane); connectors are per node. */
 type Seg = { kind: 'lane'; edge: number; dir: 0 | 1; lane: number } | { kind: 'conn'; node: number; idx: number };
 const laneKey = (e: number, dir: number, lane: number) => `${e}:${dir}:${lane}`;
@@ -192,7 +205,213 @@ export class GraphTraffic {
   time = 0;
   stats = { spawned: 0, arrived: 0, rightOnRed: 0, yields: 0, noRoute: 0, gaveUp: 0 };
   /** Lengths/points of lane segments are derived from the edge LUT on demand. */
-  constructor(public g: RoadGraph) { this.build(); }
+  constructor(public g: RoadGraph) {
+    this.build();
+    // OASIS-S2: note every car's position the moment the graph starts to
+    // change (see snapshot / adopt). Optional chaining: a few tests drive a
+    // bare mock graph without the hook.
+    g.beforeChange?.add(this.onGraphChange);
+  }
+  /** OASIS-S2: stop listening to the graph (this traffic is being retired). */
+  dispose(): void { this.g.beforeChange?.delete(this.onGraphChange); }
+  private readonly onGraphChange = () => { if (!this.snap || this.snapFor !== this.cacheVersion) { this.snap = this.takeSnapshot(); this.snapFor = this.cacheVersion; } };
+
+  /* ---------------- OASIS-S2: keeping traffic across road edits ----------------
+   * Parker: "make it so that building roads that connect to existing roads
+   * doesn't clear traffic on the existing road".
+   *
+   * WHY TRAFFIC USED TO VANISH: any road edit bumps the graph's version, and
+   * edge/node ids can then mean something else (splitting an edge frees its
+   * id and the next new edge REUSES it). The safe old answer was to finish
+   * every trip on the spot and start with an empty map — every car on the
+   * screen disappeared each time you built a road.
+   *
+   * HOW IT WORKS NOW, in three steps:
+   *  1. SNAPSHOT (before the edit): the first time the graph is about to
+   *     change, while the old roads still exist, every car notes where it
+   *     is (map point + heading), where it is going (map point of its
+   *     stop), how far along its edge it is, and an IDENTITY KEY for each
+   *     edge on its route (creation stamp + length + start point — an edge
+   *     that survived the edit keeps exactly that key, a split or removed
+   *     one does not).
+   *  2. ADOPT (after the edit, on the new traffic object): each car is put
+   *     back, best option first:
+   *       a. its edge still exists        → same edge, same lane, same spot
+   *                                         (cars on untouched roads do not move);
+   *       b. it is crossing a junction box that still has the same turn
+   *                                       → stays on that turn;
+   *       c. otherwise (its edge was split/merged/retyped away)
+   *                                       → the nearest point of the new roads
+   *                                         within SNAP_BACK m, driving the same way.
+   *     Then it plans a fresh route from there to its stop (also found again
+   *     on the new roads), and keeps its speed, id and trip.
+   *  3. Only a car that cannot be placed (its road was bulldozed, no route
+   *     is left, or no free gap) finishes its trip on the spot as before —
+   *     never lost, its delivery still lands.
+   * Same-gap rule: a car is only put back where it keeps a full safe
+   * spacing to the cars already placed (nudged up to PULL_OUT m otherwise).
+   * --------------------------------------------------------------------- */
+  private snap: Map<Vehicle, Snap> | null = null;
+  private snapFor = -1;
+  /** Identity key of edge e: survives an edit only if the edge itself did. */
+  private edgeKey(e: number): string { const g = this.g, c = g.eCurve[e]; return `${g.eBorn[e]}|${g.eLen[e].toFixed(3)}|${c[0].toFixed(2)},${c[1].toFixed(2)}`; }
+  /** Arc length (a→b along the edge curve) of lane distance s on (e, dir). */
+  private arcOf(e: number, dir: 0 | 1, s: number): number { const [s0, s1] = this.span(e); return dir === 0 ? s0 + s : s1 - s; }
+  /** Step 1: where every live vehicle is right now (old graph still intact). */
+  takeSnapshot(): Map<Vehicle, Snap> {
+    const m = new Map<Vehicle, Snap>();
+    for (const v of this.vehicles) {
+      if (v.done) continue;
+      const p = this.position(v);
+      // Heading: a point half a metre further along the same segment.
+      const q = v.seg.kind === 'lane' ? this.lanePoint(v.seg.edge, v.seg.dir, v.seg.lane, v.s + 0.5) : (() => { const c = this.junctions.get(v.seg.node)!.conns[v.seg.idx]; return at(c.curve, tAtLength(c.lut, v.s + 0.5)); })();
+      let hx = q.x - p.x, hz = q.z - p.z;
+      if (Math.hypot(hx, hz) < 1e-6) { // at the very end of its segment: use the direction there
+        const d = v.seg.kind === 'lane' ? this.laneDir(v.seg.edge, v.seg.dir, true) : (() => { const c = this.junctions.get(v.seg.node)!.conns[v.seg.idx]; return tangent(c.curve, 1); })();
+        hx = d.x; hz = d.z;
+      }
+      const last = v.path.length - 1, eL = v.path[last], dirL = this.dirOf(eL, v.nodes[last]);
+      const sEnd = v.endS ?? this.laneLen(eL);
+      const d = this.lanePoint(eL, dirL, 0, sEnd);
+      m.set(v, {
+        x: p.x, z: p.z, hx, hz, dx: d.x, dz: d.z,
+        keys: v.path.map((e) => this.edgeKey(e)),
+        arc: v.seg.kind === 'lane' ? this.arcOf(v.seg.edge, v.seg.dir, v.s) : 0,
+        endArc: this.arcOf(eL, dirL, sEnd), endDir: dirL,
+      });
+    }
+    return m;
+  }
+  /**
+   * OASIS-S2: a seat for vehicle v on a junction CONNECTOR it is standing on
+   * after the edit (within 2.5 m of the connector curve, facing along it,
+   * with a safe gap to cars already on it and a route on from its exit), or
+   * null. Used when the junction box was built over the car's lane spot.
+   */
+  private boxSeat(v: Vehicle, sn: Snap, eB: number, arcB: number): { path: number[]; nodes: number[]; seg: Seg; s: number; endS: number; lane: number } | null {
+    const g = this.g, p = { x: sn.x, z: sn.z }, hl = Math.hypot(sn.hx, sn.hz) || 1;
+    let best: { path: number[]; nodes: number[]; seg: Seg; s: number; endS: number; lane: number } | null = null, bestD = 2.5;
+    for (const n of g.liveNodes()) {
+      if (Math.hypot(g.nx[n] - p.x, g.nz[n] - p.z) > 40) continue; // only junctions close by
+      const J = this.junctions.get(n); if (!J) continue;
+      J.conns.forEach((c, ci) => {
+        const q = nearest(c.curve, p);
+        if (q.d >= bestD) return;
+        const t = tangent(c.curve, q.t);
+        if ((t.x * sn.hx + t.z * sn.hz) / hl < 0.7) return; // must face the same way
+        const s = lengthAtT(c.lut, q.t), l = this.list({ kind: 'conn', node: n, idx: ci });
+        if (!l.every((o) => Math.abs(o.s - s) >= minSpacing(o, v) - 1e-6)) return;
+        const dirOut = this.dirOf(c.outEdge, n), b = this.plan(c.outEdge, this.arcOf(c.outEdge, dirOut, 0), eB, arcB, dirOut);
+        if (!b) return;
+        bestD = q.d;
+        best = { path: [c.inEdge, ...b.path], nodes: [g.other(c.inEdge, n), ...b.nodes], seg: { kind: 'conn', node: n, idx: ci }, s, endS: b.endS, lane: c.inLane };
+      });
+    }
+    return best;
+  }
+  /**
+   * Step 2 + 3: take over the vehicles of `old` (the traffic of the graph
+   * before the edit) onto this traffic's (new) graph. Returns how many cars
+   * stayed put (kept), were moved onto a nearby new edge (moved), and how
+   * many could not be placed and had their trip finished (finished — their
+   * onArrive callbacks run last, after every other car is placed, because
+   * they often start the next trip on this traffic).
+   */
+  adopt(old: GraphTraffic): { kept: number; moved: number; finished: number; why: Record<string, number> } {
+    const g = this.g;
+    if (this.cacheVersion !== g.version) this.build();
+    const snap = old.snap && (old.g !== g || old.snapFor === old.cacheVersion) ? old.snap : old.takeSnapshot();
+    // New graph: identity key → edge id (only edges that survived the edit match).
+    const byKey = new Map<string, number>();
+    for (const e of g.liveEdges()) byKey.set(this.edgeKey(e), e);
+    this.time = old.time; // signals keep their timing
+    this.nextId = Math.max(this.nextId, old.nextId);
+    const res = { kept: 0, moved: 0, finished: 0, why: {} as Record<string, number> }, finished: Vehicle[] = [];
+    /** Why cars could not be put back (diagnostics: Inspect / tests). */
+    const why = (k: string) => { res.why[k] = (res.why[k] ?? 0) + 1; };
+    // Place cars on surviving roads first (case a, then b), the moved ones last,
+    // so a car that has to be nudged never pushes an untouched one away.
+    type Job = { v: Vehicle; sn: Snap; rank: number };
+    const jobs: Job[] = [];
+    for (const v of old.vehicles) {
+      if (v.done) continue;
+      const sn = snap.get(v);
+      if (!sn) { why('no snapshot'); finished.push(v); continue; }
+      const here = v.seg.kind === 'lane' ? byKey.get(sn.keys[v.i]) : undefined;
+      jobs.push({ v, sn, rank: here !== undefined ? 0 : v.seg.kind === 'conn' ? 1 : 2 });
+    }
+    // Leaders first within a lane (largest s), so followers fit behind them.
+    jobs.sort((a, b) => a.rank - b.rank || b.v.s - a.v.s);
+    for (const { v, sn, rank } of jobs) {
+      // Where is it going? Its last edge if it survived, else the nearest new road point.
+      const lastK = sn.keys[sn.keys.length - 1];
+      let eB = byKey.get(lastK) ?? -1, arcB = sn.endArc;
+      if (eB < 0) {
+        const q = g.nearestEdgePoint({ x: sn.dx, z: sn.dz }, SNAP_BACK * 2);
+        if (q) { eB = q.edge; arcB = lengthAtT(g.eLut[q.edge], q.t); }
+      }
+      let placed: { path: number[]; nodes: number[]; seg: Seg; s: number; endS: number; lane: number } | null = null;
+      if (eB >= 0 && rank === 0 && v.seg.kind === 'lane') {
+        // a. same edge, same direction, same lane, same spot.
+        const e = byKey.get(sn.keys[v.i])!, dir = v.seg.dir;
+        const b = this.plan(e, sn.arc, eB, arcB, dir);
+        if (b) { const lane = Math.min(v.seg.lane, this.lanes(e) - 1); placed = { path: b.path, nodes: b.nodes, seg: { kind: 'lane', edge: e, dir, lane }, s: this.laneS(e, dir, sn.arc), endS: b.endS, lane }; }
+      } else if (eB >= 0 && rank === 1 && v.seg.kind === 'conn') {
+        // b. still crossing the same junction on the same turn?
+        const oc = old.junctions.get(v.seg.node)!.conns[v.seg.idx];
+        const inE = byKey.get(sn.keys[v.i]), outE = byKey.get(sn.keys[v.i + 1]);
+        const J = this.junctions.get(v.seg.node);
+        if (inE !== undefined && outE !== undefined && J && g.nAlive[v.seg.node]) {
+          const ci = J.conns.findIndex((c) => c.inEdge === inE && c.outEdge === outE && c.inLane === oc.inLane && c.outLane === oc.outLane);
+          const dirOut = this.dirOf(outE, v.seg.node);
+          const b = ci >= 0 ? this.plan(outE, this.arcOf(outE, dirOut, 0), eB, arcB, dirOut) : null;
+          if (b) placed = { path: [inE, ...b.path], nodes: [g.other(inE, v.seg.node), ...b.nodes], seg: { kind: 'conn', node: v.seg.node, idx: ci }, s: Math.min(v.s, J.conns[ci].len), endS: b.endS, lane: v.lane };
+        }
+      }
+      if (!placed && eB >= 0) {
+        // c. its road changed: the nearest new road point, driving the same way.
+        const q = g.nearestEdgePoint({ x: sn.x, z: sn.z }, SNAP_BACK);
+        if (q) {
+          const t = tangent(g.eCurve[q.edge], q.t), dir: 0 | 1 = t.x * sn.hx + t.z * sn.hz >= 0 ? 0 : 1;
+          const arc = lengthAtT(g.eLut[q.edge], q.t);
+          const b = g.eType[q.edge] === 'oneway' && dir === 1 ? null : this.plan(q.edge, arc, eB, arcB, dir);
+          if (b) { const lane = this.laneFor(b.path, b.nodes, 0); placed = { path: b.path, nodes: b.nodes, seg: { kind: 'lane', edge: q.edge, dir, lane }, s: this.laneS(q.edge, dir, arc), endS: b.endS, lane }; }
+        }
+      }
+      // Find a free spot (safe spacing to cars already put back): the nearest
+      // one along the same lane — usually where it was, or a few metres up;
+      // a car that stood where the new junction box now is joins the queue
+      // at the nearest gap instead of vanishing.
+      let s0 = -1;
+      if (placed) {
+        const l = this.list(placed.seg), L = this.segLen(placed.seg);
+        const maxS = placed.seg.kind === 'lane' && placed.path.length === 1 ? Math.max(0, placed.endS - 1) : L;
+        const free = (c: number) => l.every((o) => Math.abs(o.s - c) >= minSpacing(o, v) - 1e-6); // (tolerance: a queue stands at exactly the spacing)
+        const want = Math.max(0, Math.min(maxS, placed.s));
+        for (let d = 0; d <= Math.max(PULL_OUT, maxS) && s0 < 0; d += 1) for (const c of d ? [want - d, want + d] : [want]) if (s0 < 0 && c >= 0 && c <= maxS && free(c)) s0 = c;
+      }
+      // Its spot is now INSIDE a new junction box (the box and its stop lines
+      // took that stretch of lane) and the lane is queued solid: put it on
+      // the box's own turn lane it is standing on (connector), going its way.
+      if ((!placed || s0 < 0) && eB >= 0) {
+        const box = this.boxSeat(v, sn, eB, arcB);
+        if (box) { placed = box; s0 = box.s; }
+      }
+      if (!placed || s0 < 0) { why(eB < 0 ? 'destination gone' : !placed ? 'no road / route from here' : 'no free gap'); finished.push(v); continue; }
+      // Re-seat the SAME vehicle object (id, trip, speed and wait carry over).
+      v.path = placed.path; v.nodes = placed.nodes; v.i = 0; v.seg = placed.seg; v.s = s0; v.lane = placed.lane;
+      v.endS = placed.endS; v.stopped = 0; (v as Vehicle & { go?: number }).go = undefined;
+      const l = this.list(v.seg);
+      let k = 0; while (k < l.length && l[k].s < s0) k++;
+      l.splice(k, 0, v); this.vehicles.push(v);
+      if (v.seg.kind === 'conn') this.junctions.get(v.seg.node)!.occupied[v.seg.idx]++;
+      if (rank === 2 || Math.abs(s0 - placed.s) > 1e-6) res.moved++; else res.kept++;
+    }
+    // 3. The rest finish their trips (as before the change) — after placing, see above.
+    for (const v of finished) { v.done = true; if (v.trip) { res.finished++; v.trip.onArrive?.(); } }
+    old.vehicles = []; old.onSeg.clear(); old.snap = null;
+    return res;
+  }
 
   /* ---------------- geometry ---------------- */
   lanes(e: number): number { return ROAD_SPEC[this.g.eType[e]].lanes; }
@@ -442,12 +661,18 @@ export class GraphTraffic {
    * straight there. Returns null when no candidate exists (no connection)
    * or the start spot is occupied — the caller then falls back.
    */
-  spawnAt(eA: number, arcA: number, eB: number, arcB: number, trip?: Vehicle['trip']): Vehicle | null {
+  /**
+   * The route search behind spawnAt (OASIS-S2: shared with adopt, which
+   * passes `onlyDir` because a car that is already driving keeps going the
+   * way it faces). Best of up to four candidates; null = no route.
+   */
+  private plan(eA: number, arcA: number, eB: number, arcB: number, onlyDir?: 0 | 1): { path: number[]; nodes: number[]; dir: 0 | 1; cost: number; endS: number } | null {
     const g = this.g;
     if (this.cacheVersion !== g.version) this.build();
     let best: { path: number[]; nodes: number[]; dir: 0 | 1; cost: number; endS: number } | null = null;
     const consider = (c: NonNullable<typeof best>) => { if (!best || c.cost < best.cost) best = c; };
     for (const dir of [0, 1] as const) {
+      if (onlyDir !== undefined && dir !== onlyDir) continue;
       if (g.eType[eA] === 'oneway' && dir === 1) continue;
       const startNode = dir === 0 ? g.eA[eA] : g.eB[eA], exitNode = dir === 0 ? g.eB[eA] : g.eA[eA];
       const sStart = this.laneS(eA, dir, arcA), restA = this.laneLen(eA) - sStart;
@@ -468,8 +693,12 @@ export class GraphTraffic {
         consider({ path: [eA, ...r.edges, eB], nodes: [startNode, ...r.nodes, endNode], dir, cost: restA + this.routeLength(r) + sEnd, endS: sEnd });
       }
     }
+    return best;
+  }
+  spawnAt(eA: number, arcA: number, eB: number, arcB: number, trip?: Vehicle['trip']): Vehicle | null {
+    const best = this.plan(eA, arcA, eB, arcB);
     if (!best) { this.stats.noRoute++; return null; }
-    const b: { path: number[]; nodes: number[]; dir: 0 | 1; cost: number; endS: number } = best;
+    const b = best;
     const lane = this.laneFor(b.path, b.nodes, 0);
     const seg: Seg = { kind: 'lane', edge: eA, dir: b.dir, lane };
     const sWant = this.laneS(eA, b.dir, arcA), l = this.list(seg);

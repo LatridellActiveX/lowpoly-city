@@ -38,10 +38,15 @@
  *
  * GRAPH EDITS
  *   When the graph's version changes (a road placed, split, bulldozed or
- *   undone) edge and node ids may be invalid. Live trips are COMPLETED on
- *   the spot (GraphTraffic.finishAll) — the delivery lands, the commuter is
- *   at work — and a fresh GraphTraffic is built. Edits are rare and
- *   player-driven, so this is cheap and never strands a trip.
+ *   undone) edge and node ids may be invalid, so a fresh GraphTraffic is
+ *   built. OASIS-S2 (Parker: "building roads that connect to existing roads
+ *   shouldn't clear traffic on the existing road"): the new traffic ADOPTS
+ *   the old one's cars (GraphTraffic.adopt) — a car on a road the edit did
+ *   not touch stays exactly where it is, a car on a road that was split is
+ *   put back on the matching half, and both re-plan their route. Only a car
+ *   that cannot be placed again (its road was bulldozed, no route left)
+ *   has its trip COMPLETED on the spot like before (the delivery lands,
+ *   the commuter is at work), so no trip is ever stranded.
  */
 import { GraphTraffic } from '../roads/gtraffic';
 import { ROAD_SPEC, TILE_M } from '../roads/graph';
@@ -62,7 +67,7 @@ export class LiveGraphTraffic {
   /** Road tile → closest graph point (edge, arc metres a→b, distance²) (per graph version). */
   private tilePos = new Map<number, { e: number; arc: number; d2: number }>();
   /** Lifetime counters (survive graph rebuilds): for tests and the info panel. */
-  stats = { spawned: 0, arrived: 0, gaveUp: 0, finishedOnEdit: 0, fellBack: 0, rightOnRed: 0, yields: 0 };
+  stats = { spawned: 0, arrived: 0, gaveUp: 0, finishedOnEdit: 0, fellBack: 0, rightOnRed: 0, yields: 0, keptOnEdit: 0, movedOnEdit: 0 };
 
   /** Is world `w` a GRAPH world (has graph roads at all)? */
   static active(w: World): boolean { return w.graphTiles.size > 0 && w.roads.edgeCount() > 0; }
@@ -70,9 +75,10 @@ export class LiveGraphTraffic {
   /** Bring the live traffic in step with w.roads (new graph object or new version). */
   private sync(w: World): GraphTraffic {
     if (this.gt && this.roads === w.roads && this.version === w.roads.version) return this.gt;
-    // Swap in the new traffic FIRST, then complete the old trips: their
-    // onArrive callbacks often start the next trip (commute home, parking
-    // search), and those must land on the NEW graph, not re-enter this sync.
+    // Swap in the new traffic FIRST, then move the old cars over (adopt):
+    // the few trips it has to complete run their onArrive callbacks, which
+    // often start the next trip (commute home, parking search) — those must
+    // land on the NEW graph, not re-enter this sync.
     const old = this.gt;
     this.gt = new GraphTraffic(w.roads);
     this.roads = w.roads; this.version = w.roads.version;
@@ -89,7 +95,13 @@ export class LiveGraphTraffic {
         if (!old || d2 < old.d2) this.tilePos.set(i, { e, arc, d2 });
       }
     }
-    if (old) { this.absorb(old); this.stats.finishedOnEdit += old.finishAll(); }
+    if (old) {
+      this.absorb(old);
+      // OASIS-S2: keep the cars (see header); only unplaceable ones finish.
+      const r = this.gt.adopt(old);
+      this.stats.keptOnEdit += r.kept; this.stats.movedOnEdit += r.moved; this.stats.finishedOnEdit += r.finished;
+      old.dispose();
+    }
     return this.gt;
   }
   /** Fold a retiring GraphTraffic's counters into the lifetime stats. */

@@ -118,11 +118,17 @@ ok(built > 30 && connected === built, 'every built home is on a power network', 
 
 // ---- 5. graph edit mid-trip ----
 const live = s.traffic.graph.vehicles.filter((v) => v.trip && !v.done).length;
-const before = s.traffic.graph.stats.finishedOnEdit;
+const before = s.traffic.graph.stats.finishedOnEdit, keptBefore = s.traffic.graph.stats.keptOnEdit + s.traffic.graph.stats.movedOnEdit;
 const v0 = w.roads.version;
 const ar = s.apply('road', rect(51, 30, 55, 30)); // a new road off x=50, absorbed into the graph (T junction): graph version changes
-tick(s);
-ok(live === 0 || s.traffic.graph.stats.finishedOnEdit - before === live, 'graph edit completes live trips (none lost)', { live, done: s.traffic.graph.stats.finishedOnEdit - before, built: ar.changed, versionChanged: w.roads.version !== v0 });
+(s.traffic.graph as unknown as { sync(w: unknown): void }).sync(w); // OASIS-S2: adopt now (a full tick would also let trips arrive normally)
+// OASIS-S2: the cars are now KEPT across the edit (GraphTraffic.adopt); only
+// the ones that cannot be put back finish. Either way none is lost.
+{
+  const st = s.traffic.graph.stats, done = st.finishedOnEdit - before, kept = st.keptOnEdit + st.movedOnEdit - keptBefore;
+  ok(live === 0 || done + kept === live, 'graph edit keeps or completes every live trip (none lost)', { live, done, kept, built: ar.changed, versionChanged: w.roads.version !== v0 });
+  ok(live === 0 || kept >= live * 0.9, 'graph edit keeps ≥ 90 % of the cars on the road (OASIS-S2)', { live, kept });
+}
 void N;
 console.log(fails ? `oasis: ${fails} failed` : 'oasis: all ok');
 process.exit(fails ? 1 : 0);

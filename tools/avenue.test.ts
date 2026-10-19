@@ -98,8 +98,10 @@ const code = readFileSync('tools/fixtures/parker-avenue.lpc', 'utf8').trim();
   ok(g.version !== v0, 'graph version bumped (traffic rebuilds lanes)');
   // Live trips on the old graph are completed, not lost, at the next update.
   s.traffic.update(w, 0.1);
+  // OASIS-S2: cars are kept across the edit (adopt); only unplaceable ones finish.
   const done = s.traffic.graph.stats.finishedOnEdit - before.finishedOnEdit;
-  ok(done >= live - 1, 'live trips completed on the edit (none lost)', { live, done });
+  const kept = s.traffic.graph.stats.keptOnEdit + s.traffic.graph.stats.movedOnEdit - before.keptOnEdit - before.movedOnEdit;
+  ok(done + kept >= live - 1, 'live trips kept or completed on the edit (none lost)', { live, done, kept });
   invariants(s, 'bench partial upgrade');
   for (let i = 0; i < 600; i++) tick(s);
   const st = s.traffic.graph.stats;

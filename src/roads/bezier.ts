@@ -90,6 +90,12 @@ export function tAtLength(lut: Float32Array, s: number): number {
   return (lo + f) / (n - 1);
 }
 
+/** OASIS-S2: arc length at parameter t (inverse of tAtLength), from the LUT. */
+export function lengthAtT(lut: Float32Array, t: number): number {
+  const n = lut.length, f = Math.max(0, Math.min(1, t)) * (n - 1), k = Math.min(n - 2, Math.floor(f));
+  return n < 2 ? 0 : lut[k] + (lut[k + 1] - lut[k]) * (f - k);
+}
+
 /** Closest point on the curve to p: t, point and distance (coarse LUT scan + refinement). */
 export function nearest(c: Cubic, p: V2, n = 32): { t: number; pt: V2; d: number } {
   let bt = 0, bd = Infinity;
