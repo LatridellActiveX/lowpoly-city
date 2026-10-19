@@ -138,15 +138,27 @@ export const POLLUTION_WEIGHT = 0.25;
 /** A park's bonus right next to it, its radius, and the cap from many parks. */
 export const PARK_BONUS = 0.8;
 /**
- * PR 6: a park now lifts desirability over a 10 × 10-tile SQUARE centred on
- * it (40 × 40 cells): tiles −5..+4 from the park on each axis, i.e. a
- * Chebyshev "radius" of 5 with the far row/column on the +x/+z side dropped
- * so the square is exactly 10 wide. Falloff is gentle (environment.ts
- * parkFalloff): full bonus in the middle, ~half at the edge.
+ * PR 6 (superseded by OASIS-S4 below, kept for old notes): a park used to lift
+ * desirability over a 10 × 10-tile SQUARE centred on it.
  */
 export const PARK_RADIUS = 5;
-/** PR 6: park area side in tiles. */
+/** PR 6: old park area side in tiles (no longer used by the simulation). */
 export const PARK_AREA = 10;
+/**
+ * OASIS-S4 (Parker, 2026-10-19): "Parks serve an area based on connected roads
+ * instead of base tiles around them, similar to the new garbage system."
+ * A park now reaches along the ROAD network: starting at the road tiles next
+ * to it, up to PARK_ROAD_REACH road tiles away (counted along the roads, so a
+ * river or a dead end with no bridge stops it). Every lot fronting a reached
+ * road, up to PARK_FRONT_DEPTH tiles deep (the deepest zoning drag, 4), gets
+ * the bonus, fading with the road distance (environment.ts parkRoadFalloff).
+ * The park's own block (the same depth, over land) counts as distance 0 and
+ * the streets that block fronts onto are where the road walk starts, so a
+ * park tucked behind houses in the middle of a block still works.
+ */
+export const PARK_ROAD_REACH = 12;
+/** OASIS-S4: how deep into a block (tiles from the road, over land) a reached road lifts lots. */
+export const PARK_FRONT_DEPTH = 4;
 export const PARK_BONUS_MAX = 1.5;
 /** Homes below this desirability don't grow at all ("too polluted"). */
 export const DESIRE_MIN = 0.2;

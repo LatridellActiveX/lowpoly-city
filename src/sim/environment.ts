@@ -16,8 +16,10 @@
  * -------------------------------------
  *     desirability = DESIRE_BASE − POLLUTION_WEIGHT × pollution + parkBonus
  *
- * PARKS add a bonus with the same linear falloff, capped at PARK_BONUS_MAX so
- * you can't fix everything by carpeting the map in parks.
+ * PARKS add a bonus that spreads ALONG THE ROADS (OASIS-S4, parkReach below):
+ * lots on a street within PARK_ROAD_REACH road tiles of the park benefit,
+ * fading with road distance, capped at PARK_BONUS_MAX so you can't fix
+ * everything by carpeting the map in parks.
  * How desirability changes growth is in simulation.ts / rules.ts:
  *   below DESIRE_MIN       -> the home won't grow at all
  *   below DESIRE_FOR_DENSE -> it can't grow past level 1
@@ -35,8 +37,8 @@ import {
   DESIRE_BASE,
   PARK_BONUS,
   PARK_BONUS_MAX,
-  PARK_RADIUS,
-  PARK_AREA,
+  PARK_ROAD_REACH,
+  PARK_FRONT_DEPTH,
   PLANT_POLLUTION,
   PLANT_POLLUTION_RADIUS,
   FACTORY_POLLUTION_PER_LEVEL,
@@ -160,19 +162,105 @@ function kernel(r: number): Float64Array {
 }
 
 /**
- * PR 6 park area: a 10 × 10-tile square (PARK_AREA) around the park, offsets
- * −5..+4 on each axis. Falloff by Chebyshev distance d (0..5):
- * bonus × (1 − 0.5 · (d / 5)²) → 100 % at the park, 98 % one tile away,
- * 50 % on the outer ring. Gentle, so the whole square clearly benefits.
+ * OASIS-S4 park falloff by ROAD distance d (0..PARK_ROAD_REACH road tiles):
+ * bonus × (1 − 0.5 · (d / 12)²) → 100 % on the park's own street, ~90 % five
+ * tiles down the road, 50 % at the far end of the reach. Same gentle shape
+ * as the old square so existing towns feel the same next to their parks.
  */
-export const parkFalloff = (d: number) => 1 - 0.5 * (d / PARK_RADIUS) ** 2;
-function spreadSquare(field: Float32Array, cx: number, cz: number, strength: number): void {
-  const lo = -Math.floor(PARK_AREA / 2), hi = lo + PARK_AREA - 1;
-  for (let dz = lo; dz <= hi; dz++) for (let dx = lo; dx <= hi; dx++) {
-    const x = cx + dx, z = cz + dz;
-    if (x < 0 || z < 0 || x >= GRID_SIZE || z >= GRID_SIZE) continue;
-    field[z * GRID_SIZE + x] += strength * parkFalloff(Math.max(Math.abs(dx), Math.abs(dz)));
+export const parkRoadFalloff = (d: number) => 1 - 0.5 * (d / PARK_ROAD_REACH) ** 2;
+
+// Scratch buffers reused by parkReach (one allocation per map size, not per park).
+let roadD = new Int16Array(0), landD = new Int16Array(0), seen = new Int32Array(0), stamp = 0;
+/** OASIS-S4: a park's own neighbourhood (land steps, any direction) that counts as distance 0. */
+const PARK_NEIGHBOUR = 2;
+const touchedRoad: number[] = [], touchedLand: number[] = [];
+
+/**
+ * OASIS-S4: everything one park tile (index `p`) reaches, as tile → road
+ * distance (0..PARK_ROAD_REACH). Modelled on garbage's "served by road
+ * network" idea, but with a distance limit:
+ *
+ *  0. THE PARK'S BLOCK: lots within 2 land steps of the park get distance
+ *     0; the first road straight out from the park (≤ PARK_FRONT_DEPTH land
+ *     tiles) in each direction is where the road walk starts.
+ *  1. ROAD BFS: start at those road tiles (distance 0)
+ *     and walk road tiles (4-neighbour, bridges are road tiles too) up to
+ *     PARK_ROAD_REACH steps. Water without a bridge, or a gap in the road,
+ *     stops it — a park does not serve the far bank of a river.
+ *  2. FRONTING LOTS: from every reached road tile, walk straight back into
+ *     LAND (not road, not water) up to PARK_FRONT_DEPTH tiles in each
+ *     direction — the lots of that street. A lot takes the SMALLEST road distance of
+ *     any source that reaches it. Road tiles are included too (with their own
+ *     distance) so the coverage overlay shows the reach along the street.
+ *
+ * A reached tile can be up to 4 + 12 + 4 tiles from the park, a little past
+ * the active-chunk ring (chunks.ts A4) in the worst straight-line case; that
+ * is harmless because tiles outside the ring hold no buildings (they are in
+ * inactive chunks) and desirability there is DESIRE_BASE regardless.
+ * Deterministic: BFS distances do not depend on visiting order.
+ */
+export function parkReach(world: World, p: number, out: (i: number, d: number) => void): void {
+  const N = GRID_SIZE, tiles = world.tiles, n = tiles.length;
+  if (roadD.length !== n) { roadD = new Int16Array(n).fill(-1); landD = new Int16Array(n).fill(-1); seen = new Int32Array(n); stamp = 0; }
+  const nb = (i: number, f: (j: number) => void) => {
+    const x = i % N, z = (i - x) / N;
+    if (x > 0) f(i - 1); if (x < N - 1) f(i + 1); if (z > 0) f(i - N); if (z < N - 1) f(i + N);
+  };
+  // Straight walk from `i` in direction (dx, dz) over LAND for up to
+  // PARK_FRONT_DEPTH tiles; calls `f` for each land tile, and returns the
+  // road tile it bumps into (or -1). Lots on a tile road are laid out
+  // straight back from the street, so "fronting" = straight behind the road.
+  const ray = (i: number, dx: number, dz: number, f: ((j: number) => void) | null): number => {
+    let x = i % N, z = (i - x) / N;
+    for (let k = 1; k <= PARK_FRONT_DEPTH + 1; k++) {
+      x += dx; z += dz;
+      if (x < 0 || z < 0 || x >= N || z >= N) return -1;
+      const j = z * N + x, t = tiles[j];
+      if (t.road) return j;
+      if (t.water || k > PARK_FRONT_DEPTH) return -1;
+      f?.(j);
+    }
+    return -1;
+  };
+  const DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const lot = (j: number, d: number) => {
+    if (landD[j] < 0) { touchedLand.push(j); landD[j] = d; } else if (d < landD[j]) landD[j] = d;
+  };
+  // 0. The park's own block. Its direct neighbourhood (PARK_NEIGHBOUR land
+  //    steps, any direction) counts as distance 0. The streets it fronts
+  //    onto — the first road straight out from the park within
+  //    PARK_FRONT_DEPTH land tiles, in each of the 4 directions, just like a
+  //    lot that deep belongs to its street — start the road walk at 0, so a
+  //    park in the middle of a block still reaches that block's streets.
+  if (++stamp > 0x7ffffffe) { seen.fill(0); stamp = 1; }
+  seen[p] = stamp; lot(p, 0);
+  let blk = [p];
+  for (let depth = 1; depth <= PARK_NEIGHBOUR && blk.length; depth++) {
+    const nxt: number[] = [];
+    for (const i of blk) nb(i, (j) => {
+      const t = tiles[j];
+      if (t.road || t.water || seen[j] === stamp) return;
+      seen[j] = stamp; nxt.push(j); lot(j, 0);
+    });
+    blk = nxt;
   }
+  for (const [dx, dz] of DIRS) {
+    const r = ray(p, dx, dz, null);
+    if (r >= 0 && roadD[r] < 0) { roadD[r] = 0; touchedRoad.push(r); }
+  }
+  // 1. road BFS (queue = touchedRoad, in distance order)
+  for (let q = 0; q < touchedRoad.length; q++) {
+    const i = touchedRoad[q], d = roadD[i];
+    if (d >= PARK_ROAD_REACH) continue;
+    nb(i, (j) => { if (tiles[j].road && roadD[j] < 0) { roadD[j] = d + 1; touchedRoad.push(j); } });
+  }
+  // 2. fronting lots: straight back from every reached road tile, each lot
+  //    keeping the smallest road distance that reaches it.
+  for (const r of touchedRoad) { const d = roadD[r]; for (const [dx, dz] of DIRS) ray(r, dx, dz, (j) => lot(j, d)); }
+  // report and reset the scratch buffers
+  for (const r of touchedRoad) { out(r, roadD[r]); roadD[r] = -1; }
+  for (const j of touchedLand) { out(j, landD[j]); landD[j] = -1; }
+  touchedRoad.length = 0; touchedLand.length = 0;
 }
 
 /** `service` (simulation net.service) lets land value count power/water. */
@@ -191,7 +279,7 @@ export function computeEnvironment(world: World, service?: TileService[], pre?: 
     const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
     if (t.structure === 'powerPlant' && !t.part) spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
     else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
-    else if (t.structure === 'park') spreadSquare(parks, x, z, PARK_BONUS);
+    else if (t.structure === 'park') parkReach(world, i, (j, d) => { parks[j] += PARK_BONUS * parkRoadFalloff(d); }); // OASIS-S4: along the roads
   });
   // V1.6 A4: outside the ring pollution and parks are 0 → desirability = DESIRE_BASE.
   const desirability = new Float32Array(n).fill(DESIRE_BASE);

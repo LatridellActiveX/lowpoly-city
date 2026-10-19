@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S4: sim/environment.ts parkReach (road BFS ≤ PARK_ROAD_REACH + fronting lots) replaces the 10×10 square; rules.ts PARK_ROAD_REACH / PARK_FRONT_DEPTH; main.ts park preview; ui/tools.ts hint; tools/parkroads.test.ts.
+    id: '2026-10-19-oasis-s4-parks-serve-by-road',
+    title: 'Parks serve the streets they are on',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'improved', text: 'A park now makes homes more desirable along the roads next to it, up to 12 road tiles away, much like garbage collection follows the road network. Homes far down the same street now benefit, while a block across a river with no bridge no longer does.' },
+      { tag: 'improved', text: 'The bonus fades gently with the distance along the road, and every lot up to 4 tiles back from a reached street shares it. A park in the middle of a block reaches the streets of its block, and a park with no road at all still helps its direct neighbours.' },
+      { tag: 'improved', text: 'When you place a park, the preview highlights every road and lot it will reach.' },
+    ],
+  },
+  {
     // OASIS-S3: roads/gtraffic.ts actuated controller (stepSignals, phaseDemand, MIN/MAX_GREEN, amber) replaces the fixed timer; render/graphUtilities.ts amber lamp; sim/trafficInspect.ts + ui/trafficPanel.ts show it; tools/actuated.test.ts.
     id: '2026-10-19-oasis-s3-demand-actuated-lights',
     title: 'Traffic lights react to waiting cars',

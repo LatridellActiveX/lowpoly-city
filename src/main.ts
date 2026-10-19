@@ -22,6 +22,7 @@ import { canPlace } from './sim/rules';
 import { clearSave, downloadSave, importSaveText, hasSave, loadWorld, saveWorld } from './sim/save';
 import { Simulation } from './sim/simulation';
 import { GRID_SIZE, ToolId } from './sim/types';
+import { parkReach } from './sim/environment';
 import { IsoCamera } from './render/camera';
 import { setGridSize } from './sim/mapsize';
 import { REGION, regionSide, startRegion } from './sim/regions';
@@ -265,7 +266,7 @@ function updatePreview(): void {
   const from = dragFrom ?? hoverTile;
   let tiles = shapeTiles(tool, from[0], from[1], hoverTile[0], hoverTile[1]);
   // PR 6: a zoning drag also covers the tiles behind it (depth setting), and
-  // the tooltip counts CELLS. The park preview shows its 10×10 area.
+  // the tooltip counts CELLS. The park preview shows the lots it reaches along the roads.
   const zq = ZONE_TOOLS.has(tool) ? sim.zoneQuote(tool, tiles) : null;
   if (zq) tiles = zq.tiles.length ? zq.tiles : tiles;
   sim.pointerFrac = [pointer.x - Math.floor(pointer.x), pointer.z - Math.floor(pointer.z)];
@@ -285,12 +286,12 @@ function updatePreview(): void {
     zcode ? zoneCodeColor(zcode) : undefined,
   );
   if (tool === 'park' && hoverTile) {
-    // PR 6: show the park's 10×10 desirability square (offsets −5..+4).
-    const area: Array<{ x: number; z: number; ok: boolean | null }> = [];
-    for (let dz = -5; dz <= 4; dz++) for (let dx = -5; dx <= 4; dx++) {
-      const x = hoverTile[0] + dx, z = hoverTile[1] + dz;
-      if (x >= 0 && z >= 0 && x < GRID_SIZE && z < GRID_SIZE) area.push({ x, z, ok: dx === 0 && dz === 0 ? affordable && canPlace(tool, sim.world.at(x, z)) : null });
-    }
+    // OASIS-S4: show what the park would serve ALONG THE ROADS — every road
+    // tile within PARK_ROAD_REACH and the lots fronting them (environment.ts
+    // parkReach). The hovered tile itself shows ok / not ok; the rest neutral.
+    const hi = idx(hoverTile[0], hoverTile[1]);
+    const area: Array<{ x: number; z: number; ok: boolean | null }> = [{ x: hoverTile[0], z: hoverTile[1], ok: affordable && canPlace(tool, sim.world.at(hoverTile[0], hoverTile[1])) }];
+    parkReach(sim.world, hi, (j) => { if (j !== hi) area.push({ x: j % GRID_SIZE, z: Math.floor(j / GRID_SIZE), ok: null }); });
     preview.show(area, affordable && valid > 0);
   }
   // ---- Cursor tooltip ----
