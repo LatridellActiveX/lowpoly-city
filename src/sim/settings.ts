@@ -26,16 +26,32 @@ export interface Settings {
   camPan: number;
   /** Show a frames-per-second counter on the HUD. */
   showFps: boolean;
+  /**
+   * OASIS-S6: settings revision for the traffic defaults. Absent (older
+   * saves) = before the car cap went 75 → 100; loadSettings then moves a cap
+   * still sitting on the old default up once. A cap the player picks later
+   * (even 75) is saved with trafficRev 1 and kept.
+   */
+  trafficRev?: number;
 }
 
 const KEY = 'lowpoly-city-settings';
 // PR 5: maxCars default 150 → 75 (half the commuters; see COMMUTE_PEOPLE).
-export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1, showFps: false });
+// OASIS-S6: 75 → 100 so the busier everyday traffic (traffic.ts rushFactor) is not capped away in mid-size towns.
+export const TRAFFIC_REV = 1;
+const OLD_DEFAULT_CARS = 75;
+export const defaultSettings = (): Settings => ({ trafficRev: TRAFFIC_REV, maxCars: 100, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1, showFps: false });
 
 export function loadSettings(): Settings {
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(KEY) : null;
-    return { ...defaultSettings(), ...(raw ? JSON.parse(raw) : {}) };
+    const saved = raw ? JSON.parse(raw) : {};
+    // OASIS-S6 one-time migration: an untouched old default cap follows the new default.
+    if (raw && (saved.trafficRev ?? 0) < TRAFFIC_REV) {
+      if (saved.maxCars === OLD_DEFAULT_CARS) saved.maxCars = defaultSettings().maxCars;
+      saved.trafficRev = TRAFFIC_REV;
+    }
+    return { ...defaultSettings(), ...saved };
   } catch {
     return defaultSettings();
   }

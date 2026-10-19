@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S6: sim/traffic.ts rushFactor night floor 0.12 → 0.2, day 0.5 → 0.55, morning bump 0.55 → 0.6; sim/settings.ts maxCars 75 → 100 + one-time migration (trafficRev); tools/everyday.test.ts.
+    id: '2026-10-19-oasis-s6-more-everyday-traffic',
+    title: 'More everyday traffic',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'balance', text: 'There are more cars about outside rush hour. Nights are no longer almost empty: a steady trickle of cars keeps driving. Midday is busier too, at about 70% of rush-hour traffic instead of 55%. The morning rush now reaches the same peak as the evening one.' },
+      { tag: 'balance', text: 'The default Max cars setting goes from 75 to 100, so the extra traffic shows up in towns of a thousand people or more. If you never changed the setting it moves to 100 once. A value you chose yourself is kept, and you can still lower it in Settings for slower computers.' },
+    ],
+  },
+  {
     // OASIS-S5: roads/junctions.ts Taper / TAPER_M / taperBlend / edgeTapers on straight degree-2 nodes of different width; render/graphRoads.ts extrude halfAt/medAt in 1 m slices; roads/gtraffic.ts lanePoint follows the taper; tools/junctions.test.ts.
     id: '2026-10-19-oasis-s5-avenue-street-taper',
     title: 'Avenues narrow smoothly into streets',

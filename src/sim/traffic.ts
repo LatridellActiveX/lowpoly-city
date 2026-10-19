@@ -65,7 +65,7 @@ import { hash2 } from './random';
 // for parking) at any moment: cruise ×0.5 for an 8-second window.
 //
 // TRAFFIC VOLUME follows the time of day: rushFactor() is a curve with
-// morning (~08:00) and evening (~17:30) peaks and quiet nights, and the
+// morning (~08:00) and evening (~17:30) peaks and quieter nights (OASIS-S6: a steady trickle, not empty), and the
 // simulation multiplies its target number of commuter cars by it.
 
 /** Game-seconds per in-game day at 1× and the time of day the clock starts at (0.3 ≈ 07:12). */
@@ -75,15 +75,21 @@ export const DAY_START = 0.3;
 export const timeOfDay = (clock: number) => ((clock / DAY_SECONDS + DAY_START) % 1 + 1) % 1;
 
 /**
- * Traffic volume multiplier for time of day t (0..1): ~0.15 at 03:00,
- * ~1.0 at the 08:00 and 17:30 rush hours, ~0.55 at midday. A base level
- * plus two Gaussian bumps.
+ * Traffic volume multiplier for time of day t (0..1): a base level plus a
+ * daytime sine plus two Gaussian rush-hour bumps, capped at 1.
+ *
+ * OASIS-S6 (Parker, 2026-10-19: "There is more occasional traffic on the
+ * roads"): the night floor rose 0.12 → 0.2 and the daytime base 0.5 → 0.55,
+ * so 03:00 now carries 0.2 of the commuter target (was 0.12) and midday ~0.71
+ * (was ~0.58); the morning bump grew 0.55 → 0.6 so 08:00 reaches the full
+ * peak (it stopped at 0.86 before). Rush hours are unchanged at 1.
  */
+export const RUSH_NIGHT = 0.2, RUSH_DAY = 0.55;
 export function rushFactor(t: number): number {
   const h = t * 24;
   const bump = (centre: number, width: number) => Math.exp(-(((h - centre) / width) ** 2));
-  const day = 0.5 * Math.max(0, Math.sin(((h - 6) / 16) * Math.PI)); // daytime base 06:00–22:00
-  return Math.min(1, 0.12 + day + 0.55 * bump(8, 1.3) + 0.6 * bump(17.5, 1.5));
+  const day = RUSH_DAY * Math.max(0, Math.sin(((h - 6) / 16) * Math.PI)); // daytime base 06:00–22:00
+  return Math.min(1, RUSH_NIGHT + day + 0.6 * bump(8, 1.3) + 0.6 * bump(17.5, 1.5));
 }
 
 export interface DriverTraits {

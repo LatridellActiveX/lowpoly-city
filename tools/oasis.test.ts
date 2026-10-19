@@ -55,7 +55,11 @@ const pg = pop(s), pt = pop(tileTown);
 // FASTER than the tile town (268 vs 206 at 700 ticks; it was 187 before),
 // so the upper bound is 1.35×. The lower bound (no slower than 0.8×) is the
 // real regression guard.
-ok(pg > 0.8 * pt && pg < 1.35 * pt, 'city grows like the tile town (0.8×–1.35×)', { graph: pg, tile: pt });
+// OASIS-S6: the busier everyday traffic (night 0.2, midday ~0.7, cap 100)
+// slows the old TILE town a bit more than the graph town (tile 206 → 192,
+// graph 266 → 263 at 700 ticks), so the ratio moved 1.29× → 1.37×; the upper
+// bound goes to 1.45×. The graph town itself barely changed.
+ok(pg > 0.8 * pt && pg < 1.45 * pt, 'city grows like the tile town (0.8×–1.45×)', { graph: pg, tile: pt });
 const purposes = new Set(s.traffic.graph.vehicles.map((v) => v.trip?.purpose.split(':')[0]));
 ok(purposes.size >= 1 && !purposes.has(undefined), 'live graph vehicles carry real trip purposes', [...purposes]);
 
