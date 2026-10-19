@@ -380,9 +380,50 @@ export function foodPlantModel(k: number): THREE.BufferGeometry {
 }
 
 /**
+ * OASIS-S1: the 8 PARKING BAYS of a Construction Yard, in the yard model's
+ * local tile coordinates (x, z; the road is on the +z side). Two rows of
+ * four bays on the left half of the lot, noses pointing at the road gate:
+ *   row 1 (centre z = 0.00) just in front of the depot shed's doors,
+ *   row 2 (centre z = 0.29) by the front fence.
+ * Each bay holds one parkedCrewTruckModel (0.08 wide × 0.24 long). The
+ * renderer fills bays in this order, one per truck at home
+ * (YARD_FLEET − trucks out), so the yard empties front-left first.
+ */
+export const YARD_TRUCK_SLOTS: ReadonlyArray<readonly [number, number]> = [
+  [-0.4, 0.29], [-0.3, 0.29], [-0.2, 0.29], [-0.1, 0.29],
+  [-0.4, 0.0], [-0.3, 0.0], [-0.2, 0.0], [-0.1, 0.0],
+];
+
+/**
+ * OASIS-S1: one parked orange crew truck (white cab towards the road, orange
+ * tipper bed with a load of bricks, four wheels), centred on its bay. It is
+ * the old in-model truck at 80 % size so eight of them fit on one tile.
+ */
+export function parkedCrewTruckModel(): THREE.BufferGeometry {
+  const ORANGE = 0xf28c1d, k = 0.8; // k: scale of the old 0.1 × 0.3 truck
+  const p: THREE.BufferGeometry[] = [
+    part(box(0.1 * k, 0.012, 0.3 * k), 0x333333, [0, 0.03, 0]), // chassis
+    part(box(0.1 * k, 0.09 * k, 0.08 * k), 0xe8e8e8, [0, 0.035, 0.12 * k]), // cab (road side)
+    part(box(0.1 * k, 0.07 * k, 0.18 * k), ORANGE, [0, 0.042, -0.05 * k]), // tipper bed
+    part(box(0.08 * k, 0.03 * k, 0.12 * k), 0xb14d2a, [0, 0.042 + 0.07 * k, -0.05 * k]), // bricks load
+  ];
+  // Wheels: front axle under the cab, rear axle under the bed.
+  for (const z of [0.07 * k, -0.11 * k]) for (const s of [-1, 1]) p.push(part(new THREE.CylinderGeometry(0.022 * k, 0.022 * k, 0.016, 10).rotateZ(Math.PI / 2), 0x222222, [s * 0.05 * k, 0.022 * k, z]));
+  return merge(p);
+}
+
+/**
  * Construction Yard: gravel lot, a depot shed with two roll-up doors facing
- * the road (+z), an office cabin, two parked orange crew trucks, stacks of
- * bricks, pipes and timber, a sand pile and a perimeter fence.
+ * the road (+z), an office cabin, stacks of bricks, pipes and timber, a sand
+ * pile and a perimeter fence.
+ *
+ * OASIS-S1 (Parker: "construction yards hold 8 trucks"): the yard's crew
+ * trucks are NO LONGER part of this model. The yard always owned 8 trucks
+ * in the game logic (sim/industry.ts YARD_FLEET) but the model only ever
+ * showed two, so it looked like it held two. The trucks are now a separate
+ * model (parkedCrewTruckModel) that the renderer places in the
+ * YARD_TRUCK_SLOTS parking bays — one per truck that is at home, so a yard
+ * with 3 trucks out on jobs shows 5 parked.
  */
 export function constructionYardModel(): THREE.BufferGeometry {
   const ORANGE = 0xf28c1d;
@@ -400,14 +441,9 @@ export function constructionYardModel(): THREE.BufferGeometry {
   p.push(part(box(0.2, 0.12, 0.12), 0xf2f0ea, [0.3, 0.014, -0.32]));
   p.push(part(box(0.22, 0.012, 0.14), 0x555c63, [0.3, 0.134, -0.32]));
   p.push(part(box(0.06, 0.04, 0.004), 0x8fc6e8, [0.26, 0.07, -0.258]));
-  // Two parked crew trucks (cab + orange tipper bed).
-  for (const x of [-0.3, -0.06]) {
-    p.push(part(box(0.1, 0.012, 0.3), 0x333333, [x, 0.03, 0.08]));
-    p.push(part(box(0.1, 0.09, 0.08), 0xe8e8e8, [x, 0.035, 0.2]));
-    p.push(part(box(0.1, 0.07, 0.18), ORANGE, [x, 0.042, 0.03]));
-    p.push(part(box(0.08, 0.03, 0.12), 0xb14d2a, [x, 0.112, 0.03])); // bricks load
-    for (const z of [0.15, -0.03]) for (const s of [-1, 1]) p.push(part(new THREE.CylinderGeometry(0.022, 0.022, 0.016, 10).rotateZ(Math.PI / 2), 0x222222, [x + s * 0.05, 0.022, z]));
-  }
+  // (OASIS-S1: the parked crew trucks are drawn separately, see YARD_TRUCK_SLOTS.)
+  // Painted parking-bay lines for the 8 truck bays (2 rows × 4, left half of the lot).
+  for (const [x] of YARD_TRUCK_SLOTS.slice(0, 4)) for (const dx of [-0.05, 0.05]) for (const z of [0.0, 0.29]) p.push(part(box(0.006, 0.002, 0.24), 0xf2f2f2, [x + dx, 0.014, z]));
   // Materials: brick pallets, a pipe stack, timber, sand pile.
   for (const [x, z] of [[0.2, 0.05], [0.32, 0.05]]) {
     p.push(part(box(0.1, 0.02, 0.1), 0x9b7a50, [x, 0.014, z]));
@@ -420,9 +456,10 @@ export function constructionYardModel(): THREE.BufferGeometry {
   p.push(part(box(0.07, 0.14, 0.07), 0x2f6fb0, [0.4, 0.014, -0.14]));
   p.push(part(box(0.06, 0.1, 0.006), 0x245a86, [0.4, 0.03, -0.104]));
   p.push(part(box(0.075, 0.012, 0.075), 0xf2f2f2, [0.4, 0.154, -0.14]));
-  p.push(part(new THREE.CylinderGeometry(0.008, 0.01, 0.3, 8).translate(0, 0.15, 0), 0x8d949c, [-0.4, 0.014, 0.32]));
-  p.push(part(box(0.09, 0.02, 0.05), 0xfff3c4, [-0.4, 0.3, 0.32]));
-  for (const [x, z] of [[-0.14, 0.3], [0.02, 0.3], [0.18, 0.3], [-0.4, 0.1]]) trafficCone(p, x, z);
+  // OASIS-S1: the floodlight mast and cones moved off the truck bays (x < −0.04).
+  p.push(part(new THREE.CylinderGeometry(0.008, 0.01, 0.3, 8).translate(0, 0.15, 0), 0x8d949c, [0.44, 0.014, 0.42]));
+  p.push(part(box(0.09, 0.02, 0.05), 0xfff3c4, [0.44, 0.3, 0.42]));
+  for (const [x, z] of [[0.02, 0.18], [0.02, 0.42], [0.12, 0.42], [0.42, 0.06]]) trafficCone(p, x, z);
   // Perimeter fence (sides + back) with orange-capped posts.
   for (let k = 0; k <= 8; k++) {
     const v = -0.47 + k * 0.1175;
@@ -431,6 +468,15 @@ export function constructionYardModel(): THREE.BufferGeometry {
   p.push(part(box(0.94, 0.07, 0.004), 0xb8bec4, [0, 0.03, -0.47]));
   p.push(part(box(0.004, 0.07, 0.94), 0xb8bec4, [-0.47, 0.03, 0]), part(box(0.004, 0.07, 0.94), 0xb8bec4, [0.47, 0.03, 0]));
   return merge(p);
+}
+
+/**
+ * OASIS-S1: the yard as the Model viewer shows it — the lot plus all 8 crew
+ * trucks parked in their bays (in the game the renderer adds the trucks
+ * one by one, see YARD_TRUCK_SLOTS).
+ */
+export function constructionYardFullModel(): THREE.BufferGeometry {
+  return merge([constructionYardModel(), ...YARD_TRUCK_SLOTS.map(([x, z]) => parkedCrewTruckModel().translate(x, 0, z))]);
 }
 
 /**

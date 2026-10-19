@@ -3,7 +3,8 @@ import { CELL_GRID } from '../sim/cells';
 import { DEPOT_BONUS, depotOf } from '../sim/goods';
 /**
  * ui/hud.ts — all the HTML user interface: toolbar, top stats bar, time
- * controls, overlay toggles, save/load buttons and the info panel.
+ * controls, overlay toggles, the New city button and the info panel
+ * (OASIS-S1: Save / Load now live in the ☰ menu, ui/menu.ts).
  *
  * The UI is plain DOM (no framework). It reads from the Simulation and calls
  * back into main.ts through the `HudActions` interface, so it never touches
@@ -124,7 +125,13 @@ export class Hud {
   /** Time-of-day text from the day/night cycle, e.g. "21:40". */
   private lastClock = '';
 
+  /** OASIS-S1: the save / load actions, kept for the ☰ menu's Save city / Load city items (main.ts wires them). */
+  readonly saveCity: () => void;
+  readonly loadCity: () => void;
+
   constructor(root: HTMLElement, actions: HudActions) {
+    this.saveCity = actions.save;
+    this.loadCity = actions.load;
     // ---- Top bar: stats, time, overlays, view, file ----
     const top = el('div', 'topbar');
     top.append(this.stats);
@@ -205,9 +212,8 @@ export class Hud {
     };
     const file = el('div', 'group');
     file.append(budgetBtn, graphsBtn, this.regions.button); // V1.6 A6: Regions (big maps only)
+    // OASIS-S1: Save and Load moved into the ☰ menu (ui/menu.ts); only New stays here (Parker's call).
     for (const [label, fn] of [
-      ['Save', actions.save],
-      ['Load', actions.load],
       ['New', actions.newCity],
     ] as const) {
       const b = el('button', 'btn', label) as HTMLButtonElement;

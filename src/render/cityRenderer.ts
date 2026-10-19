@@ -69,8 +69,8 @@ import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { roleOf } from '../sim/chains';
 import { LV_MAX } from '../sim/environment';
 import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
-import { bigFarmModel, constructionYardModel, crewLoadModel, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
-import { CREW_PURPOSE } from "../sim/industry";
+import { bigFarmModel, constructionYardModel, crewLoadModel, parkedCrewTruckModel, YARD_TRUCK_SLOTS, farmModel, fieldCrops, fieldFence, fieldSoil, foodPlantModel, nacelleModel } from './industryModels';
+import { CREW_PURPOSE, YARD_FLEET } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
 import { Resource } from '../sim/resources';
 import { CONSTRUCT_TICKS, PLANT_OIL } from '../sim/rules';
@@ -503,6 +503,8 @@ export class CityRenderer {
     add('fieldFence', fieldFence(), solid, 2048);
     for (const k of [0, 1, 2]) add(`foodPlant${k}`, autoSkin(foodPlantModel(k)), industrialMaterial(), 128);
     add('constructionYard', constructionYardModel(), solid, 32);
+    // OASIS-S1: the yard's parked crew trucks (up to 8 per yard, one per truck at home).
+    add('yardTruck', parkedCrewTruckModel(), solid, 256);
     add('crewLoad', crewLoadModel(), solid, 64);
     // Farm machines working the fields (animated in animateFarms) and the dust they kick up.
     add('farmPlough', tractorPlough(), solid, 128);
@@ -955,7 +957,21 @@ export class CityRenderer {
         this.markers.push({ pos: center.clone().setY(1.05), color: new THREE.Color(1, 1, 1), kind: 'garbage', slot: 0 });
       }
       if (t.structure === 'constructionYard') {
-        P.constructionYard.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
+        const rot = this.roadFacing(x, z, has) ?? turn;
+        P.constructionYard.add(this.place(center, rot));
+        // OASIS-S1 (Parker: "construction yards hold 8 trucks"): draw one
+        // parked truck per truck that is AT HOME — YARD_FLEET (8) minus the
+        // trucks out on a job (sim.crews.out). The sim bumps its version
+        // every tick, so this refreshes as trucks leave and come back.
+        // Each bay offset is rotated with the yard so the trucks always
+        // face the yard's road gate.
+        const home = Math.max(0, Math.min(YARD_TRUCK_SLOTS.length, YARD_FLEET - sim.crews.out(i)));
+        const c = Math.cos(rot), s = Math.sin(rot);
+        for (let k = 0; k < home; k++) {
+          const [lx, lz] = YARD_TRUCK_SLOTS[k];
+          // Same rotation three.js applies to the model about +y: x' = x·cos + z·sin, z' = −x·sin + z·cos.
+          P.yardTruck.add(this.place(new THREE.Vector3(center.x + lx * c + lz * s, center.y, center.z - lx * s + lz * c), rot));
+        }
       }
       // Pollution overlay (PR 3): yellow (light) -> red -> purple (heavy).
       // Tiles helped by a park (and not polluted) get a soft green instead.

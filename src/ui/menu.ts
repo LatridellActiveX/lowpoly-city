@@ -2,6 +2,9 @@ import { sound } from '../audio/sound';
 /**
  * ui/menu.ts — PR 4 main menu (☰ button, top-left) with two panels:
  *
+ *  (OASIS-S1: the main view also holds 💾 Save city and 📂 Load city, which
+ *  used to be separate top-bar buttons.)
+ *
  *  SETTINGS — car count, truck count, simulation update rate and the
  *    day/night cycle toggle. Changes apply immediately (the sim reads
  *    `sim.settings` every tick) and are saved to localStorage
@@ -31,11 +34,20 @@ export class GameMenu {
   onMainMenu: () => void = () => {};
   /** Opens the Model viewer (set by main.ts). */
   onModels: () => void = () => {};
+  /**
+   * OASIS-S1 (Parker: "Save and load go into the hamburger menu on the top
+   * left instead of being their own distinct HUD options"): the menu's
+   * 💾 Save city / 📂 Load city items call these. main.ts points them at the
+   * same save()/load() actions the old top-bar buttons used, so saving
+   * and loading behave exactly as before — only the buttons moved.
+   */
+  onSave: () => void = () => {};
+  onLoad: () => void = () => {};
 
   constructor(private readonly getSim: () => Simulation) {
     this.button.className = 'btn menu-btn';
     this.button.innerHTML = '☰';
-    this.button.title = 'Menu: settings, game log and main menu';
+    this.button.title = 'Menu: save, load, settings, game log and main menu';
     this.button.onclick = () => this.toggle();
     this.el.className = 'menu-panel hidden';
     gameLog.onChange = () => this.view === 'log' && !this.el.classList.contains('hidden') && this.renderLogList();
@@ -60,7 +72,10 @@ export class GameMenu {
     const back = view === 'main' ? '' : '<button class="btn back">‹ Back</button>';
     const close = '<button class="close" aria-label="Close">×</button>';
     if (view === 'main') {
+      // OASIS-S1: Save / Load sit at the top of the menu (they used to be top-bar buttons).
       this.el.innerHTML = `${close}<h3>Menu</h3>
+        <button class="menu-item" data-go="save">💾 Save city<span>Save this city now (it also autosaves every 20 seconds)</span></button>
+        <button class="menu-item" data-go="load">📂 Load city<span>Go back to the last saved version of this city</span></button>
         <button class="menu-item" data-go="settings">⚙️ Settings<span>Traffic, camera, detail, day/night</span></button>
         <button class="menu-item" data-go="log">📜 Game log<span>Events, warnings and errors — copy to share</span></button>
         <button class="menu-item" data-go="debug">🐞 Debug code<span>Copy this city as a code to share for bug reports, or load one</span></button>
@@ -68,6 +83,8 @@ export class GameMenu {
         <button class="menu-item" data-go="models">🏛 Model viewer<span>Browse every building and vehicle model — rotate and zoom</span></button>
         <button class="menu-item" data-go="mainmenu">🏠 Main menu<span>Save this city and return to the title screen</span></button>`;
       this.el.querySelectorAll<HTMLButtonElement>('[data-go]').forEach((b) => (b.onclick = () => {
+        // OASIS-S1: Save / Load close the menu first so the "City saved" flash is visible.
+        if (b.dataset.go === 'save') { this.toggle(false); this.onSave(); } else if (b.dataset.go === 'load') { this.toggle(false); this.onLoad(); } else
         if (b.dataset.go === 'changelog') { this.toggle(false); this.onChangelog(); } else if (b.dataset.go === 'models') { this.toggle(false); this.onModels(); } else if (b.dataset.go === 'mainmenu') { this.toggle(false); this.onMainMenu(); } else this.show(b.dataset.go as 'settings' | 'log' | 'debug');
       }));
     } else if (view === 'settings') {

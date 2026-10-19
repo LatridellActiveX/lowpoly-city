@@ -461,6 +461,9 @@ menu.onChangelog = () => changelog.open();
 const modelViewer = new ModelViewer();
 document.body.append(modelViewer.el);
 menu.onModels = () => modelViewer.open();
+// OASIS-S1: Save / Load moved from the top bar into the ☰ menu; same actions as before.
+menu.onSave = () => hud.saveCity();
+menu.onLoad = () => hud.loadCity();
 // Back to the title screen: save the city first (Continue picks it up), then reload clean.
 menu.onMainMenu = () => {
   if (!inTitle) saveWorld(sim.world);

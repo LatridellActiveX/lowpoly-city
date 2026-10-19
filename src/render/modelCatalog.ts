@@ -15,7 +15,7 @@ import { VEHICLES } from './vehicles';
 import { serviceModels } from './serviceModels';
 import { bigCoalModel } from './coalModel';
 import { bigOilModel } from './oilPlantModel';
-import { bigFarmModel, constructionYardModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
+import { bigFarmModel, constructionYardFullModel, nacelleModel, farmModel, foodPlantModel, newIndustryModels, oilRigModel, roleModels } from './industryModels';
 import { officeModels } from './officeModels';
 import { commerceModels, homeModels, industryExtra, PRESKINNED, FACTORY_SKINS } from './cityModels';
 import { combineHarvester, tractorPlough, tractorSeeder, tractorSprayer } from './farmVehicles';
@@ -99,7 +99,7 @@ export function buildCatalog(): CatalogItem[] {
   add('Resources & farms', 'Tractor with seed drill', () => plain(tractorSeeder()));
   add('Resources & farms', 'Tractor with crop sprayer', () => plain(tractorSprayer()));
   add('Resources & farms', 'Combine harvester', () => plain(combineHarvester()));
-  add('Resources & farms', 'Construction yard', () => textured(constructionYardModel()));
+  add('Resources & farms', 'Construction yard', () => textured(constructionYardFullModel()) /* OASIS-S1: with its 8 parked trucks */);
   add('Resources & farms', 'Oil rig', () => textured(oilRigModel()));
   for (const [key, g] of Object.entries(roleModels())) if (key !== 'oilRig') add('Resources & farms', LABEL[key] ?? pretty(key), () => textured(g));
 

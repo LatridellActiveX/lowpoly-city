@@ -38,7 +38,8 @@
  * CONSTRUCTION CREWS
  * ------------------
  * A Construction Yard (structure 'constructionYard') is built instantly and
- * owns a fleet of YARD_FLEET (4) trucks. Every construction site (a zoned lot
+ * owns a fleet of YARD_FLEET (8) trucks (OASIS-S1: the yard model now shows
+ * every truck at home, one per parking bay — see render/industryModels.ts). Every construction site (a zoned lot
  * with construct > 0) waits until a crew truck reaches it by road (A* in
  * traffic.findPath) — only then does work progress (simulation.ts). The
  * dispatcher (Crews.tick) serves waiting sites nearest-first, from the

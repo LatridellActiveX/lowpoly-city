@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // OASIS-S1: ui/menu.ts Save city / Load city items (hud.ts top-bar buttons removed); render/industryModels.ts YARD_TRUCK_SLOTS + parkedCrewTruckModel; tools/menuyard.test.ts.
+    id: '2026-10-19-oasis-s1-menu-save-yard-trucks',
+    title: 'Save & Load in the menu, 8 trucks in the yard',
+    date: '2026-10-19',
+    changes: [
+      { tag: 'improved', text: 'Save and Load have moved into the ☰ menu at the top left (Save city / Load city), so the top bar is less crowded. The New button stays where it was.' },
+      { tag: 'improved', text: 'Construction Yards now show all 8 of their crew trucks parked in painted bays. Every truck that drives out to a building site leaves an empty bay until it comes back, so you can see at a glance how busy a yard is.' },
+    ],
+  },
+  {
     // OASIS-SAFEGAP: roads/gtraffic.ts safe-gap car following, real model lengths, junction slot checks; tools/safegap.test.ts.
     id: '2026-10-16-oasis-safegap-traffic',
     title: 'Smoother traffic: cars keep a safe gap',
