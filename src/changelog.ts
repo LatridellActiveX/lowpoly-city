@@ -74,6 +74,7 @@ export const CHANGELOG: ChangeEntry[] = [
       { tag: 'new', text: 'Left stick pans, right stick turns the table (left/right) and zooms (up/down), and either grip grabs and drags the map. Right A pauses; right B picks Inspect. Hand tracking works too (pinch to click; use the panel\'s View tab).' },
       { tag: 'improved', text: 'In the Meta Quest browser (outside VR) the thumbsticks, which arrive as scrolling, now pan the map instead of zooming, and + / - buttons appear for zoom.' },
       { tag: 'new', text: 'Outside VR, the left stick of a connected gamepad or controller now pans the map (press any button once so the browser sees it).' },
+      { tag: 'new', text: 'In VR, the Inspect tool opens an info window floating next to the asset, turned toward you. Point at it and pull the trigger to close it.' },
       { tag: 'improved', text: 'The VR panel also shows jobs, power and water meters and the R / C / I demand bars. The laser now stops at the panel and shows a cursor dot where it lands.' },
       { tag: 'improved', text: 'VR runs lighter so it stays smooth: no shadows, lighter building models, a slightly lower render resolution, and the panel and HUD refresh less often.' },
     ],
