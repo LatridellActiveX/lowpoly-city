@@ -11,6 +11,13 @@
  *  d. while retooling the factory books no output; after it, it works;
  *  e. the pick survives a save → load round trip;
  *  f. back to Auto is free; bulldozing forgets the pick.
+ *
+ * IND-2 supply chain view (sim/chainFlow.ts):
+ *  g. every producer → customer truck is recorded once (link totals =
+ *     chain loads + shop/yard loads) on Parker's avenue save;
+ *  h. a link's "loads lately" halves every HALF_LIFE ticks; colours band right;
+ *  i. at most MAX_LINKS links come back, busiest first;
+ *  j. an empty shop with nothing on the way is a shortage.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -19,6 +26,7 @@ import { loadCode } from './fixtures/loadCode';
 import { deserializeWorld, serializeWorld } from '../src/sim/save';
 import { Simulation } from '../src/sim/simulation';
 import { RECIPES, roleOf } from '../src/sim/chains';
+import { band, ChainFlow, FLOW_GOOD, FLOW_WEAK, HALF_LIFE, MAX_LINKS, shortages } from '../src/sim/chainFlow';
 import { canPickRecipe, clearIfGone, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe } from '../src/sim/factoryCtl';
 
 let fails = 0;
@@ -70,6 +78,25 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   setRecipe(w, i, target); t.zone = null; clearIfGone(w, i);
   ok(t.recipe === '' && t.pause === 0, 'bulldozed / rezoned tile forgets the pick');
   ok(Object.keys(RECIPES).length >= 11, 'recipes table intact');
+}
+
+// ---- IND-2 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  const end = w.tick + 600; while (w.tick < end) s.update(0.5);
+  const st = s.shipping.stats, fl = s.shipping.flow;
+  ok(fl.loads > 0 && fl.loads === st.chainLoads + st.shopLoads, 'every producer → customer truck is one link load', { links: fl.links.size, loads: fl.loads, chain: st.chainLoads, shops: st.shopLoads });
+  const f = new ChainFlow(); f.add(0, 1, 2, 'wood');
+  const l = [...f.links.values()][0];
+  ok(Math.abs(f.rate(l, HALF_LIFE) - 0.5) < 1e-9 && Math.abs(f.rate(l, 2 * HALF_LIFE) - 0.25) < 1e-9, 'loads lately halve every HALF_LIFE ticks');
+  ok(band(FLOW_GOOD) === 'good' && band(FLOW_WEAK) === 'weak' && band(FLOW_WEAK - 0.01) === 'low', 'colour bands');
+  const g = new ChainFlow(); for (let k = 0; k < 300; k++) for (let r = 0; r <= k % 5; r++) g.add(10, k, k + 1000, 'goods');
+  const top = g.top(10);
+  ok(top.length === MAX_LINKS && top.every((x, k) => k === 0 || top[k - 1].rate >= x.rate), `at most ${MAX_LINKS} links, busiest first`, top.length);
+  ok(g.top(10 + HALF_LIFE * 30).length === 0 && g.links.size === 0, 'long-dead links are forgotten');
+  const shop = w.tiles.findIndex((t) => t.zone === 'commercial' && t.level > 0 && t.kind !== 4);
+  w.tiles[shop].stock = 0;
+  ok(shop >= 0 && shortages(w, () => false, () => false).includes(shop), 'an empty shop with nothing on the way is a shortage');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

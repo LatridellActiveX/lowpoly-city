@@ -63,6 +63,7 @@ import { roadNextTo, Traffic } from './traffic';
 import { FUEL_MAX } from './rules';
 import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
 import { farmRate, fieldCount, isFarmLot } from './industry';
+import { ChainFlow } from './chainFlow';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
 /** Hopper size of a processor (raw input waiting). Also used by food plants. */
@@ -180,7 +181,9 @@ export class Shipping {
    * (exports received + imports sent), for Inspect. Not saved (a running count).
    */
   depotLoads = new Map<number, number>();
-  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0 };
+  /** IND-2: producer → customer links for the Supply chain view (chainFlow.ts). Not saved. */
+  flow = new ChainFlow();
+  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0 };
 
   isIncoming(i: number): boolean {
     return this.incoming.has(i);
@@ -296,6 +299,7 @@ export class Shipping {
         if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, p), `delivery: ${good} to ${ROLE_NAMES[roleOf(world, p)]}`, good === 'food' ? 0x6e9e3a : undefined, () => this.feedPlant(world, p))) {
           t.stock -= LOAD; this.incoming.add(-1 - p); this.importedSupply.delete(p);
           this.stats.chainLoads++;
+          this.flow.add(world.tick, f, p, good); // IND-2
           continue;
         }
       }
@@ -315,6 +319,7 @@ export class Shipping {
         const shop = best;
         if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, shop), `delivery: ${good}`, undefined, () => this.deliver(world, shop))) {
           t.stock -= LOAD; this.incoming.add(shop); this.importedSupply.delete(shop);
+          this.flow.add(world.tick, f, shop, good); this.stats.shopLoads++; // IND-2
           continue;
         }
       }

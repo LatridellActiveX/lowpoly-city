@@ -45,7 +45,12 @@ if (stage === "1" || stage === "3") {
     await shot("retool");
   }
 }
-if (stage === "2") { await frame(() => window.city.setOverlay("chain")); await shot("overlay"); }
+if (stage === "2") {
+  // Frame the middle of the links (weighted by flow).
+  const mid = await frame(() => { const s = window.city.sim, N = Math.round(Math.sqrt(s.world.tiles.length)); let x = 0, z = 0, n = 0; for (const l of s.shipping.flow.top(s.world.tick)) { for (const i of [l.from, l.to]) { x += (i % N) * l.rate; z += Math.floor(i / N) * l.rate; n += l.rate; } } return n ? [x / n, z / n, s.shipping.flow.links.size] : null; });
+  out.mid = mid;
+  await frame(() => window.city.setOverlay("chain")); if (mid) await look(mid[0], mid[1], 1.6); await shot("overlay");
+}
 if (stage === "4") { await frame(() => { for (const b of document.querySelectorAll("button")) if (/Budget/.test(b.textContent)) { b.click(); break; } }); await shot("policies"); }
 if (stage === "5") {
   const ore = await frame(() => { const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length)); let sx = 0, sz = 0, n = 0; for (let i = 0; i < w.tiles.length; i++) if (w.resourceAt(i) === 5) { sx += i % N; sz += Math.floor(i / N); n++; } return n ? [Math.round(sx / n), Math.round(sz / n), n] : null; });

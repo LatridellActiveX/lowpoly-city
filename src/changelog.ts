@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-2: sim/chainFlow.ts (producer → customer links, fading "loads lately", shortages), goods.ts records each delivery truck, render/chainOverlay.ts arrows + red rings, 🔗 Supply chain view; tools/industryctl.test.ts IND-2 block.
+    id: '2026-10-20-oasis-ind2-supply-chain-view',
+    title: 'Supply chain view',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'A new 🔗 Supply chain view in the View menu draws an arrow from each factory to the business it trucks goods to: another factory, a shop or a construction yard. Green arrows are busy links, yellow ones carry some goods, and red ones have had almost no trucks lately.' },
+      { tag: 'new', text: 'Buildings that are short of what they need get a pulsing red ring: a factory with an empty hopper and nothing on the way, an empty shop, or a construction yard without materials while sites wait.' },
+      { tag: 'improved', text: 'The view only draws the 200 busiest links, so it stays quick on the biggest maps.' },
+    ],
+  },
+  {
     // IND-1: sim/factoryCtl.ts (recipe picker, $500 switch, 30 s retool), tile fields recipe/pause/upg (save v11, no migration), chains.ts roleOf honours the pick, ui/hud.ts Recipe dropdown; tools/industryctl.test.ts.
     id: '2026-10-20-oasis-ind1-factory-panel',
     title: 'Choose what a factory makes',

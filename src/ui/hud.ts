@@ -173,6 +173,7 @@ export class Hud {
         ['health', '🩺 Health care'], // V1.5b stage F
         ['education', '🎓 Education'], // V1.5b stage G
         ['shipping', '📦 Shipping'], // V1.5b stage C
+        ['chain', '🔗 Supply chain'], // IND-2: arrows producer → customer, red rings = shortages
       ] as Array<[OverlayMode, string]>
     ).forEach(([mode, label]) => {
       // PR 5: the word goes in a .lbl span that hides on narrow (≤1500 px)

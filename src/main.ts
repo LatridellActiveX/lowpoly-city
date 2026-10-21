@@ -55,6 +55,7 @@ import { FreeRoadTool, toMetres } from './ui/freeRoadTool';
 // OASIS traffic diagnostics: click junctions / roads / cars with Inspect; stuck-car rings.
 import { pickGraph } from './sim/trafficInspect';
 import { StuckOverlay } from './render/stuckOverlay';
+import { ChainOverlay } from './render/chainOverlay';
 import { codeForTool } from './sim/growth';
 
 // PR 4: start the Game Log first so even errors during start-up are captured.
@@ -69,6 +70,7 @@ const preview = new PreviewRenderer(scene);
 // V1.6 B6/B7: freeform roads (graph mesh, zone-block overlay, preview grid, lane cars) and their tool.
 const graphLayer = new GraphRoadLayer(scene);
 const stuckOverlay = new StuckOverlay(scene);
+const chainOverlay = new ChainOverlay(scene); // IND-2: 🔗 Supply chain arrows
 // Day/night cycle: purely visual, driven by the sim's tick counter (dayNight.ts).
 const dayNight = new DayNight(scene, sun, hemi);
 
@@ -528,6 +530,7 @@ renderer.setAnimationLoop(() => {
   graphLayer.updateGrid(city.overlay === 'grid' ? sim : null); // power & water grid ribbons along the roads
   graphLayer.sync(sim.world.roads, sim.world.blocks);
   stuckOverlay.update(hud.showStuck && !inTitle ? hud.stuck : null, clock.elapsedTime); // OASIS: stuck-car rings
+  chainOverlay.update(city.overlay === 'chain' && !inTitle ? sim : null, clock.elapsedTime); // IND-2
   hudTimer -= dt;
   if (hudTimer <= 0) {
     hud.refresh(sim, clockText(dayNight.time));

@@ -104,7 +104,7 @@ export function zoneCodeColor(code: number): number {
 
 /** PR 6 adds 'zoning' (per-cell zones + density) and 'parking' (occupancy green → red). */
 /** V1.5 stage 11 adds 'landValue' (blue = cheap → gold = prime). */
-export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping' | 'grid';
+export type OverlayMode = 'none' | 'power' | 'water' | 'pollution' | 'resources' | 'zoning' | 'parking' | 'landValue' | 'garbage' | 'crime' | 'health' | 'education' | 'shipping' | 'grid' | 'chain'; // IND-2: chain = 🔗 Supply chain (render/chainOverlay.ts)
 
 /** NEBULA: height of water mains drawn in the water view (just above the asphalt, so they read). */
 const MAIN_Y = 0.066;
