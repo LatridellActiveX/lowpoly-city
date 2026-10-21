@@ -10,6 +10,7 @@
  *          MIDDLE-drag = orbit (PR 4): left/right turns the view around the
  *          point you're looking at, up/down tilts it (within limits).
  *   Picking is a ray against the ground plane, so it works at any angle.
+ *   Gamepad: left stick = pan.
  *   Keys:  WASD / arrows = pan, Q / E = rotate 90 degrees, + / - = zoom,
  *          tool hotkeys are listed in tools.ts, Space = pause.
  *
@@ -189,6 +190,16 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     if (held.has('d') || held.has('arrowright')) rx += speed;
     if (held.has('w') || held.has('arrowup')) uy += speed;
     if (held.has('s') || held.has('arrowdown')) uy -= speed;
+    // Gamepad / controller: the LEFT stick pans the map (same speed as WASD).
+    // Browsers only list a pad after a button has been pressed once.
+    if (!document.body.classList.contains('in-vr') && navigator.getGamepads) {
+      for (const pad of navigator.getGamepads()) {
+        if (!pad || !pad.connected) continue;
+        const dz = (v: number) => (Math.abs(v) < 0.15 ? 0 : v);
+        const sx = dz(pad.axes[0] ?? 0), sy = dz(pad.axes[1] ?? 0);
+        rx += sx * speed; uy -= sy * speed;
+      }
+    }
     if (rx || uy) cam.panWorld(rx, uy);
     requestAnimationFrame(tick(now));
   };
