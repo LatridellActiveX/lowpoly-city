@@ -89,6 +89,8 @@ import { jobsOf } from '../src/sim/industry';
 import { demandOf } from '../src/sim/networks';
 import { computeEnvironment } from '../src/sim/environment';
 import { canPickRecipe, clearIfGone, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe } from '../src/sim/factoryCtl';
+import { deliver, emptyContracts, tickContracts } from '../src/sim/contracts';
+import { GOOD_NAMES } from '../src/sim/goods';
 
 let fails = 0;
 const ok = (c: boolean, m: string, x?: unknown) => { console.log(`${c ? 'ok  ' : 'FAIL'} ${m}${x !== undefined ? ' ' + JSON.stringify(x) : ''}`); if (!c) fails++; };
@@ -438,6 +440,50 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   run(400);
   ok(s.shipping.stats.techMade > 100 && t.stock < 44, 'D. tech is shipped out (made > a full hopper, yet the hopper is not full)', { made: s.shipping.stats.techMade, stock: t.stock, exports: s.shipping.stats.exported - ex0 });
   void placementCost;
+}
+
+// ---- IND-10 ---- regional contracts (contracts.ts)
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  w.contracts = emptyContracts();
+  // Pure-function checks on a fixed export set so they don't depend on the map.
+  const ex = new Set(['steel', 'goods']), names = GOOD_NAMES as Record<string, string>;
+  const t0 = w.tick; w.contracts.next = t0;
+  const n1 = tickContracts(w, ex, EXPORT_PRICE, names);
+  const k1 = w.contracts.active[0];
+  ok(w.contracts.active.length === 1 && n1.length === 1 && k1.due === t0 + 300 && k1.need % 16 === 0 && k1.need >= 128 && k1.need <= 256, 'E. an offer arrives with a 30-day deadline', k1);
+  const gap = w.contracts.next - t0;
+  ok(gap >= 100 && gap <= 200, 'E. the next offer is 10–20 days away', gap);
+  w.contracts.next = w.tick; tickContracts(w, ex, EXPORT_PRICE, names);
+  w.contracts.next = w.tick; ex.add('vehicles'); tickContracts(w, ex, EXPORT_PRICE, names);
+  ok(w.contracts.active.length === 2, 'E. at most 2 contracts at a time', w.contracts.active.map((k) => k.good));
+  ok(new Set(w.contracts.active.map((k) => k.good)).size === 2, 'E. never two contracts for the same good');
+  // Completion pays the reward on top.
+  const k = w.contracts.active[0], cash0 = w.cash;
+  for (let i = 0; i < k.need / 16; i++) deliver(w, k.good);
+  ok(w.cash - cash0 === k.reward && w.contracts.done === 1 && w.contracts.active.length === 1, 'E. delivering the full amount pays the reward', { reward: k.reward, paid: w.cash - cash0 });
+  // Expiry: no penalty.
+  const cash1 = w.cash, rest = w.contracts.active[0];
+  w.tick = rest.due; w.contracts.next = w.tick + 999;
+  const n2 = tickContracts(w, ex, EXPORT_PRICE, names);
+  ok(w.contracts.active.length === 0 && w.cash === cash1 && w.contracts.expired === 1 && /No penalty/.test(n2[0] ?? ''), 'E. an expired contract just disappears, no penalty', n2);
+  // No exported goods → no offers.
+  w.contracts.next = w.tick; tickContracts(w, new Set(), EXPORT_PRICE, names);
+  ok(w.contracts.active.length === 0, 'E. nothing offered for goods the city has never exported');
+  // Save round-trip.
+  w.contracts.next = w.tick; tickContracts(w, ex, EXPORT_PRICE, names); w.contracts.active[0].got = 32;
+  const back = deserializeWorld(serializeWorld(w))!.contracts;
+  ok(JSON.stringify(back) === JSON.stringify(w.contracts), 'E. contracts survive save/load');
+  // Live sim: real export trucks count toward a contract.
+  const s2 = load('tools/fixtures/parker-avenue.lpc'), w2 = s2.world;
+  const e0 = w2.tick; while (w2.tick < e0 + 1500 && !s2.shipping.exportedGoods.size) s2.update(0.5);
+  const g = [...s2.shipping.exportedGoods][0];
+  if (g) {
+    w2.contracts = emptyContracts(); w2.contracts.next = w2.tick + 9999;
+    w2.contracts.active.push({ id: 1, good: g, need: 160000, got: 0, reward: 1, due: w2.tick + 9999 });
+    const e1 = w2.tick; while (w2.tick < e1 + 1500 && !w2.contracts.active[0].got) s2.update(0.5);
+    ok(w2.contracts.active[0].got > 0, 'E. live export trucks count toward the contract', { good: g, got: w2.contracts.active[0].got });
+  } else ok(true, 'E. (fixture exported nothing in 150 days; live check skipped)');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

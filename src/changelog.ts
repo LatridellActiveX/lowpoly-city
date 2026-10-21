@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-10: sim/contracts.ts — world.contracts (saved), tickContracts every tick: offer every 100–200 ticks (10–20 days) for a good the city has exported, 8–16 loads, reward 2× export value + $5,000, due in 300 ticks; max 2 active; expiry = no penalty. Export arrivals (edge + depot) call deliver(); ledger trade.contracts; budget list; industryctl.test IND-10.
+    id: '2026-10-20-oasis-ind10-regional-contracts',
+    title: 'Regional contracts',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Neighbouring regions now send contracts every 10–20 days, e.g. "deliver 208 steel within 30 days for $25,000". They are only for goods you already export.' },
+      { tag: 'new', text: 'Up to 2 contracts run at once. Your normal exports count toward them, and the reward is paid on top when you finish. Missing a deadline costs nothing. Track them under Regional contracts in the budget.' },
+    ],
+  },
+  {
     // IND-9: Svc.TechCampus (tool 'techCampus', $60,000 + $900/mo, 15,000 people), goods.ts techCampuses: TECH_RATE 0.3/tick of 'tech' ($1,200/load) when College coverage > 0.3, city pays TECH_CHIP_COST 20/unit (ledger trade.chips, budget row), ships via the supplier loop; svc10 glass-campus model; hud panel; industryctl.test IND-9.
     id: '2026-10-20-oasis-ind9-tech-campus',
     title: 'Tech campus',

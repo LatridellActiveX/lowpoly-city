@@ -53,8 +53,9 @@ import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment, lvFinish } from './environment';
 import { garbageNorm } from './garbageRules';
 import { driftPrices } from './trade';
+import { tickContracts } from './contracts';
 import { Svc } from './services';
-import { EXPORT_PRICE } from './goods';
+import { EXPORT_PRICE, GOOD_NAMES } from './goods';
 /** IND-8: goods whose export price drifts (coal is never exported). */
 const TRADE_GOODS = Object.keys(EXPORT_PRICE).filter((g) => g !== 'coal');
 import { CALENDAR_MONTH_TICKS } from './economy';
@@ -345,6 +346,8 @@ export class Simulation {
     prof.begin('month'); if (w.tick % MONTH_TICKS === 0) this.bookMonth(); prof.end();
     // IND-8: export prices drift once per calendar month (trade.ts).
     if (w.tick % CALENDAR_MONTH_TICKS === 0) driftPrices(w, TRADE_GOODS, w.tick / CALENDAR_MONTH_TICKS);
+    // IND-10: regional contracts — expire overdue ones (no penalty), offer a new one every 10–20 days (max 2).
+    this.events.push(...tickContracts(w, this.shipping.exportedGoods, EXPORT_PRICE, GOOD_NAMES), ...this.shipping.notices.splice(0));
     prof.begin('record'); if (w.tick % HISTORY_EVERY_TICKS === 0) this.record(); prof.end();
     this.version++;
   }

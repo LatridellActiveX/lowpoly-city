@@ -22,6 +22,7 @@
  * is merged section by section, so a field added later (like the park upkeep
  * line) gets its default instead of `undefined`.
  */
+import { loadContracts } from './contracts';
 import { initialWindDir } from './wind';
 import { World, emptyTile } from './grid';
 import { defaultTaxRates, emptyLedger, Ledger, STARTING_CASH } from './economy';
@@ -113,6 +114,7 @@ export function serializeWorld(world: World): string {
     policies: world.policies, // IND-4 (no version bump: missing = both off)
     warehouses: world.warehouses, // IND-7 (missing = empty)
     priceDrift: world.priceDrift, // IND-8 (missing = all 1)
+    contracts: world.contracts, // IND-10 (missing = none)
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -199,6 +201,8 @@ export function deserializeWorld(raw: string): World | null {
       // IND-8: export price drift (numbers within 0.7..1.3 only).
       w.priceDrift = {};
       if (data.priceDrift && typeof data.priceDrift === 'object') for (const [g, n] of Object.entries(data.priceDrift as Record<string, unknown>)) if (typeof n === 'number' && n >= 0.7 && n <= 1.3) w.priceDrift[g] = n;
+      // IND-10: regional contracts (validated; missing = none).
+      w.contracts = loadContracts(data.contracts);
       // IND-7: warehouse stock (numbers only).
       w.warehouses = {};
       if (data.warehouses && typeof data.warehouses === 'object') for (const [k, v] of Object.entries(data.warehouses as Record<string, Record<string, unknown>>)) {

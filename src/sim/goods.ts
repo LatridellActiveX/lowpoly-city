@@ -69,6 +69,7 @@ import { ChainFlow } from './chainFlow';
 import { isNight, outputMult, runningCostShare } from './factoryCtl';
 import { timeOfDay } from './traffic';
 import { recycleMode } from './recycleMode';
+import { deliver } from './contracts';
 import { hasRail, priceMult, RAIL_BONUS, RAIL_REACH } from './trade';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
@@ -220,6 +221,10 @@ const secondKey = (p: number) => -2e7 - p;
 const whKey = (a: number, g: GoodType) => 3e7 + a * 64 + Object.keys(EXPORT_PRICE).indexOf(g);
 
 export class Shipping {
+  /** IND-10: goods exported at least once (contracts only offer these); not saved. */
+  exportedGoods = new Set<string>();
+  /** IND-10: contract-completion notices; Simulation drains them into its events. */
+  notices: string[] = [];
   /** Tiles with a truck already on its way TO them (negative key = a processor's input side). */
   private incoming = new Set<number>();
   private lastImport = new Map<number, number>();
@@ -464,6 +469,7 @@ export class Shipping {
           world.ledger.trade.exports += pay;
           world.cash += pay;
           this.stats.exported++; this.stats.depotExports++;
+          this.exportedGoods.add(good); deliver(world, good, this.notices); // IND-10
           this.book(this.depotLoads, dep, 1);
         })) { t.stock -= LOAD; continue; }
       }
@@ -474,6 +480,7 @@ export class Shipping {
           world.ledger.trade.exports += pay;
           world.cash += pay;
           this.stats.exported++;
+          this.exportedGoods.add(good); deliver(world, good, this.notices); // IND-10
         })) t.stock -= LOAD;
       }
     }

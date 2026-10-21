@@ -137,5 +137,16 @@ if (stage === "9") {
   await frame(() => { const c = window.city; c.setSpeed?.(1); for (let k = 0; k < 6; k++) c.sim.update(0.5); c.setSpeed?.(0); c.refresh(); });
   await shot("campus");
 }
+if (stage === "10") {
+  // IND-10: run the city ~60 days so real exports happen and contract offers arrive, then show them in the budget.
+  out.k = await frame(() => { const c = window.city, s = c.sim; c.setSpeed?.(1); const t0 = s.world.tick;
+    for (let k = 0; k < 20000 && s.world.tick < t0 + 600; k++) s.update(0.5);
+    // Make sure two are showing even if the live offers happened to be few (screenshot only).
+    for (let k = 0; k < 40 && s.world.contracts.active.length < 2; k++) { s.world.contracts.next = s.world.tick; s.update(0.5); }
+    c.setSpeed?.(0); c.refresh(); return s.world.contracts; });
+  await frame(() => { for (const b of document.querySelectorAll("button")) if (/Budget/.test(b.textContent)) { b.click(); break; } });
+  await frame(() => { document.querySelector('[data-k="contracts"]')?.scrollIntoView({ block: "center" }); });
+  await shot("contracts");
+}
 console.log(JSON.stringify({ out, errs: errs.slice(0, 3) }));
 await browser.close();

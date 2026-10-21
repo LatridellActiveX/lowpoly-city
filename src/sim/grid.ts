@@ -128,6 +128,8 @@ export class World {
   warehouses: Record<number, Record<string, number>> = {};
   /** IND-8: export price multiplier per good (trade.ts driftPrices), saved; missing = 1. */
   priceDrift: Record<string, number> = {};
+  /** IND-10: regional contracts (contracts.ts), saved; missing = none. */
+  contracts: import('./contracts').Contracts = { active: [], next: 100, seq: 0, done: 0, expired: 0 };
   /** V1.5 stage 11: last month's profit per business host tile (not saved; rebuilt in a month). */
   profits = new Map<number, import('./economy').Profit>();
   /** Books for the month in progress, and the last finished month. */

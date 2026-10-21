@@ -329,7 +329,7 @@ export class Hud {
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
           ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}${row('up.service', '🏛️ Services')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
-          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}${row('trade.chips', '💾 Imported chips')}
+          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}${row('trade.chips', '💾 Imported chips')}${row('trade.contracts', '📜 Contract rewards')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -348,6 +348,8 @@ export class Hud {
       <div class="muted small" data-k="growth"></div>
       <h4>Export prices</h4>
       <div class="small" data-k="ticker"></div>
+      <h4>Regional contracts</h4>
+      <div class="small" data-k="contracts"></div>
       <h4>Industrial policies</h4>
       ${(Object.keys(POLICIES) as Array<keyof Policies>).map((k) => `<label style="display:flex;gap:6px;align-items:center;margin-top:4px" title="${POLICIES[k].text}"><input type="checkbox" data-policy="${k}"> <span>${POLICIES[k].label}</span></label><div class="muted small">${POLICIES[k].text}</div>`).join('')}
       <h4>Businesses (last month)</h4>
@@ -417,6 +419,18 @@ export class Hud {
     this.setCell('trade.materials.last', fmt(last?.trade?.materials, true));
     this.setCell('trade.chips.now', fmt(w.ledger.trade.chips ?? 0, true)); // IND-9
     this.setCell('trade.chips.last', fmt(last?.trade?.chips, true));
+    // IND-10: contract rewards (income) and the list of running contracts.
+    this.setCell('trade.contracts.now', fmt(w.ledger.trade.contracts ?? 0));
+    this.setCell('trade.contracts.last', fmt(last?.trade?.contracts));
+    {
+      const c = w.contracts;
+      const list = c.active.map((k) => {
+        const days = Math.max(0, Math.ceil((k.due - w.tick) / 10)), pct = Math.round((k.got / k.need) * 100);
+        return `<div class="row">📜 <b>${k.need} ${GOOD_NAMES[k.good as keyof typeof GOOD_NAMES] ?? k.good}</b> for <b>$${k.reward.toLocaleString()}</b> — ${k.got}/${k.need} (${pct}%), ${days} days left
+          <div style="height:4px;background:#0003;border-radius:2px"><div style="height:4px;width:${pct}%;background:#6c6;border-radius:2px"></div></div></div>`;
+      });
+      this.setCell('contracts', `${list.join('') || '<div class="muted">No contract running. Neighbouring regions send an offer every 10–20 days for goods you already export.</div>'}<div class="muted">Up to 2 at a time. Exports of that good count automatically. Missing a deadline costs nothing. Done ${c.done} · expired ${c.expired}.</div>`);
+    }
     now.trade = w.ledger.trade;
     for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation', 'service'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
