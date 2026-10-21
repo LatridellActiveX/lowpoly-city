@@ -37,6 +37,7 @@ import type { World } from './grid';
 import { roadNextTo, Traffic } from './traffic';
 import { Coverage, SERVICE_DEFS, serviceAnchors, serviceRoad, Svc } from './services';
 import { roadComponents } from './roadnet';
+import { RECYCLE_STOCK_MAX, RECYCLE_YIELD, recycleMode } from './recycleMode';
 import { G_MAX, G_WARN, garbageMax, garbageMult } from './garbageRules';
 export { G_MAX, G_WARN };
 
@@ -80,7 +81,7 @@ export class Garbage {
   private targeted = new Set<number>();
   /** Tiles a truck could not reach, by tick they may be tried again. */
   private retryAt = new Map<number, number>();
-  stats = { collected: 0, trips: 0, hauled: 0, burned: 0, maxLoad: 0, maxStops: 0 };
+  stats = { collected: 0, trips: 0, hauled: 0, burned: 0, maxLoad: 0, maxStops: 0, recycled: 0 };
   /** Pickup runs since each landfill's last haul to a recycling center. */
   private sinceHaul = new Map<number, number>();
   /** Garbage burned per recycling center anchor. */
@@ -175,7 +176,7 @@ export class Garbage {
       this.targeted.delete(target);
       const got = load + this.collect(world, target, TRUCK_CAPACITY - load);
       this.stats.maxLoad = Math.max(this.stats.maxLoad, got); this.stats.maxStops = Math.max(this.stats.maxStops, stops);
-      const back = () => { if (recycler) this.burn(d, got); else this.deposit(world, d, got); this.out.set(d, Math.max(0, this.outOf(d) - 1)); };
+      const back = () => { if (recycler) this.burn(world, d, got); else this.deposit(world, d, got); this.out.set(d, Math.max(0, this.outOf(d) - 1)); };
       if (got < TRUCK_CAPACITY * 0.85 && stops < MAX_STOPS) {
         const next = this.pickTarget(world, home, N, tiles, stop, NEXT_STOP_RANGE);
         const nstop = next >= 0 ? roadNextTo(tiles, next) : -1;
@@ -200,7 +201,7 @@ export class Garbage {
     if (dest < 0) return false;
     const load = Math.min(lf.stock, HAUL_LOAD);
     const ok = traffic.spawn(world, 'truck', home, dest, `${GARBAGE_PURPOSE}: hauling to recycling`, GARBAGE_TRUCK_COLOR, () => {
-      this.burn(rc, load);
+      this.burn(world, rc, load);
       const free = () => this.out.set(d, Math.max(0, this.outOf(d) - 1));
       if (!traffic.spawn(world, 'truck', dest, home, `${GARBAGE_PURPOSE}: returning`, GARBAGE_TRUCK_COLOR, free)) free();
     });
@@ -214,9 +215,13 @@ export class Garbage {
   }
 
   /** Garbage burned at the recycling center anchored at rc (powers the city; see networks.ts). */
-  private burn(rc: number, amount: number): void {
+  private burn(world: World, rc: number, amount: number): void {
     this.burnedAt.set(rc, (this.burnedAt.get(rc) ?? 0) + amount);
     this.stats.burned += amount;
+    // IND-6: in a product mode every 100 garbage also yields 8 plastics / materials
+    // into the center's stock (recycleMode.ts); goods.ts ships them.
+    const t = world.tiles[rc];
+    if (t && recycleMode(t)) { const add = amount * RECYCLE_YIELD; t.stock = Math.min(RECYCLE_STOCK_MAX, t.stock + add); this.stats.recycled += add; }
   }
   /** Total garbage burned so far by the recycling center anchored at rc (this session). */
   burnedBy(rc: number): number { return this.burnedAt.get(rc) ?? 0; }

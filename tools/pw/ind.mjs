@@ -71,5 +71,16 @@ if (stage === "5") {
   const sm = await frame(() => { const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length)); for (let i = 0; i < w.tiles.length; i++) { const t = w.tiles[i]; if (t.zone === "industrial" && t.recipe === "steelMill") { c.inspect(i % N, Math.floor(i / N)); c.refresh(); return [i % N, Math.floor(i / N)]; } } return null; });
   out.steel = sm; if (sm) await look(sm[0], sm[1], 2.6); await shot("steel");
 }
+if (stage === "6") {
+  // IND-6: turn a free tile next to a road into a recycling center set to Plastics and open its panel.
+  out.rc = await frame(() => {
+    const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length));
+    w.peakPop = Math.max(w.peakPop, 3000);
+    for (let i = N; i < w.tiles.length - N; i++) { const t = w.tiles[i]; if (t.zone || t.road || t.water || t.structure !== "none" || t.edge) continue; if (![1, -1, N, -N].some((d) => w.tiles[i + d].road)) continue;
+      t.structure = "service"; t.kind = 8; t.part = 0; t.recipe = "plastics"; t.stock = 20; c.sim.version++; c.inspect(i % N, Math.floor(i / N)); c.refresh(); return [i % N, Math.floor(i / N)]; }
+    return null; });
+  if (out.rc) await look(out.rc[0], out.rc[1], 2.6);
+  await frame(() => window.city.refresh()); await shot("recycling");
+}
 console.log(JSON.stringify({ out, errs: errs.slice(0, 3) }));
 await browser.close();

@@ -40,6 +40,11 @@
  *  s. full chain on a test map: mine → ore → steel mill → steel → vehicle
  *     plant (+ plastics) → vehicles; steel-based materials make yards build faster;
  *  t. a mine stays a mine after save → load; prices; dealerships sell vehicles.
+ *
+ * IND-6 recycling makes products (recycleMode.ts):
+ *  u. default mode is power only (old saves unchanged, no stock added);
+ *  v. plastics / materials mode: 8 per 100 garbage burned, power ×0.8;
+ *  w. a full load ships to a factory / yard like any supplier; mode survives save → load.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -53,6 +58,9 @@ import { setPolicy } from '../src/sim/factoryCtl';
 import { computeResources, Resource } from '../src/sim/resources';
 import { EXPORT_PRICE, factoryGood, shopGood } from '../src/sim/goods';
 import { truckBody } from '../src/sim/truckBodies';
+import { RECYCLE_POWER, recycleMode, setRecycleMode } from '../src/sim/recycleMode';
+import { output } from '../src/sim/networks';
+import { Svc } from '../src/sim/services';
 import { GRID_SIZE as GRID } from '../src/sim/types';
 import { buyUpgrade, hasUpg, outputMult, pollutionMult, powerMult, runningCostShare, UPG, UPGRADES, workerMult } from '../src/sim/factoryCtl';
 import { jobsOf } from '../src/sim/industry';
@@ -281,6 +289,38 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   const dealer = [...w.lots.buildings.values()].find((b) => b.tpl === 'car_dealer');
   if (dealer) ok(shopGood(w, dealer.host) === 'vehicles', 't. a car dealership sells vehicles');
   else console.log('note no car dealership on this save');
+}
+
+// ---- IND-6 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  // Put a recycling center on a free tile next to a road (as the tool would: a 1×1 service).
+  const N = GRID;
+  const a = w.tiles.findIndex((t, i) => !t.zone && !t.road && !t.water && !t.structure.startsWith('p') && t.structure === 'none' && [1, -1, N, -N].some((d) => w.tiles[i + d]?.road) && s.status(i).operating !== undefined);
+  const t = w.tiles[a];
+  t.structure = 'service'; t.kind = Svc.Recycling; t.part = 0; t.stock = 0; t.recipe = '';
+  const g = s.garbage as any;
+  const p0 = output(t, 'power', 0);
+  ok(recycleMode(t) === '', 'u. a new / old center is power only');
+  g.burn(w, a, 100);
+  ok(t.stock === 0, 'u. power only: no products', t.stock);
+  setRecycleMode(t, 'plastics');
+  g.burn(w, a, 100);
+  ok(Math.abs(t.stock - 8) < 1e-9, 'v. 100 garbage → 8 plastics', t.stock);
+  ok(Math.abs(output(t, 'power', 0) - p0 * RECYCLE_POWER) < 1e-9, 'v. power −20% while making products', { p0, p: output(t, 'power', 0) });
+  setRecycleMode(t, 'materials');
+  ok(t.stock === 0, 'v. switching product empties the old pile');
+  g.burn(w, a, 50);
+  ok(Math.abs(t.stock - 4) < 1e-9, 'v. 50 garbage → 4 materials');
+  setRecycleMode(t, ''); ok(output(t, 'power', 0) === p0, 'v. back to power only: full power');
+  // w. shipping: a full load of plastics leaves like any supplier.
+  setRecycleMode(t, 'plastics'); t.stock = 40;
+  const w2 = deserializeWorld(serializeWorld(w))!;
+  ok(recycleMode(w2.tiles[a]) === 'plastics' && w2.tiles[a].stock === 40, 'w. mode and stock survive save → load');
+  const loads0 = s.shipping.stats.chainLoads + s.shipping.stats.shopLoads + s.shipping.stats.exported;
+  const end = w.tick + 200; while (w.tick < end) s.update(0.5);
+  const sent = s.shipping.stats.chainLoads + s.shipping.stats.shopLoads + s.shipping.stats.exported - loads0;
+  ok(t.stock < 40 && [...s.shipping.flow.links.values()].some((l) => l.from === a) || t.stock <= 40 - 16, 'w. the center ships its plastics', { stock: t.stock, sent, links: [...s.shipping.flow.links.values()].filter((l) => l.from === a).map((l) => l.good) });
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');
