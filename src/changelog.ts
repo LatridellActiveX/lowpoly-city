@@ -34,6 +34,18 @@ export const CHANGELOG: ChangeEntry[] = [
     ],
   },
   {
+    id: '2026-10-20-oasis-vr',
+    title: 'VR mode for Meta Quest 3',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Tabletop VR for Meta Quest 3 and other WebXR headsets: open the game in the headset browser (https) and press 🥽 Enter VR. The city floats on a table in front of you.' },
+      { tag: 'new', text: 'Right laser + trigger uses the current tool exactly like the mouse (drag to draw roads, zones and bulldoze boxes). The left-hand panel has the tool tabs, pause / 1× / 2× / 3×, undo / redo, view buttons, your cash, people and time, and an info line. Left Y/X hides it.' },
+      { tag: 'new', text: 'Left stick pans, right stick turns the table (left/right) and zooms (up/down), and either grip grabs and drags the map. Right A pauses; right B picks Inspect. Hand tracking works too (pinch to click; use the panel\'s View tab).' },
+      { tag: 'improved', text: 'The VR panel also shows jobs, power and water meters and the R / C / I demand bars. The laser now stops at the panel and shows a cursor dot where it lands.' },
+      { tag: 'improved', text: 'In VR the shadow map is smaller so the headset keeps its frame rate.' },
+    ],
+  },
+  {
     // IND-4: factoryCtl.ts POLICIES on world.policies (saved, missing = off); eco → pollutionMult ×0.7 + runningCostShare +0.15; night → outputMult ×1.25, goods.ts nightShiftTrucks (≤1 per building, 22:00–06:00), environment.ts −0.05 desirability for homes within 4 tiles of a factory; Budget panel checkboxes; industryctl.test IND-4.
     id: '2026-10-20-oasis-ind4-industrial-policies',
     title: 'Industrial policies',

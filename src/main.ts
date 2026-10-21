@@ -31,7 +31,8 @@ import { ZONE_CODES } from './sim/cells';
 import { createScene, resizeScene } from './render/scene';
 import { clockText, DayNight } from './render/dayNight';
 import { Hud } from './ui/hud';
-import { attachInput, pointer } from './ui/input';
+import { attachInput, pointer, InputCallbacks } from './ui/input';
+import { VrMode } from './vr/vrMode';
 import { ZONE_TOOLS } from './sim/simulation';
 import { sound, toolSound } from './audio/sound';
 import { shapeTiles, toolDef, TOOLS } from './ui/tools';
@@ -354,7 +355,7 @@ function soundTick(): void {
 }
 setInterval(soundTick, 100);
 
-attachInput(renderer.domElement, cam, ground, {
+const inputCbs: InputCallbacks = {
   hover(t, mx, my) {
     mouse = [mx, my];
     hoverTile = t;
@@ -443,7 +444,8 @@ attachInput(renderer.domElement, cam, ground, {
     if (t) setTool(t.id);
     return !!t;
   },
-});
+};
+attachInput(renderer.domElement, cam, ground, inputCbs);
 
 function resize(): void {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -451,6 +453,30 @@ function resize(): void {
 }
 window.addEventListener('resize', resize);
 resize();
+
+// ---- VR (Meta Quest and other WebXR headsets): tabletop mode, see vr/vrMode.ts ----
+const vr = new VrMode(renderer, scene, cam, sun, inputCbs, {
+  setTool, tool: () => tool, setSpeed, speed: () => sim.speed,
+  hud: () => {
+    const st = sim.stats(), d = sim.demand;
+    return {
+      line: `💵 ${hud.money(sim.world.cash)}  👥 ${st.population}  💼 ${st.jobs}  🕒 ${clockText(dayNight.time)}`,
+      power: [st.power.demand, st.power.capacity], water: [st.water.demand, st.water.capacity],
+      demand: [d.residential.value, d.commercial.value, d.industrial.value], outages: st.outages,
+    };
+  },
+  info: () => hud.infoText(),
+  key: (k) => { inputCbs.key(k); },
+  onEnter: () => { document.body.classList.add('in-vr'); },
+  onExit: () => { document.body.classList.remove('in-vr'); resize(); },
+});
+hud.onFlash = (m) => vr.toast(m);
+const vrBtn = document.createElement('button');
+vrBtn.id = 'vrBtn';
+vrBtn.className = 'hidden';
+vrBtn.textContent = '🥽 Enter VR';
+vrBtn.onclick = () => { vrBtn.disabled = true; vr.enter().catch((e) => gameLog.warn(`VR could not start: ${e?.message ?? e}`)).finally(() => { vrBtn.disabled = false; }); };
+document.body.append(vrBtn);
 
 // PR 4: ☰ menu (Settings + Game log) at the far left of the top bar.
 const menu = new GameMenu(() => sim);
@@ -506,6 +532,7 @@ renderer.setAnimationLoop(() => {
   fpsFrames++; fpsTime += dt;
   if (fpsTime >= 0.5) {
     fpsEl.classList.toggle('hidden', !sim.settings.showFps || inTitle);
+    vrBtn.classList.toggle('hidden', !vr.available || inTitle || vr.active);
     if (sim.settings.showFps) { const fps = fpsFrames / fpsTime; fpsEl.textContent = `${Math.round(fps)} FPS · ${(1000 / fps).toFixed(1)} ms`; fpsEl.dataset.level = fps >= 50 ? 'good' : fps >= 30 ? 'ok' : 'bad'; }
     fpsFrames = 0; fpsTime = 0;
   }
@@ -521,7 +548,8 @@ renderer.setAnimationLoop(() => {
   cam.panSpeed = sim.settings.camPan;
   city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
   city.setWireLod(cam.zoom < LOD_ZOOM * 0.5); // NEBULA: wires off when far out
-  city.cameraQuat.copy(cam.camera.quaternion);
+  vr.update(dt);
+  city.cameraQuat.copy(vr.active ? vr.headQuat : cam.camera.quaternion);
   city.setView(cam.camera, GRID_SIZE); // V1.6 A5: frustum-culled chunk set
   city.windDir = sim.world.windDir; // PR 5: turbines yaw toward this
   city.frame(sim, clock.elapsedTime);
@@ -543,7 +571,7 @@ renderer.setAnimationLoop(() => {
     updatePreview();
     hudTimer = 0.25;
   }
-  renderer.render(scene, cam.camera);
+  renderer.render(scene, vr.active ? vr.camera : cam.camera);
 });
 
 // ---- Autosave ----
