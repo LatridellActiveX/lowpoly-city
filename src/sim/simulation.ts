@@ -53,6 +53,7 @@ import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment, lvFinish } from './environment';
 import { garbageNorm } from './garbageRules';
 import { driftPrices } from './trade';
+import { Svc } from './services';
 import { EXPORT_PRICE } from './goods';
 /** IND-8: goods whose export price drifts (coal is never exported). */
 const TRADE_GOODS = Object.keys(EXPORT_PRICE).filter((g) => g !== 'coal');
@@ -332,7 +333,7 @@ export class Simulation {
     // New-game hint: nothing grows without a Construction Yard.
     if ((w.tick === 3 || w.tick % 240 === 0) && !this.anyActive((t) => t.structure === 'constructionYard') && this.anyActive((t) => t.zone !== null))
       this.events.push('🏗 Build a Construction Yard first (Industry menu): new buildings wait for a construction crew to arrive by road.');
-    prof.begin('goods'); this.shipping.tick(w, this.traffic, (i) => this.operating(i), this.settings.maxTrucks); prof.end();
+    prof.begin('goods'); this.shipping.tick(w, this.traffic, (i) => this.operating(i), this.settings.maxTrucks, this.cov?.by[Svc.College]); prof.end(); // IND-9: College coverage for tech campuses
     // V1.5b stage E: garbage piles up; dumps send trucks to collect it.
     prof.begin('garbage'); this.garbage.tick(w, this.traffic, (i) => this.operating(i), this.cov);
     if (this.garbage.stageChanged) { this.garbage.stageChanged = false; this.version++; } // a landfill's model changes as it fills

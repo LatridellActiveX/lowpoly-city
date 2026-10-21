@@ -337,11 +337,36 @@ function railAddon(): THREE.BufferGeometry {
   return merge(p);
 }
 
+/**
+ * IND-9: TECH CAMPUS (1×1, front = +z). Two glass office blocks linked by a
+ * sky bridge, a rooftop solar array and a dish, a green courtyard with
+ * trees, bike racks and a sign. Glass is a light blue so the texture skinner
+ * reads it as windows.
+ */
+function techCampusModel(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0xbfc3c0)];
+  const GLASS = 0x8fc7e8, FRAME = 0xe8ecef;
+  p.push(part(box(0.38, 0.42, 0.34), GLASS, [-0.22, 0.012, -0.2]), part(box(0.4, 0.02, 0.36), FRAME, [-0.22, 0.432, -0.2]));
+  p.push(part(box(0.34, 0.28, 0.4), GLASS, [0.24, 0.012, -0.16]), part(box(0.36, 0.02, 0.42), FRAME, [0.24, 0.292, -0.16]));
+  for (let k = 1; k < 5; k++) p.push(part(box(0.385, 0.008, 0.345), FRAME, [-0.22, 0.012 + k * 0.084, -0.2])); // floor bands
+  for (let k = 1; k < 4; k++) p.push(part(box(0.345, 0.008, 0.405), FRAME, [0.24, 0.012 + k * 0.07, -0.16]));
+  p.push(part(box(0.12, 0.05, 0.08), GLASS, [0.01, 0.2, -0.2])); // sky bridge
+  for (let k = 0; k < 3; k++) p.push(part(box(0.09, 0.008, 0.26).rotateX(-0.3), 0x24384f, [0.15 + k * 0.1, 0.32, -0.16])); // solar panels
+  p.push(part(cyl(0.008, 0.06, 6), 0xd0d0d0, [-0.3, 0.442, -0.26]), part(new THREE.SphereGeometry(0.04, 8, 4, 0, Math.PI * 2, 0, Math.PI / 2).rotateX(Math.PI * 0.7), 0xf2f2f2, [-0.3, 0.5, -0.26])); // dish
+  p.push(part(box(0.86, 0.006, 0.36), 0x6fae55, [0, 0.012, 0.26])); // courtyard lawn
+  for (const [x, z] of [[-0.35, 0.2], [0.35, 0.3], [-0.1, 0.36], [0.15, 0.18]] as const) p.push(part(cyl(0.01, 0.06, 6), 0x6b4a2b, [x, 0.018, z]), part(new THREE.IcosahedronGeometry(0.05, 0).translate(0, 0.1, 0), 0x3f8f3a, [x, 0.018, z]));
+  p.push(part(box(0.2, 0.006, 0.36), 0xd8d4cc, [0, 0.02, 0.26])); // path
+  for (let k = 0; k < 4; k++) p.push(part(box(0.006, 0.03, 0.04), 0x3a3f46, [0.3 + k * 0.03, 0.018, 0.1])); // bike racks
+  p.push(part(box(0.2, 0.06, 0.02), 0x7a4fd6, [0, 0.02, 0.46]), part(box(0.16, 0.014, 0.022), 0xffffff, [0, 0.05, 0.46])); // sign
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
     svc7rail: merge([depotModel(), railAddon()]), // IND-8: depot with a rail yard
     svc8: recyclingModel(), // V1.6
+    svc10: techCampusModel(), // IND-9
     svc9: newIndustryModels().warehouse, // IND-7: the distribution-centre model (already drawn for warehouse lots)
     // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>).
     ...Object.fromEntries(Array.from({ length: 6 }, (_, k) => [`svc0_${k}`, landfillStageModel(k)])),

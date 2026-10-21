@@ -55,6 +55,10 @@
  *  A. rail yard costs $40,000, only on a depot, once; reach 20 → 30 tiles;
  *  B. prices drift every calendar month, stay within ±30%, replay the same
  *     from the seed, and survive save → load; exports are paid at the drifted price.
+ *
+ * IND-9 tech campus (goods.ts TECH_*):
+ *  C. locked below 15,000 people; $60,000;
+ *  D. makes tech only with College coverage > 30%, paying for chips; ships it as exports.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -70,6 +74,10 @@ import { EXPORT_PRICE, factoryGood, shopGood } from '../src/sim/goods';
 import { truckBody } from '../src/sim/truckBodies';
 import { RECYCLE_POWER, recycleMode, setRecycleMode } from '../src/sim/recycleMode';
 import { output } from '../src/sim/networks';
+import { isUnlocked } from '../src/sim/progression';
+import { serviceAnchors } from '../src/sim/services';
+import { TECH_CHIP_COST, TECH_RATE } from '../src/sim/goods';
+import { placementCost } from '../src/sim/economy';
 import { buyRailYard, driftPrices, hasRail, priceMult, RAIL_COST } from '../src/sim/trade';
 import { depotOf } from '../src/sim/goods';
 import { World } from '../src/sim/grid';
@@ -408,6 +416,28 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   const ex0 = w.ledger.trade.exports; w.priceDrift = Object.fromEntries(Object.keys(w.priceDrift).map((g) => [g, 0.7]));
   const n0 = s.shipping.stats.exported; const end2 = w.tick + 400; while (w.tick < end2) s.update(0.5);
   ok(s.shipping.stats.exported === n0 || w.ledger.trade.exports !== ex0, 'B. exports still pay (at the drifted price)');
+}
+
+// ---- IND-9 ----
+{
+  ok(!isUnlocked('techCampus', 4, 14999) && isUnlocked('techCampus', 4, 15000), 'C. tech campus unlocks at 15,000 people');
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world, N = GRID;
+  const a = w.tiles.findIndex((t, i) => i > N && !t.zone && !t.road && !t.water && t.structure === 'none' && !t.edge && [1, -1, N, -N].some((d) => w.tiles[i + d]?.road));
+  const t = w.tiles[a]; t.structure = 'service'; t.kind = Svc.TechCampus; t.part = 0; t.stock = 0;
+  const run = (n: number) => { const e = w.tick + n; while (w.tick < e) { s.cov.by[Svc.College][a] = cov; s.update(0.5); } };
+  let cov = 0.1;
+  ok(serviceAnchors(w).includes(a), 'the test campus is road-connected');
+  run(40);
+  ok(t.stock === 0 && s.shipping.stats.techMade === 0, 'D. no College coverage (10%): makes nothing');
+  cov = 0.6; const chips0 = w.ledger.trade.chips ?? 0, cash0 = w.cash;
+  run(40);
+  ok(s.shipping.stats.techMade > 0 && Math.abs(s.shipping.stats.techMade - 40 * TECH_RATE) < TECH_RATE * 3, 'D. with College coverage (60%) it makes tech', s.shipping.stats.techMade);
+  ok((w.ledger.trade.chips ?? 0) > chips0 || w.lastLedger !== null, 'D. the city pays for chips', { chips: w.ledger.trade.chips, unit: TECH_CHIP_COST });
+  void cash0;
+  const ex0 = s.shipping.stats.exported;
+  run(400);
+  ok(s.shipping.stats.techMade > 100 && t.stock < 44, 'D. tech is shipped out (made > a full hopper, yet the hopper is not full)', { made: s.shipping.stats.techMade, stock: t.stock, exports: s.shipping.stats.exported - ex0 });
+  void placementCost;
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

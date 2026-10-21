@@ -32,7 +32,7 @@ import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services'
 import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
-import { EXPORT_PRICE, factoryGood, GOOD_NAMES, shopGood, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../sim/goods';
+import { EXPORT_PRICE, factoryGood, GOOD_NAMES, shopGood, TECH_CHIP_COST, TECH_COLLEGE_MIN, techWorks, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
 import { POLICIES, Policies, setPolicy } from '../sim/factoryCtl';
 import { buyRailYard, hasRail, priceMult, RAIL_BONUS, RAIL_COST, RAIL_REACH } from '../sim/trade';
@@ -329,7 +329,7 @@ export class Hud {
           <tr class="sec"><td colspan="3">Expenses (upkeep)</td></tr>
           ${row('up.powerPlant', '⚡ Power plants')}${row('up.windTurbine', '🌬️ Wind turbines')}${row('up.waterTower', '🗼 Water towers')}${row('up.park', '🌳 Parks')}${row('up.nuclearPlant', '☢️ Nuclear')}${row('up.pumpStation', '⛲ Pump stations')}${row('up.service', '🏛️ Services')}
           <tr class="sec"><td colspan="3">Trade (PR 4)</td></tr>
-          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}
+          ${row('trade.exports', '🚚 Exports')}${row('trade.fuel', '⛏ Imported coal')}${row('trade.parking', '🅿️ Garage fees')}${row('trade.materials', '🧱 Imported materials')}${row('trade.chips', '💾 Imported chips')}
           <tr class="sec"><td colspan="3">One-off</td></tr>
           ${row('construction', '🏗 Construction')}${row('refunds', '♻ Bulldoze refunds')}
           <tr class="net">${'<td>Net</td><td data-k="net.now"></td><td data-k="net.last"></td>'}</tr>
@@ -415,6 +415,8 @@ export class Hud {
     this.setCell('trade.parking.last', fmt(last?.trade?.parking));
     this.setCell('trade.materials.now', fmt(w.ledger.trade.materials ?? 0, true));
     this.setCell('trade.materials.last', fmt(last?.trade?.materials, true));
+    this.setCell('trade.chips.now', fmt(w.ledger.trade.chips ?? 0, true)); // IND-9
+    this.setCell('trade.chips.last', fmt(last?.trade?.chips, true));
     now.trade = w.ledger.trade;
     for (const u of ['powerPlant', 'windTurbine', 'waterTower', 'park', 'nuclearPlant', 'pumpStation', 'service'] as const) {
       this.setCell(`up.${u}.now`, fmt(now.upkeep[u], true));
@@ -908,6 +910,14 @@ export class Hud {
           : '<div class="row muted">Pick Plastics or Building materials to turn garbage into products (20% less power).</div>');
         rows.push(`<div class="row">🔥 Burns garbage for <b>${Math.round((POWER_OUTPUT.powerPlant ?? 0) * (mode ? RECYCLE_POWER : 1))}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
         rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
+      }
+      if (d.svc === Svc.TechCampus) {
+        // IND-9: does it work here, and what it makes.
+        const cv = sim.cov.by[Svc.College][a] ?? 0, works = techWorks(sim.world, a, sim.cov.by[Svc.College]);
+        rows.push(`<div class="row">🧪 Makes <b>tech products</b> for export ($${EXPORT_PRICE.tech.toLocaleString()} a load at base price) from imported chips ($${TECH_CHIP_COST}/unit, paid by the city). No pollution.</div>`);
+        rows.push(works
+          ? `<div class="row">College coverage <b class="ok">${Math.round(cv * 100)}%</b>: working · in stock <b>${sim.world.tiles[a].stock.toFixed(1)}</b></div>`
+          : `<div class="row bad">College coverage ${Math.round(cv * 100)}%: needs over ${Math.round(TECH_COLLEGE_MIN * 100)}%. Build a College nearby (it needs educated staff).</div>`);
       }
       if (d.svc === Svc.Warehouse) {
         // IND-7: what the warehouse holds, per good.

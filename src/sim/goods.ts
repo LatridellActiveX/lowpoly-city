@@ -80,13 +80,15 @@ export const PROCESS_RATE = 0.15;
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged'
   | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics'
   | 'apparel' | 'medicine' | 'beverages' | 'books' | 'toys'
-  | 'ore' | 'steel' | 'vehicles'; // IND-5
+  | 'ore' | 'steel' | 'vehicles' // IND-5
+  | 'tech'; // IND-9 tech campus
 
 export const GOOD_NAMES: Record<GoodType, string> = {
   goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Crude oil', coal: 'Coal', packaged: 'Packaged food',
   wood: 'Logs', materials: 'Building materials', furniture: 'Furniture', fuel: 'Fuel', plastics: 'Plastics', electronics: 'Electronics',
   apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages', books: 'Books', toys: 'Toys',
   ore: 'Iron ore', steel: 'Steel', vehicles: 'Vehicles', // IND-5
+  tech: 'Tech products', // IND-9
 };
 /** Units in one truckload (PR 5: 16). */
 export const LOAD = 16;
@@ -105,6 +107,7 @@ export const EXPORT_PRICE: Record<GoodType, number> = {
   wood: 140, materials: 360, furniture: 520, fuel: 400, plastics: 380, electronics: 760,
   apparel: 460, medicine: 640, beverages: 300, books: 340, toys: 420,
   ore: 180, steel: 480, vehicles: 900, // IND-5
+  tech: 1200, // IND-9: the most valuable load in the game
 };
 /** V1.5: an imported load costs this × its export price (freight + middlemen). */
 export const IMPORT_PREMIUM = 1.5;
@@ -192,7 +195,22 @@ export function depotRoad(tiles: Tile[], a: number): number {
  * the truck LEAVES it (like factories).
  */
 export const WAREHOUSE_CAP = 400;
+
+/**
+ * IND-9 — TECH CAMPUS (services.ts Svc.TechCampus). Every tick a working
+ * campus (road-connected, and College coverage at its tile above
+ * TECH_COLLEGE_MIN — it needs educated staff) makes TECH_RATE units of
+ * 'tech' into its tile.stock (max FACTORY_MAX), and the CITY pays
+ * TECH_CHIP_COST per unit for imported chips (budget: Imported chips).
+ * Full loads ship like any supplier: to the depot / the highway as exports.
+ * No pollution (it isn't industrial-zoned, environment.ts ignores it).
+ */
+export const TECH_RATE = 0.3;
+export const TECH_CHIP_COST = 20;
+export const TECH_COLLEGE_MIN = 0.3;
 export const WAREHOUSE_REACH = 20;
+/** IND-9: does the tech campus at anchor a work (College coverage above TECH_COLLEGE_MIN)? */
+export const techWorks = (world: World, a: number, college?: Float32Array): boolean => (college?.[a] ?? 0) > TECH_COLLEGE_MIN;
 /** Units of good g in warehouse a. */
 export const whHas = (world: World, a: number, g: GoodType): number => world.warehouses[a]?.[g] ?? 0;
 
@@ -245,7 +263,7 @@ export class Shipping {
     for (const y of this.steelYards) { const t = world.tiles[y]; if (t.structure === 'constructionYard' && t.stock > 0) return true; }
     return false;
   }
-  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0, warehouseIn: 0, warehouseOut: 0 };
+  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0, warehouseIn: 0, warehouseOut: 0, techMade: 0 };
 
   isIncoming(i: number): boolean {
     return this.incoming.has(i);
@@ -260,7 +278,7 @@ export class Shipping {
    * One tick of the goods economy. `operating(i)` says whether tile i has
    * road+power+water. Money is booked into world.ledger.trade.
    */
-  tick(world: World, traffic: Traffic, operating: (i: number) => boolean, maxTrucks: number): void {
+  tick(world: World, traffic: Traffic, operating: (i: number) => boolean, maxTrucks: number, college?: Float32Array): void {
     const tiles = world.tiles;
     const edge = world.edgeIndex;
     const trucks = () => traffic.count('truck');
@@ -356,10 +374,21 @@ export class Shipping {
     // IND-6: recycling centers in a product mode ship their plastics /
     // materials through the same loop, like any other supplier.
     const recyclers = svcs.filter((a) => tiles[a].kind === Svc.Recycling && recycleMode(tiles[a]) !== '');
-    for (const f of [...factories, ...recyclers]) {
+    // IND-9: tech campuses make tech (needs College coverage) and ship it the same way.
+    const campuses = svcs.filter((a) => tiles[a].kind === Svc.TechCampus);
+    for (const a of campuses) {
+      const t = tiles[a];
+      if (!techWorks(world, a, college)) continue;
+      const made = Math.min(TECH_RATE, FACTORY_MAX - t.stock);
+      if (made <= 0) continue;
+      t.stock += made; this.stats.techMade += made;
+      const chips = made * TECH_CHIP_COST;
+      world.cash -= chips; world.ledger.trade.chips = (world.ledger.trade.chips ?? 0) + chips;
+    }
+    for (const f of [...factories, ...recyclers, ...campuses]) {
       const t = tiles[f];
       if (t.stock < LOAD || trucks() >= maxTrucks) continue;
-      const rmode = recycleMode(t);
+      const rmode: GoodType | '' = t.structure === 'service' && t.kind === Svc.TechCampus ? 'tech' : recycleMode(t);
       const role = rmode ? 'factory' : roleOf(world, f);
       let good: GoodType = rmode || factoryGood(world, f);
       if (role === 'refinery') { const fl = !this.flip.get(f); this.flip.set(f, fl); good = fl ? 'fuel' : 'plastics'; }

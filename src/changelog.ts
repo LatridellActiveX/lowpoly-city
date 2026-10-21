@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-9: Svc.TechCampus (tool 'techCampus', $60,000 + $900/mo, 15,000 people), goods.ts techCampuses: TECH_RATE 0.3/tick of 'tech' ($1,200/load) when College coverage > 0.3, city pays TECH_CHIP_COST 20/unit (ledger trade.chips, budget row), ships via the supplier loop; svc10 glass-campus model; hud panel; industryctl.test IND-9.
+    id: '2026-10-20-oasis-ind9-tech-campus',
+    title: 'Tech campus',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'New 🧪 Tech Campus in the Industry menu ($60,000 + $900/month, unlocks at 15,000 people). It makes tech products, the most valuable export in the game at $1,200 a load, with no pollution.' },
+      { tag: 'new', text: 'It only works inside College coverage (over 30%), because it needs educated staff. It also uses imported chips, which the city pays for. They show as Imported chips in the budget.' },
+    ],
+  },
+  {
     // IND-8: sim/trade.ts — rail yard (depot anchor upg bit 8, $40,000, reach 30, +10% exports, svc7rail model) and drifting export prices (world.priceDrift saved, monthly hash-seeded step ±0.08 pulled to 1, clamp ±30%, exports only); budget ticker; industryctl.test IND-8.
     id: '2026-10-20-oasis-ind8-rail-yard-prices',
     title: 'Rail yards and changing export prices',

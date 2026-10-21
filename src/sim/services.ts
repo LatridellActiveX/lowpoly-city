@@ -23,7 +23,7 @@ import { roadComponents } from './roadnet';
 /** People at which police (and with them crime) unlock. */
 export const POLICE_UNLOCK_POP = 2500;
 
-export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8, Warehouse = 9 }
+export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8, Warehouse = 9, TechCampus = 10 }
 
 export interface ServiceDef {
   svc: Svc;
@@ -62,6 +62,11 @@ export const SERVICE_DEFS: ServiceDef[] = [
   // processors in reach are restocked from it first. Its "coverage" radius is
   // that reach (20 tiles). No vehicles of its own: deliveries are trucks.
   { svc: Svc.Warehouse, tool: 'warehouse', label: 'Warehouse', size: 1, cost: 12000, upkeep: 150, unlockPop: 2000, radius: 20, fleet: 0 },
+  // IND-9: TECH CAMPUS. Clean, high-value industry (goods.ts techCampuses):
+  // makes 'tech' for export, paying for imported chips, but only works where
+  // the College covers it (coverage > TECH_COLLEGE_MIN). No pollution. Its
+  // radius is just its own block (it serves nobody).
+  { svc: Svc.TechCampus, tool: 'techCampus', label: 'Tech Campus', size: 1, cost: 60000, upkeep: 900, unlockPop: 15000, radius: 1, fleet: 0 },
 ];
 export const SERVICE_BY_TOOL: Partial<Record<ToolId, ServiceDef>> = Object.fromEntries(SERVICE_DEFS.map((d) => [d.tool, d]));
 export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;

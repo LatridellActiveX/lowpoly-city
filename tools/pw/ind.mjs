@@ -125,5 +125,17 @@ if (stage === "8") {
   await frame(() => { const t = document.querySelector('[data-k="ticker"]'); t?.scrollIntoView({ block: "center" }); });
   await shot("prices");
 }
+if (stage === "9") {
+  // IND-9: a tech campus beside a road, panel open (College coverage decides whether it works).
+  out.tc = await frame(() => {
+    const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length));
+    w.peakPop = Math.max(w.peakPop, 16000);
+    for (let i = N; i < w.tiles.length - N; i++) { const t = w.tiles[i]; if (t.zone || t.road || t.water || t.structure !== "none" || t.edge || ![1, -1, N, -N].some((d) => w.tiles[i + d].road)) continue;
+      t.structure = "service"; t.kind = 10; t.part = 0; c.sim.version++; c.inspect(i % N, Math.floor(i / N)); c.refresh(); return [i % N, Math.floor(i / N)]; }
+    return null; });
+  if (out.tc) await look(out.tc[0], out.tc[1], 3.2);
+  await frame(() => { const c = window.city; c.setSpeed?.(1); for (let k = 0; k < 6; k++) c.sim.update(0.5); c.setSpeed?.(0); c.refresh(); });
+  await shot("campus");
+}
 console.log(JSON.stringify({ out, errs: errs.slice(0, 3) }));
 await browser.close();
