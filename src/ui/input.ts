@@ -37,6 +37,8 @@ export interface InputCallbacks {
 /** PR 6: world x/z of the last ground hit (fractional tile coords) — main.ts derives the CELL under the cursor from it. */
 export const pointer = { x: 0, z: 0 };
 
+const QUEST_BROWSER = /OculusBrowser|Quest/i.test(navigator.userAgent);
+
 export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: THREE.Object3D, cb: InputCallbacks): void {
   const ray = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -114,10 +116,21 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
     'wheel',
     (e) => {
       e.preventDefault();
+      // Meta Quest browser (not in VR): the thumbsticks arrive as scroll wheel events, so they pan
+      // the map instead of zooming (use the + / - buttons or the keys to zoom there).
+      if (QUEST_BROWSER) { cam.panWorld(e.deltaX * 0.012, -e.deltaY * 0.012); return; }
       cam.zoomBy(e.deltaY < 0 ? 1.12 : 1 / 1.12);
     },
     { passive: false },
   );
+
+  if (QUEST_BROWSER) {
+    const box = document.createElement('div');
+    box.id = 'zoomBtns';
+    box.innerHTML = '<button data-z="1">＋</button><button data-z="-1">－</button>';
+    box.addEventListener('click', (e) => { const z = (e.target as HTMLElement).dataset.z; if (z) cam.zoomBy(z === '1' ? 1.25 : 1 / 1.25); });
+    document.body.append(box);
+  }
 
   // Held keys pan smoothly; handled each frame via `held`.
   const held = new Set<string>();
@@ -196,7 +209,9 @@ export function attachInput(canvas: HTMLCanvasElement, cam: IsoCamera, ground: T
       for (const pad of navigator.getGamepads()) {
         if (!pad || !pad.connected) continue;
         const dz = (v: number) => (Math.abs(v) < 0.15 ? 0 : v);
-        const sx = dz(pad.axes[0] ?? 0), sy = dz(pad.axes[1] ?? 0);
+        const std = pad.mapping === 'standard' || pad.axes.length < 4;
+        const alt = !std && Math.hypot(pad.axes[2] ?? 0, pad.axes[3] ?? 0) > Math.hypot(pad.axes[0] ?? 0, pad.axes[1] ?? 0);
+        const sx = dz(pad.axes[alt ? 2 : 0] ?? 0), sy = dz(pad.axes[alt ? 3 : 1] ?? 0);
         rx += sx * speed; uy -= sy * speed;
       }
     }
