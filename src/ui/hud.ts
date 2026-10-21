@@ -106,7 +106,7 @@ export class Hud {
   readonly notices = new Notifier();
   /** PR 4 RCI demand bars (bottom-left). */
   readonly demandBars = new DemandBars();
-  private readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
+  readonly money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString()}`;
   private infoTile: number | null = null;
   /** OASIS: graph thing (junction / road edge / car) shown in the info panel instead of a tile. */
   private infoGraph: GraphPick | null = null;
@@ -523,7 +523,12 @@ export class Hud {
     this.gridLegend.classList.toggle('hidden', o !== 'grid');
   }
 
+  /** VR: mirrors every toast onto the headset panel; infoText() feeds its info line. */
+  onFlash: (msg: string) => void = () => {};
+  infoText(): string { return this.info.classList.contains('hidden') ? '' : this.info.innerText ?? ''; }
+
   flash(msg: string): void {
+    this.onFlash(msg);
     this.toast.textContent = msg;
     this.toast.classList.add('show');
     clearTimeout(this.toastTimer);

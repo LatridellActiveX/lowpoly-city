@@ -312,3 +312,7 @@ body.title-mode .stuck-pill { display: none !important; }
 #fps[data-level='good'] { color: #7ee08a; }
 #fps[data-level='ok'] { color: #f2c94c; }
 #fps[data-level='bad'] { color: #ff7a6b; }
+
+#vrBtn { position: fixed; right: 10px; bottom: 40px; z-index: 30; padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-weight: 600; }
+#vrBtn:hover { border-color: var(--accent); }
+#vrBtn.hidden { display: none; }
