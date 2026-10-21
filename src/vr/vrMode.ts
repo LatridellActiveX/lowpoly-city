@@ -29,14 +29,23 @@ import { pointer, InputCallbacks } from '../ui/input';
 import { IsoCamera, MAX_ZOOM, minZoom } from '../render/camera';
 import { TOOL_GROUPS, toolDef } from '../ui/tools';
 
+export interface VrHud {
+  line: string;
+  power: [number, number];
+  water: [number, number];
+  /** Residential, commercial, industrial demand, -1..1. */
+  demand: [number, number, number];
+  outages: number;
+}
+
 /** What the VR layer needs from the game (main.ts wires these). */
 export interface VrHooks {
   setTool(id: ToolId): void;
   tool(): ToolId;
   setSpeed(s: number): void;
   speed(): number;
-  /** One line: cash, population, date. */
-  status(): string;
+  /** The top-bar numbers shown on the panel. */
+  hud(): VrHud;
   /** Text of the inspect panel (empty when none). */
   info(): string;
   /** A hotkey as input.ts delivers it ('ctrl+z', ' ' ...). */
@@ -73,7 +82,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 ];
 const BUILD_TOOLS: ToolId[] = ['inspect', 'residential', 'commercial', 'industrial', 'park', 'bulldoze'];
 
-const CW = 768, CH = 512;
+const CW = 768, CH = 560, HDR = 100;
 
 interface Pad {
   object: THREE.Group;
@@ -107,6 +116,7 @@ export class VrMode {
   private toastUntil = 0;
   private panelShown = true;
   private marker: THREE.Mesh;
+  private cursor: THREE.Mesh;
   // Pointer state
   private dragPad: Pad | null = null;
   private lastTile = '';
@@ -140,6 +150,10 @@ export class VrMode {
     this.marker.renderOrder = 10;
     this.marker.visible = false;
     scene.add(this.marker);
+    this.cursor = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: false }));
+    this.cursor.renderOrder = 12;
+    this.cursor.visible = false;
+    scene.add(this.cursor);
     for (let i = 0; i < 2; i++) this.addPad(i);
     this.makePanel();
     const xr = (navigator as unknown as { xr?: VrSystem }).xr;
@@ -186,6 +200,7 @@ export class VrMode {
     this.session = null;
     this.renderer.xr.enabled = false;
     this.marker.visible = false;
+    this.cursor.visible = false;
     for (const p of this.pads) p.laser.visible = false;
     if (this.dragPad) { this.cb.dragCancel(); this.dragPad = null; }
     if (this.savedShadow) {
@@ -257,13 +272,14 @@ export class VrMode {
   }
 
   /** Where a pad's laser meets the panel (button under it) or the ground plane. */
-  private aim(p: Pad): { btn: Btn | null; panelDist: number; ground: THREE.Vector3 | null } {
+  private aim(p: Pad): { btn: Btn | null; panelDist: number; panelPt: THREE.Vector3 | null; ground: THREE.Vector3 | null } {
     const r = this.rayOf(p);
-    let btn: Btn | null = null, panelDist = Infinity;
+    let btn: Btn | null = null, panelDist = Infinity, panelPt: THREE.Vector3 | null = null;
     if (this.panelShown && this.panel.parent && this.panel.parent !== p.object) {
       const hit = r.intersectObject(this.panel, false)[0];
       if (hit && hit.uv) {
         panelDist = hit.distance;
+        panelPt = hit.point.clone();
         const cx = hit.uv.x * CW, cy = (1 - hit.uv.y) * CH;
         btn = this.btns.find((b) => cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null;
       }
@@ -274,7 +290,7 @@ export class VrMode {
       const t = -o.y / d.y;
       if (t > 0 && t < panelDist) ground = new THREE.Vector3(o.x + d.x * t, 0, o.z + d.z * t);
     }
-    return { btn, panelDist, ground };
+    return { btn, panelDist, panelPt, ground };
   }
 
   private onTrigger(p: Pad, down: boolean): void {
@@ -366,12 +382,19 @@ export class VrMode {
     let hoverId = '';
     let markerAt: THREE.Vector3 | null = null;
     for (const p of this.pads) p.laser.visible = false;
+    this.cursor.visible = false;
     if (prim) {
       const a = this.aim(prim);
       prim.laser.visible = true;
-      const reach = a.btn ? a.panelDist : a.ground ? a.ground.distanceTo(this.rayOf(prim).ray.origin) : 3 * S2;
+      const reach = a.panelPt ? a.panelDist : a.ground ? a.ground.distanceTo(this.rayOf(prim).ray.origin) : 3 * S2;
       prim.laser.scale.z = reach / S2; // laser is parented under the scaled rig
       if (a.btn) hoverId = a.btn.id;
+      // A cursor dot sits on the panel where the laser lands (the laser stops there).
+      if (a.panelPt) {
+        this.cursor.visible = true;
+        this.cursor.position.copy(a.panelPt).addScaledVector(this.tmpD.set(0, 0, 1).applyQuaternion(this.panel.getWorldQuaternion(this.tmpQ)), 0.002 * S2);
+        this.cursor.scale.setScalar(0.006 * S2);
+      } else this.cursor.visible = false;
       const g = a.ground;
       if (g && !a.btn) {
         markerAt = g;
@@ -401,9 +424,9 @@ export class VrMode {
     const cur = h.tool();
     // Tabs.
     const tw = (CW - 24) / TABS.length;
-    TABS.forEach((t, i) => out.push({ id: 'tab:' + t.id, x: 12 + i * tw, y: 70, w: tw - 6, h: 52, label: t.label, active: this.tab === t.id, act: () => { this.tab = t.id; } }));
+    TABS.forEach((t, i) => out.push({ id: 'tab:' + t.id, x: 12 + i * tw, y: HDR + 8, w: tw - 6, h: 52, label: t.label, active: this.tab === t.id, act: () => { this.tab = t.id; } }));
     // Tool grid / view buttons.
-    const cols = 4, gw = (CW - 24) / cols, gh = 80, gy = 134;
+    const cols = 4, gw = (CW - 24) / cols, gh = 80, gy = HDR + 72;
     const add = (i: number, id: string, label: string, act: () => void, active = false, hint = '') =>
       out.push({ id, x: 12 + (i % cols) * gw, y: gy + Math.floor(i / cols) * gh, w: gw - 6, h: gh - 6, label, active, hint, act });
     if (this.tab === 'view') {
@@ -438,19 +461,19 @@ export class VrMode {
       ['b:exit', '✕ Exit VR', () => this.exit(), false],
     ];
     const bw = (CW - 24) / row.length;
-    row.forEach(([id, label, act, active], i) => out.push({ id, x: 12 + i * bw, y: 384, w: bw - 6, h: 52, label, active, act }));
+    row.forEach(([id, label, act, active], i) => out.push({ id, x: 12 + i * bw, y: HDR + 322, w: bw - 6, h: 52, label, active, act }));
     return out;
   }
 
   private drawPanel(): void {
     const now = performance.now();
     const toast = now < this.toastUntil ? this.toastText : '';
-    const status = this.hooks.status();
+    const hud = this.hooks.hud();
     const info = this.hooks.info();
     const btns = this.layout();
     this.btns = btns;
     const hov = btns.find((b) => b.id === this.hoverBtn);
-    const key = [this.panelShown, status, toast ? toast : info.slice(0, 120), this.hoverBtn, this.tab, this.hooks.tool(), this.hooks.speed()].join('|');
+    const key = [this.panelShown, JSON.stringify(hud), toast ? toast : info.slice(0, 120), this.hoverBtn, this.tab, this.hooks.tool(), this.hooks.speed()].join('|');
     this.panel.visible = this.panelShown;
     if (key === this.lastPanelKey) return;
     this.lastPanelKey = key;
@@ -461,7 +484,28 @@ export class VrMode {
     c.strokeStyle = 'rgba(127,209,255,0.5)'; c.lineWidth = 3; round(2, 2, CW - 4, CH - 4, 26); c.stroke();
     c.textBaseline = 'middle';
     c.fillStyle = '#e8f3ff'; c.font = '600 30px system-ui, sans-serif'; c.textAlign = 'left';
-    c.fillText(status.slice(0, 48), 16, 36);
+    c.fillText(hud.line.slice(0, 44), 16, 30);
+    // Power and water meters.
+    const meter = (x: number, icon: string, [used, cap]: [number, number]) => {
+      const pct = cap > 0 ? Math.min(1, used / cap) : used > 0 ? 1 : 0;
+      c.font = '26px system-ui, sans-serif'; c.textAlign = 'left'; c.fillStyle = '#fff'; c.fillText(icon, x, 70);
+      c.fillStyle = '#2b3b4d'; round(x + 40, 58, 150, 22, 8); c.fill();
+      c.fillStyle = used > cap ? '#ff6b5e' : pct > 0.85 ? '#f2c94c' : '#59d18a'; round(x + 40, 58, Math.max(6, 150 * pct), 22, 8); c.fill();
+      c.fillStyle = '#cfe3f5'; c.font = '20px system-ui, sans-serif'; c.fillText(`${Math.round(used)}/${Math.round(cap)}`, x + 198, 70);
+    };
+    meter(16, '⚡', hud.power); meter(300, '💧', hud.water);
+    if (hud.outages) { c.fillStyle = '#ff7a6e'; c.font = '600 22px system-ui, sans-serif'; c.textAlign = 'right'; c.fillText(`⚠ ${hud.outages}`, 548, 30); }
+    // R / C / I demand bars: up = wanted, down (dim) = not wanted.
+    const cols: Array<[string, string]> = [['R', '#6ad37a'], ['C', '#5aa8f0'], ['I', '#f2c94c']];
+    cols.forEach(([l, col], k) => {
+      const x = 576 + k * 62, mid = 40, v = Math.max(-1, Math.min(1, hud.demand[k]));
+      c.fillStyle = '#2b3b4d'; round(x, 8, 34, 64, 8); c.fill();
+      c.globalAlpha = v >= 0 ? 1 : 0.45; c.fillStyle = col;
+      if (v >= 0) c.fillRect(x + 2, mid - v * 30, 30, v * 30 + 0.5); else c.fillRect(x + 2, mid, 30, -v * 30);
+      c.globalAlpha = 1; c.fillStyle = '#fff'; c.fillRect(x, mid - 1, 34, 2);
+      c.fillStyle = col; c.font = '600 20px system-ui, sans-serif'; c.textAlign = 'center'; c.fillText(l, x + 17, 88);
+    });
+    c.textAlign = 'left';
     for (const b of btns) {
       const hot = b.id === this.hoverBtn;
       c.fillStyle = b.active ? '#1f9d8f' : hot ? '#3b556e' : '#243447';
@@ -477,7 +521,7 @@ export class VrMode {
     const text = toast || hov?.hint || info.replace(/\s+/g, ' ').trim();
     c.fillStyle = toast ? '#ffe28a' : '#cfe3f5'; c.textAlign = 'left'; c.font = '24px system-ui, sans-serif';
     const words = text.split(' ');
-    let line = '', y = 462, lines = 0;
+    let line = '', y = HDR + 400, lines = 0;
     for (const w of words) {
       const t = line ? line + ' ' + w : w;
       if (c.measureText(t).width > CW - 32) {

@@ -457,7 +457,14 @@ resize();
 // ---- VR (Meta Quest and other WebXR headsets): tabletop mode, see vr/vrMode.ts ----
 const vr = new VrMode(renderer, scene, cam, sun, inputCbs, {
   setTool, tool: () => tool, setSpeed, speed: () => sim.speed,
-  status: () => { const s = sim.stats(); return `💵 ${hud.money(sim.world.cash)}  👥 ${s.population}  ${clockText(dayNight.time)}`; },
+  hud: () => {
+    const st = sim.stats(), d = sim.demand;
+    return {
+      line: `💵 ${hud.money(sim.world.cash)}  👥 ${st.population}  💼 ${st.jobs}  🕒 ${clockText(dayNight.time)}`,
+      power: [st.power.demand, st.power.capacity], water: [st.water.demand, st.water.capacity],
+      demand: [d.residential.value, d.commercial.value, d.industrial.value], outages: st.outages,
+    };
+  },
   info: () => hud.infoText(),
   key: (k) => { inputCbs.key(k); },
   onEnter: () => { document.body.classList.add('in-vr'); },
