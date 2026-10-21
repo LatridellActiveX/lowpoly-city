@@ -50,6 +50,9 @@ export function emptyTile(): Tile {
     units: 0,
     crewLinger: 0,
     garbage: 0,
+    recipe: '', // IND-1: Auto
+    pause: 0, // IND-1
+    upg: 0, // IND-3
   };
 }
 

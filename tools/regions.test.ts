@@ -81,7 +81,7 @@ setGridSize(64);
   ok(m.tiles.every((t, i) => t.level === w.tiles[i].level && t.zone === w.tiles[i].zone && t.road === w.tiles[i].road), 'v8 tiles intact');
   const again = deserializeWorld(serializeWorld(m))!;
   ok(again.tiles.every((t, i) => t.level === m.tiles[i].level && t.res === m.tiles[i].res) && again.lots.buildings.size === m.lots.buildings.size, 'migrated save re-saves as v9 and reloads identically');
-  ok(JSON.parse(serializeWorld(m)).version === 10, "new saves are v10 (B8)");
+  ok(JSON.parse(serializeWorld(m)).version === 11, "new saves are v11 (IND-1; B8 graph format unchanged)");
 }
 void REGION;
 setGridSize(64);

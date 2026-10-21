@@ -143,6 +143,19 @@ export interface Tile {
   crewLinger: number;
   /** V1.5b stage E: garbage waiting for collection at this building (0..G_MAX). */
   garbage: number;
+  /**
+   * IND-1 (factory panel): the processor recipe the PLAYER picked for this
+   * factory, as a chains.ts Role name ('' = Auto, the old automatic pick).
+   * Saved with the tile, so a pick survives save and load.
+   */
+  recipe: string;
+  /**
+   * IND-1: tick until which this factory's output is paused after a recipe
+   * switch (retooling). 0 = not paused. Saved so a reload doesn't skip it.
+   */
+  pause: number;
+  /** IND-3: bought upgrades, a bitmask of factoryCtl.ts UPG (shift / automation / filters). */
+  upg: number;
 }
 
 /** The tools on the toolbar. 'inspect' is the default "just click and look" tool. */

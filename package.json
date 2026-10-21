@@ -46,7 +46,8 @@
     "test:everyday": "esbuild tools/everyday.test.ts --bundle --platform=node --format=esm --outfile=/tmp/everyday-test.mjs --log-level=error && node /tmp/everyday-test.mjs",
     "test:keeptraffic": "esbuild tools/keeptraffic.test.ts --bundle --platform=node --format=esm --outfile=/tmp/keeptraffic-test.mjs --log-level=error && node /tmp/keeptraffic-test.mjs",
     "test:format": "esbuild tools/format.test.ts --bundle --platform=node --format=esm --outfile=/tmp/format-test.mjs --log-level=error && node /tmp/format-test.mjs",
-    "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs"
+    "debug:load": "esbuild tools/debug-load.ts --bundle --platform=node --format=esm --outfile=/tmp/debug-load.mjs --log-level=error && node /tmp/debug-load.mjs",
+    "test:indctl": "esbuild tools/industryctl.test.ts --bundle --platform=node --format=esm --outfile=/tmp/indctl-test.mjs --log-level=error && node /tmp/indctl-test.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.2",

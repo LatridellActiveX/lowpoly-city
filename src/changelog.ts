@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-1: sim/factoryCtl.ts (recipe picker, $500 switch, 30 s retool), tile fields recipe/pause/upg (save v11, no migration), chains.ts roleOf honours the pick, ui/hud.ts Recipe dropdown; tools/industryctl.test.ts.
+    id: '2026-10-20-oasis-ind1-factory-panel',
+    title: 'Choose what a factory makes',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Click a factory with Inspect to pick its recipe from the new Recipe list, for example turn a toy factory into a print works. Auto keeps the old behaviour, where the factory picks for itself. Your choice is kept when you save and load.' },
+      { tag: 'balance', text: 'Switching a recipe costs $500, and the factory makes nothing for 30 seconds while the line is retooled. Its hopper is emptied, because the old inputs no longer fit. Going back to Auto is free.' },
+      { tag: 'improved', text: 'Logging camps, oil rigs, quarries, farms and food plants make what their land or zone says, so they have no recipe list.' },
+    ],
+  },
+  {
     // OASIS-S6: sim/traffic.ts rushFactor night floor 0.12 → 0.2, day 0.5 → 0.55, morning bump 0.55 → 0.6; sim/settings.ts maxCars 75 → 100 + one-time migration (trafficRev); tools/everyday.test.ts.
     id: '2026-10-19-oasis-s6-more-everyday-traffic',
     title: 'More everyday traffic',

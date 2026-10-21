@@ -33,7 +33,8 @@ import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
-import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
+import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
+import { canPickRecipe, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe } from '../sim/factoryCtl';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
@@ -251,6 +252,15 @@ export class Hud {
 
     this.buildBudget(actions);
     // OASIS: click a <code class="cid"> id (node 42 / edge 17 / car 311) to copy it.
+    // IND-1: recipe picker in the factory panel.
+    this.info.addEventListener('change', (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      if (!sel.classList.contains('fc-recipe') || !this.lastSim) return;
+      const msg = setRecipe(this.lastSim.world, Number(sel.dataset.i), sel.value as Role | '');
+      sel.blur();
+      if (msg) this.flash(msg); else this.flash(sel.value ? `Recipe set: ${ROLE_NAMES[sel.value as Role]}` : 'Recipe: Auto');
+      this.refresh(this.lastSim);
+    });
     this.info.addEventListener('click', (ev) => {
       const lf = (ev.target as HTMLElement).closest('[data-lf]') as HTMLElement | null;
       if (lf && this.lastSim) { // landfill: switch automatic hauling to recycling centers on/off, or send a haul now
@@ -640,6 +650,9 @@ export class Hud {
   }
 
   private renderInfo(sim: Simulation, i: number): void {
+    // IND-1: don't repaint while the player has a dropdown open in the panel
+    // (repainting would close it mid-pick).
+    if (this.info.contains(document.activeElement) && document.activeElement?.tagName === 'SELECT') return;
     const t = sim.world.tiles[i];
     const [x, z] = coords(i);
     const svc = sim.net.service[i];
@@ -733,6 +746,14 @@ export class Hud {
       const makes = rec ? rec.outputs.map((g) => GOOD_NAMES[g]).join(' + ') : GOOD_NAMES[factoryGood(sim.world, i)];
       rows.push(`<div class="row">${ROLE_NAMES[role]}: makes <b>${makes}</b> · in stock ${t.stock.toFixed(1)}</div>`);
       if (rec && role !== 'foodPlant') rows.push(`<div class="row">Needs: <b>${rec.inputs.map((g) => GOOD_NAMES[g]).join(' or ')}</b> · hopper ${t.input.toFixed(1)}${sim.shipping.isIncoming(-1 - i) ? ' · 🚚 on the way' : ''}</div>`);
+      // IND-1: recipe picker. A <select> (not a row of buttons) keeps the
+      // panel short; renderInfo skips repainting while it is open (see top).
+      if (canPickRecipe(sim.world, i)) {
+        const opts = [['', `Auto${t.recipe ? '' : ` (${ROLE_NAMES[role]})`}`], ...pickableRecipes().map((r) => [r, `${ROLE_NAMES[r]}: ${RECIPES[r]!.inputs.map((g) => GOOD_NAMES[g]).join(' or ')} → ${RECIPES[r]!.outputs.map((g) => GOOD_NAMES[g]).join(' + ')}`])];
+        rows.push(`<div class="row">Recipe: <select class="fc-recipe" style="max-width:100%;width:100%" data-i="${i}">${opts.map(([v, l]) => `<option value="${v}"${v === t.recipe ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`);
+        rows.push(`<div class="row muted">Switching costs $${RECIPE_SWITCH_COST} and pauses output for ${RETOOL_TICKS} s while the line is retooled. Auto is free.</div>`);
+        if (isPaused(sim.world, i)) rows.push(`<div class="row bad">🔧 Retooling: back in ${t.pause - sim.world.tick} s</div>`);
+      }
     }
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
     if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);

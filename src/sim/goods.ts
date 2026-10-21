@@ -214,6 +214,7 @@ export class Shipping {
         factories.push(i);
         const role = roleOf(world, i);
         const rec = RECIPES[role];
+        if (t.pause > world.tick) return; // IND-1: retooling after a recipe switch (factoryCtl.ts): no output
         if (rec) {
           // PROCESSOR: convert hopper input 1:1 into output.
           const r = Math.min(t.input, t.level * PROCESS_RATE, FACTORY_MAX - t.stock);

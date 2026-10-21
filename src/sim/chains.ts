@@ -38,6 +38,7 @@ import { Resource } from './resources';
 import { hash2 } from './random';
 import { isFarmLot, isFoodPlant } from './industry';
 import type { GoodType } from './goods';
+import { clearIfGone } from './factoryCtl';
 
 export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery' | 'printer' | 'toymaker';
 
@@ -63,7 +64,7 @@ export const RECIPES: Partial<Record<Role, { inputs: GoodType[]; outputs: GoodTy
   toymaker: { inputs: ['plastics'], outputs: ['toys'] },
 };
 /** Recipes a plain factory may adopt (the food plant comes from its own zone kind). */
-const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery', 'printer', 'toymaker'];
+export const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery', 'printer', 'toymaker'];
 /** Extractor role and product per resource patch. */
 const EXTRACT: Partial<Record<Resource, [Role, GoodType]>> = {
   [Resource.Logging]: ['logging', 'wood'],
@@ -83,7 +84,14 @@ export function roleOf(world: World, i: number): Role {
   if (isFarmLot(world, i)) return 'farm';
   const ex = EXTRACT[world.resourceAt(i)];
   if (ex) return ex[0];
+  // IND-1: a recipe the player picked (factoryCtl.ts) beats the automatic one.
+  if (t.recipe && RECIPES[t.recipe as Role]) return t.recipe as Role;
   return memo(world).get(i) ?? 'factory';
+}
+
+/** IND-1: record `role` as tile i's automatic pick (factoryCtl.ts "back to Auto" keeps the product). */
+export function setAutoRole(world: World, i: number, role: Role): void {
+  memo(world).set(i, role);
 }
 
 /** The main product of a role at tile i. */
@@ -115,6 +123,8 @@ export function refreshRoles(world: World, operating: (i: number) => boolean): v
   // Drop roles of tiles that are no longer built industry.
   for (const i of [...m.keys()]) { const t = world.tiles[i]; if (t.zone !== 'industrial' || t.level === 0) m.delete(i); }
   if (!due(world.tick, ROLE_REFRESH, PHASE.roles)) return; // V1.6 A4: staggered (schedule.ts)
+  // IND-1: forget recipe picks / upgrades on tiles that stopped being a factory.
+  world.chunks.activeTilesSorted().forEach((i) => clearIfGone(world, i));
   const makes = cityMakes(world);
   world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0 || !operating(i) || roleOf(world, i) !== 'factory') return;

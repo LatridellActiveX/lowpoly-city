@@ -55,7 +55,10 @@ const KEY = 'lowpoly-city-save';
  * v1–v8 saves are always 64 maps; they load unchanged as 64 maps with every
  * region owned.
  */
-export const SAVE_VERSION = 10; // V1.6 B8: freeform road graph + graph tiles
+// v11 (IND-1): tiles gain `recipe` / `pause` / `upg` (factory picks and
+// upgrades). No migration: they are tile columns, and older saves simply
+// get the defaults ('' = Auto, 0) from emptyTile() when loaded.
+export const SAVE_VERSION = 11; // v10 V1.6 B8: freeform road graph + graph tiles
 
 /* ---- V1.6 A6: run-length encoding ---- */
 /** [value, count, value, count, …] — consecutive equal values collapse. */
