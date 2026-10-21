@@ -19,7 +19,7 @@ export interface ChangeEntry {
   changes: Array<{ tag: ChangeTag; text: string }>;
 }
 
-export const CHANGELOG: ChangeEntry[
+export const CHANGELOG: ChangeEntry[] = [
   {
     id: '2026-10-20-oasis-vr',
     title: 'VR mode for Meta Quest 3',
@@ -30,7 +30,7 @@ export const CHANGELOG: ChangeEntry[
       { tag: 'new', text: 'Left stick pans, right stick turns the table (left/right) and zooms (up/down), and either grip grabs and drags the map. Right A pauses; right B picks Inspect. Hand tracking works too (pinch to click; use the panel\'s View tab).' },
       { tag: 'improved', text: 'In VR the shadow map is smaller so the headset keeps its frame rate.' },
     ],
-  },] = [
+  },
   {
     // IND-4: factoryCtl.ts POLICIES on world.policies (saved, missing = off); eco → pollutionMult ×0.7 + runningCostShare +0.15; night → outputMult ×1.25, goods.ts nightShiftTrucks (≤1 per building, 22:00–06:00), environment.ts −0.05 desirability for homes within 4 tiles of a factory; Budget panel checkboxes; industryctl.test IND-4.
     id: '2026-10-20-oasis-ind4-industrial-policies',
