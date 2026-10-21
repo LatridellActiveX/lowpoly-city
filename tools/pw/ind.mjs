@@ -55,7 +55,12 @@ if (stage === "2") {
   out.mid = mid;
   await frame(() => window.city.setOverlay("chain")); if (mid) await look(mid[0], mid[1], 1.6); await shot("overlay");
 }
-if (stage === "4") { await frame(() => { for (const b of document.querySelectorAll("button")) if (/Budget/.test(b.textContent)) { b.click(); break; } }); await shot("policies"); }
+if (stage === "4") {
+  await frame(() => { for (const b of document.querySelectorAll("button")) if (/Budget/.test(b.textContent)) { b.click(); break; } });
+  // Tick Night shifts through the real checkbox and scroll the section into view.
+  out.pol = await frame(() => { const i = document.querySelector('input[data-policy="night"]'); if (!i) return null; i.click(); i.scrollIntoView({ block: "center" }); return window.city.sim.world.policies; });
+  await shot("policies");
+}
 if (stage === "5") {
   const ore = await frame(() => { const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length)); let sx = 0, sz = 0, n = 0; for (let i = 0; i < w.tiles.length; i++) if (w.resourceAt(i) === 5) { sx += i % N; sz += Math.floor(i / N); n++; } return n ? [Math.round(sx / n), Math.round(sz / n), n] : null; });
   out.ore = ore;

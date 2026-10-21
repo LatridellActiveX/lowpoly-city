@@ -110,6 +110,7 @@ export function serializeWorld(world: World): string {
     cash: world.cash,
     taxRates: world.taxRates,
     propertyRate: world.propertyRate, // V1.5 stage 11
+    policies: world.policies, // IND-4 (no version bump: missing = both off)
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -191,6 +192,8 @@ export function deserializeWorld(raw: string): World | null {
       w.cash = data.cash ?? STARTING_CASH;
       w.taxRates = { ...defaultTaxRates(), ...data.taxRates };
       if (typeof data.propertyRate === 'number') w.propertyRate = data.propertyRate;
+      // IND-4: industrial policies. Only real booleans are taken; anything missing stays off.
+      w.policies = { eco: data.policies?.eco === true, night: data.policies?.night === true };
       w.ledger = mergeLedger(data.ledger) ?? emptyLedger();
       w.lastLedger = mergeLedger(data.lastLedger);
     }

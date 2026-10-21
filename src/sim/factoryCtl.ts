@@ -123,22 +123,66 @@ export function buyUpgrade(world: World, i: number, k: UpgKey): string | null {
   return null;
 }
 
-/** Output multiplier of an industrial tile from its upgrades (IND-4 adds the night-shift policy). */
+/** Output multiplier of an industrial tile from its upgrades and the night-shift policy (IND-4). */
 export function outputMult(world: World, t: { upg: number }): number {
   let m = 1;
   if (hasUpg(t, 'SHIFT')) m *= 1.5;
   if (hasUpg(t, 'AUTO')) m *= 1.3;
+  if (world.policies.night) m *= NIGHT_OUTPUT; // IND-4: every factory, stacks with its upgrades
   return m;
 }
 /** Workers multiplier (jobs offered) from upgrades. */
 export const workerMult = (t: { upg: number }): number => (hasUpg(t, 'SHIFT') ? 1.3 : 1) * (hasUpg(t, 'AUTO') ? 0.6 : 1);
 /** Power use multiplier from upgrades. */
 export const powerMult = (t: { upg: number }): number => (hasUpg(t, 'AUTO') ? 1.5 : 1);
-/** Pollution multiplier of an industrial tile (IND-4 adds eco standards). */
+/** Pollution multiplier of an industrial tile: filters ×0.4, eco standards ×0.7 (IND-4), they stack. */
 export function pollutionMult(world: World, t: { upg: number }): number {
-  return hasUpg(t, 'FILTER') ? 0.4 : 1;
+  return (hasUpg(t, 'FILTER') ? 0.4 : 1) * (world.policies.eco ? ECO_POLLUTION : 1);
 }
-/** Extra running cost as a share of output value (filters +10%; IND-4 eco standards add more). */
+/** Extra running cost as a share of output value (filters +10%; eco standards +15%, IND-4). */
 export function runningCostShare(world: World, t: { upg: number }): number {
-  return hasUpg(t, 'FILTER') ? 0.1 : 0;
+  return (hasUpg(t, 'FILTER') ? 0.1 : 0) + (world.policies.eco ? ECO_PROFIT_CUT : 0);
 }
+
+// ============================================================================
+// IND-4 — CITY-WIDE INDUSTRIAL POLICIES (toggled in the Budget panel)
+// ============================================================================
+/**
+ * Two switches that affect EVERY industrial building at once. They live on
+ * `world.policies` and are saved with the city (save.ts `policies`; an older
+ * save without the field loads with both OFF). Turning one off undoes its
+ * effect straight away: nothing is "baked in" — every effect below is read
+ * fresh from the flag each tick.
+ *
+ *  ECO STANDARDS (`eco`)
+ *    − industrial pollution ×0.7 (−30%)                   pollutionMult above
+ *    − 15% of what each factory makes is booked as an
+ *      extra running cost, so factory profit drops        runningCostShare above
+ *
+ *  NIGHT SHIFTS (`night`)
+ *    + every factory makes 25% more                        outputMult above
+ *    + at night (22:00–06:00) each working factory sends
+ *      a night-shift truck — at most ONE extra truck per
+ *      building on the road at a time                      goods.ts nightShiftTrucks
+ *    − homes near a working factory are 5% less happy
+ *      (desirability − 5% of base)                          environment.ts
+ */
+export interface Policies { eco: boolean; night: boolean }
+export const defaultPolicies = (): Policies => ({ eco: false, night: false });
+export const POLICIES: Record<keyof Policies, { label: string; text: string }> = {
+  eco: { label: '🌿 Eco standards', text: 'Industry pollutes 30% less, but factories earn 15% less profit.' },
+  night: { label: '🌙 Night shifts', text: 'Every factory makes 25% more and runs trucks at night; homes near factories are 5% less happy.' },
+};
+/** Eco standards: pollution multiplier and the share of output value added as running cost. */
+export const ECO_POLLUTION = 0.7, ECO_PROFIT_CUT = 0.15;
+/** Night shifts: output multiplier and the desirability multiplier for nearby homes. */
+/**
+ * Night shifts: output multiplier, and how much desirability nearby homes
+ * lose: 5% of the base desirability (DESIRE_BASE 1 → 0.05). Subtracted, not
+ * multiplied, so it also hurts homes that are already below zero.
+ */
+export const NIGHT_OUTPUT = 1.25, NIGHT_HAPPY_DROP = 0.05;
+/** Night = before 06:00 or from 22:00 (time of day 0..1, traffic.ts timeOfDay). */
+export const isNight = (tod: number): boolean => tod < 6 / 24 || tod >= 22 / 24;
+/** Turn a policy on or off. */
+export function setPolicy(world: World, k: keyof Policies, on: boolean): void { world.policies[k] = on; }

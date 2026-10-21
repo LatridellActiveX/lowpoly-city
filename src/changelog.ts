@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-4: factoryCtl.ts POLICIES on world.policies (saved, missing = off); eco → pollutionMult ×0.7 + runningCostShare +0.15; night → outputMult ×1.25, goods.ts nightShiftTrucks (≤1 per building, 22:00–06:00), environment.ts −0.05 desirability for homes within 4 tiles of a factory; Budget panel checkboxes; industryctl.test IND-4.
+    id: '2026-10-20-oasis-ind4-industrial-policies',
+    title: 'Industrial policies',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'The Budget panel has a new Industrial policies section with two city-wide switches. 🌿 Eco standards makes all industry pollute 30% less, but factories earn 15% less profit.' },
+      { tag: 'new', text: '🌙 Night shifts makes every factory produce 25% more. Factories also run trucks at night (at most one extra per building), and homes near factories are 5% less happy.' },
+      { tag: 'improved', text: 'Policies are saved with your city, and older saves start with both off. Turning a policy off undoes its effects right away.' },
+    ],
+  },
+  {
     // IND-3: factoryCtl.ts UPG bits on tile.upg (shift / automation / filters), applied in goods.ts (output, running cost), industry.ts jobsOf (workers), networks.ts demandOf (power), environment.ts (pollution); hud Upgrades buttons; industryctl.test IND-3.
     id: '2026-10-20-oasis-ind3-factory-upgrades',
     title: 'Factory upgrades',

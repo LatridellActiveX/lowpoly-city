@@ -34,6 +34,7 @@ import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
+import { POLICIES, Policies, setPolicy } from '../sim/factoryCtl';
 import { buyUpgrade, canPickRecipe, hasUpg, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe, UPGRADES, UpgKey } from '../sim/factoryCtl';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
@@ -326,8 +327,19 @@ export class Hud {
       <label class="tax"><span>🏡 Property</span><input type="range" min="0" max="${MAX_PROPERTY * 100}" step="1" data-prop="1">
           <b data-k="rate.property"></b></label>
       <div class="muted small" data-k="growth"></div>
+      <h4>Industrial policies</h4>
+      ${(Object.keys(POLICIES) as Array<keyof Policies>).map((k) => `<label style="display:flex;gap:6px;align-items:center;margin-top:4px" title="${POLICIES[k].text}"><input type="checkbox" data-policy="${k}"> <span>${POLICIES[k].label}</span></label><div class="muted small">${POLICIES[k].text}</div>`).join('')}
       <h4>Businesses (last month)</h4>
       <div class="small" data-k="biz"></div>`;
+    // IND-4: city-wide industrial policy toggles (factoryCtl.ts setPolicy).
+    this.budget.querySelectorAll<HTMLInputElement>('input[data-policy]').forEach((inp) => {
+      inp.onchange = () => {
+        if (!this.lastSim) return;
+        const k = inp.dataset.policy as keyof Policies;
+        setPolicy(this.lastSim.world, k, inp.checked);
+        this.flash(`${POLICIES[k].label}: ${inp.checked ? 'on' : 'off'}`);
+      };
+    });
     (this.budget.querySelector('.close') as HTMLButtonElement).onclick = () => this.budget.classList.add('hidden');
     this.budget.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp) => {
       inp.oninput = () => (inp.dataset.prop ? actions.setPropertyTax(Number(inp.value) / 100) : actions.setTax(inp.dataset.zone as ZoneType, Number(inp.value) / 100));
@@ -358,6 +370,8 @@ export class Hud {
     this.setCell('tax.property.now', fmt(now.property ?? 0));
     this.setCell('tax.property.last', fmt(last?.property));
     this.setCell('rate.property', `${Math.round(w.propertyRate * 100)}%`);
+    // IND-4: keep the policy boxes in step with the world (e.g. after loading a save).
+    this.budget.querySelectorAll<HTMLInputElement>('input[data-policy]').forEach((inp) => { inp.checked = w.policies[inp.dataset.policy as keyof Policies]; });
     const pin = this.budget.querySelector<HTMLInputElement>('input[data-prop]')!;
     if (document.activeElement !== pin) pin.value = String(Math.round(w.propertyRate * 100));
     const biz = { commercial: [] as number[], industrial: [] as number[] };

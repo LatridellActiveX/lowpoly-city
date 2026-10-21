@@ -30,7 +30,7 @@
  * a big city, about the same as the utility flood-fill.
  */
 import { GRID_SIZE, TileService } from './types';
-import { pollutionMult } from './factoryCtl';
+import { NIGHT_HAPPY_DROP, pollutionMult } from './factoryCtl';
 import { World } from './grid';
 import { garbageNorm } from './garbageRules';
 import { isFarmLot } from './industry';
@@ -284,9 +284,24 @@ export function computeEnvironment(world: World, service?: TileService[], pre?: 
   });
   // V1.6 A4: outside the ring pollution and parks are 0 → desirability = DESIRE_BASE.
   const desirability = new Float32Array(n).fill(DESIRE_BASE);
+  // IND-4 NIGHT SHIFTS: homes within the factory pollution radius of a built
+  // factory (not farms) are a little unhappier (night noise and lights).
+  // `nearNight` marks those tiles; only filled while the policy is on, so
+  // switching it off restores the old numbers exactly.
+  const nearNight = world.policies.night ? new Uint8Array(n) : null;
+  if (nearNight) world.chunks.activeTilesSorted().forEach((i) => {
+    const t = world.tiles[i];
+    if (t.zone !== 'industrial' || t.level === 0 || isFarmLot(world, i)) return;
+    const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE), r = FACTORY_POLLUTION_RADIUS;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      const xx = x + dx, zz = z + dz;
+      if (xx >= 0 && zz >= 0 && xx < GRID_SIZE && zz < GRID_SIZE) nearNight[zz * GRID_SIZE + xx] = 1;
+    }
+  });
   for (const i of world.chunks.ringTilesSorted()) {
     parks[i] = Math.min(PARK_BONUS_MAX, parks[i]);
     desirability[i] = DESIRE_BASE - POLLUTION_WEIGHT * pollution[i] + parks[i];
+    if (nearNight && nearNight[i] && world.tiles[i].zone === 'residential') desirability[i] -= NIGHT_HAPPY_DROP * DESIRE_BASE; // −5%
   }
   return { pollution, parks, desirability, ...computeLandValue(world, { pollution, parks }, service, pre) };
 }

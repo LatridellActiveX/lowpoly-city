@@ -25,6 +25,12 @@
  *     (+50% automation), pollution (−60% filters) and running cost (+10%)
  *     change as listed;
  *  m. upgrades survive save → load and are lost when the building goes.
+ *
+ * IND-4 policies (factoryCtl.ts POLICIES, world.policies):
+ *  n. eco standards: pollution ×0.7, +15% running cost; off again = exactly as before;
+ *  o. night shifts: output ×1.25, homes near factories ×0.95 desirability,
+ *     night-shift trucks at night (never two out from one building), none by day;
+ *  p. policies survive save → load; a save without the field loads with both off.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -34,6 +40,8 @@ import { deserializeWorld, serializeWorld } from '../src/sim/save';
 import { Simulation } from '../src/sim/simulation';
 import { RECIPES, roleOf } from '../src/sim/chains';
 import { band, ChainFlow, FLOW_GOOD, FLOW_WEAK, HALF_LIFE, MAX_LINKS, shortages } from '../src/sim/chainFlow';
+import { setPolicy } from '../src/sim/factoryCtl';
+import { GRID_SIZE as GRID } from '../src/sim/types';
 import { buyUpgrade, hasUpg, outputMult, pollutionMult, powerMult, runningCostShare, UPG, UPGRADES, workerMult } from '../src/sim/factoryCtl';
 import { jobsOf } from '../src/sim/industry';
 import { demandOf } from '../src/sim/networks';
@@ -132,6 +140,58 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   ok(w2.tiles[i].upg === (UPG.SHIFT | UPG.AUTO | UPG.FILTER), 'upgrades survive save → load');
   t.zone = null; clearIfGone(w, i);
   ok(t.upg === 0, 'bulldozing loses the upgrades');
+}
+
+// ---- IND-4 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  const i = factories(s).find((j) => w.tiles[j].jobs > 0)!, t = w.tiles[i];
+  ok(!w.policies.eco && !w.policies.night, 'a save without policies loads with both off');
+  const env0 = computeEnvironment(w), out0 = outputMult(w, t), pm0 = pollutionMult(w, t), rc0 = runningCostShare(w, t);
+  // n. eco standards
+  setPolicy(w, 'eco', true);
+  const env1 = computeEnvironment(w);
+  ok(Math.abs(pollutionMult(w, t) - pm0 * 0.7) < 1e-9 && Math.abs(runningCostShare(w, t) - (rc0 + 0.15)) < 1e-9, 'eco: −30% pollution, +15% running cost');
+  ok(Math.abs(env1.pollution[i] - env0.pollution[i] * 0.7) < 0.05 * env0.pollution[i] + 1e-6, 'eco: pollution at a factory ≈ ×0.7', { before: +env0.pollution[i].toFixed(2), after: +env1.pollution[i].toFixed(2) });
+  setPolicy(w, 'eco', false);
+  const env2 = computeEnvironment(w);
+  ok(env2.pollution.every((v, k) => v === env0.pollution[k]) && runningCostShare(w, t) === rc0, 'eco off: pollution and costs back exactly');
+  // o. night shifts
+  setPolicy(w, 'night', true);
+  ok(Math.abs(outputMult(w, t) - out0 * 1.25) < 1e-9, 'night: +25% output');
+  // The avenue save may have no home that close to industry: zone one next to the factory.
+  const near = [...w.chunks.ringTilesSorted()].find((k) => w.tiles[k].zone !== 'industrial' && !w.tiles[k].road && !w.tiles[k].water && Math.max(Math.abs((k % GRID) - (i % GRID)), Math.abs(Math.floor(k / GRID) - Math.floor(i / GRID))) <= 3);
+  if (near !== undefined) w.tiles[near].zone = 'residential';
+  ok(near !== undefined, 'a tile near the factory to test with');
+  const env0b = computeEnvironment(w); setPolicy(w, 'night', false); const envOff = computeEnvironment(w); setPolicy(w, 'night', true);
+  const env3 = env0b;
+  const homes = [...w.chunks.ringTilesSorted()].filter((k) => w.tiles[k].zone === 'residential' && env3.desirability[k] !== envOff.desirability[k]);
+  ok(homes.length > 0 && homes.every((k) => Math.abs(env3.desirability[k] - (envOff.desirability[k] - 0.05)) < 1e-4), 'night: homes near factories 5% less happy', homes.length);
+  // Trucks: wrap spawn to see who sends night-shift trucks.
+  const sent = new Map<number, number>(); let outNow = 0, maxPerBuilding = 0;
+  const tr = s.traffic as any, spawn0 = tr.spawn.bind(tr);
+  const out = new Map<number, number>();
+  tr.spawn = (wd: any, kind: any, from: number, to: number, purpose: string, color?: number, onArrive?: () => void) => {
+    if (purpose !== 'night shift') return spawn0(wd, kind, from, to, purpose, color, onArrive);
+    out.set(from, (out.get(from) ?? 0) + 1); maxPerBuilding = Math.max(maxPerBuilding, out.get(from)!); sent.set(from, (sent.get(from) ?? 0) + 1); outNow++;
+    return spawn0(wd, kind, from, to, purpose, color, () => { out.set(from, out.get(from)! - 1); outNow--; onArrive?.(); });
+  };
+  const run = (n: number) => { const end = w.tick + n; while (w.tick < end) s.update(0.5); };
+  w.clock = 0.4 * 3600; // 09:36-ish: daytime
+  const n0 = s.shipping.stats.nightTrucks; run(200);
+  ok(s.shipping.stats.nightTrucks === n0, 'no night-shift trucks by day');
+  w.clock = 0.7 * 3600 + 3600; // 00:00 (timeOfDay = clock/DAY + 0.3)
+  run(400);
+  ok(s.shipping.stats.nightTrucks > 0, 'night-shift trucks at night', s.shipping.stats.nightTrucks);
+  ok(maxPerBuilding <= 2, 'at most one night truck per building road (two factories may share a road tile)', maxPerBuilding);
+  setPolicy(w, 'night', false);
+  const env4 = computeEnvironment(w); const n1 = s.shipping.stats.nightTrucks; run(200);
+  ok(outputMult(w, t) === out0 && s.shipping.stats.nightTrucks === n1, 'night off: output back, no more night trucks');
+  ok(homes.every((k) => env4.desirability[k] === envOff.desirability[k]), 'night off: the 5% happiness penalty is gone');
+  // p. save → load
+  setPolicy(w, 'eco', true);
+  const w2 = deserializeWorld(serializeWorld(w))!;
+  ok(w2.policies.eco && !w2.policies.night, 'policies survive save → load');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

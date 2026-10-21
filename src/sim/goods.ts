@@ -64,7 +64,8 @@ import { FUEL_MAX } from './rules';
 import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
 import { farmRate, fieldCount, isFarmLot } from './industry';
 import { ChainFlow } from './chainFlow';
-import { outputMult, runningCostShare } from './factoryCtl';
+import { isNight, outputMult, runningCostShare } from './factoryCtl';
+import { timeOfDay } from './traffic';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
 /** Hopper size of a processor (raw input waiting). Also used by food plants. */
@@ -110,6 +111,10 @@ export const FUEL_PER_UNIT = 5;
 export const COAL_PRICE = 600;
 /** V1.5: building materials a crew uses per tick on an active construction site. */
 export const MATERIAL_USE = 0.04;
+/** IND-4: a working factory sends a night-shift truck about this often at night (ticks)… */
+export const NIGHT_TRUCK_EVERY = 90;
+/** …and forgets a truck that never arrived after this many ticks. */
+export const NIGHT_TRUCK_TIMEOUT = 600;
 
 /** Does a shop selling `sells` accept a load of `good`? Grocers take packaged food too. */
 export const shopAccepts = (sells: GoodType, good: GoodType) => sells === good || (sells === 'food' && (good === 'packaged' || good === 'beverages'));
@@ -184,7 +189,7 @@ export class Shipping {
   depotLoads = new Map<number, number>();
   /** IND-2: producer → customer links for the Supply chain view (chainFlow.ts). Not saved. */
   flow = new ChainFlow();
-  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0 };
+  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0 };
 
   isIncoming(i: number): boolean {
     return this.incoming.has(i);
@@ -353,6 +358,9 @@ export class Shipping {
       }
     }
 
+    // ---- IND-4 NIGHT SHIFTS: night-shift trucks ----
+    this.nightShiftTrucks(world, traffic, factories, maxTrucks);
+
     // ---- Imports: empty shops, starving processors and yards with no local supplier ----
     const localMakes = new Set(factories.map((f) => factoryGood(world, f)));
     if (factories.some((f) => roleOf(world, f) === 'refinery')) { localMakes.add('fuel'); localMakes.add('plastics'); }
@@ -386,6 +394,36 @@ export class Shipping {
         // The CITY pays for imported building materials.
         world.ledger.trade.materials = (world.ledger.trade.materials ?? 0) + cost;
         world.cash -= cost;
+      }
+    }
+  }
+
+  /**
+   * IND-4: factory → tick its night-shift truck left (or is due back by).
+   * Each factory has AT MOST ONE night-shift truck out at a time; the entry
+   * is cleared when the truck arrives, or after NIGHT_TRUCK_TIMEOUT ticks in
+   * case the truck gave up and never arrived. Not saved (a reload just lets
+   * the next truck go a little early).
+   */
+  private nightOut = new Map<number, number>();
+  /**
+   * While the Night shifts policy is on and it is night (22:00–06:00), every
+   * working factory sends a night-shift truck (staff and supplies run to the
+   * city edge) about every NIGHT_TRUCK_EVERY ticks, staggered per building,
+   * never more than one per building and never past the Settings truck cap.
+   */
+  private nightShiftTrucks(world: World, traffic: Traffic, factories: number[], maxTrucks: number): void {
+    if (!world.policies.night) { if (this.nightOut.size) this.nightOut.clear(); return; }
+    if (!isNight(timeOfDay(world.clock)) || world.edgeIndex < 0) return;
+    for (const f of factories) {
+      if (traffic.count('truck') >= maxTrucks) return;
+      const out = this.nightOut.get(f);
+      if (out !== undefined && world.tick - out < NIGHT_TRUCK_TIMEOUT) continue; // one per building
+      if ((world.tick + f) % NIGHT_TRUCK_EVERY !== 0) continue; // staggered so they don't all leave at once
+      const from = roadNextTo(world.tiles, f);
+      if (from < 0) continue;
+      if (traffic.spawn(world, 'truck', from, world.edgeIndex, 'night shift', undefined, () => this.nightOut.delete(f))) {
+        this.nightOut.set(f, world.tick); this.stats.nightTrucks++;
       }
     }
   }
