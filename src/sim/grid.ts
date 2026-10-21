@@ -124,6 +124,8 @@ export class World {
   propertyRate = 0.05;
   /** IND-4: city-wide industrial policies (factoryCtl.ts), saved; missing in old saves = both off. */
   policies: import('./factoryCtl').Policies = { eco: false, night: false };
+  /** IND-7: goods stored per warehouse (anchor tile → good → units). Saved; missing = empty. */
+  warehouses: Record<number, Record<string, number>> = {};
   /** V1.5 stage 11: last month's profit per business host tile (not saved; rebuilt in a month). */
   profits = new Map<number, import('./economy').Profit>();
   /** Books for the month in progress, and the last finished month. */

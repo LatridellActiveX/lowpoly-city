@@ -32,7 +32,7 @@ import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services'
 import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
-import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
+import { factoryGood, GOOD_NAMES, shopGood, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
 import { POLICIES, Policies, setPolicy } from '../sim/factoryCtl';
 import { RECYCLE_MODES, RECYCLE_POWER, RECYCLE_YIELD, RecycleMode, recycleMode, setRecycleMode } from '../sim/recycleMode';
@@ -891,6 +891,13 @@ export class Hud {
           : '<div class="row muted">Pick Plastics or Building materials to turn garbage into products (20% less power).</div>');
         rows.push(`<div class="row">🔥 Burns garbage for <b>${Math.round((POWER_OUTPUT.powerPlant ?? 0) * (mode ? RECYCLE_POWER : 1))}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
         rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
+      }
+      if (d.svc === Svc.Warehouse) {
+        // IND-7: what the warehouse holds, per good.
+        const m = sim.world.warehouses[a] ?? {};
+        const held = Object.entries(m).filter(([, n]) => n >= 0.5).sort((x, y) => y[1] - x[1]);
+        rows.push(`<div class="row">🏬 Stores up to <b>${WAREHOUSE_CAP}</b> of each good. Factories within ${WAREHOUSE_REACH} tiles drop loads here; shops, yards and factories within ${WAREHOUSE_REACH} tiles are restocked from it first.</div>`);
+        rows.push(`<div class="row">In stock: ${held.length ? held.map(([g, n]) => `${GOOD_NAMES[g as keyof typeof GOOD_NAMES]} <b>${Math.round(n)}</b>`).join(' · ') : '<span class="muted">empty</span>'}</div>`);
       }
       if (d.svc === Svc.Depot) {
         let n = 0; sim.world.tiles.forEach((q, j) => { if ((q.zone === 'industrial' || q.zone === 'commercial') && q.level > 0 && depotOf([a], j) === a) n++; });

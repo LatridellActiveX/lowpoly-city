@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-7: services.ts Svc.Warehouse (tool 'warehouse', $12,000, 2,000 people, reach 20), world.warehouses saved per good; goods.ts warehousePickups (shops / yards / processors restocked first), factory drop-off step 2b, no import when a warehouse in reach holds the good; svc9 model = existing warehouse model; hud stock panel; industryctl.test IND-7.
+    id: '2026-10-20-oasis-ind7-warehouse',
+    title: 'Warehouses',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'New 🏬 Warehouse in the Industry menu ($12,000, unlocks at 2,000 people). It stores up to 400 of every good.' },
+      { tag: 'new', text: 'Factories within 20 tiles drop off loads there when no shop or factory needs them right away. Shops, Construction Yards and factories within 20 tiles are restocked from the warehouse first, so fewer trucks run half-empty and fewer goods are imported.' },
+      { tag: 'improved', text: 'Click a warehouse to see what it holds. Its stock is saved with your city.' },
+    ],
+  },
+  {
     // keeptraffic.test: split-street tolerance 8 m → 18 m (one real car/truck place, safe-gap lengths); failing since OASIS-S6 changed the traffic snapshot. Test-only, no game change.
     id: '2026-10-20-oasis-keeptraffic-test-fix',
     title: 'Traffic test fix',

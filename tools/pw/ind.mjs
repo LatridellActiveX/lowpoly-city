@@ -82,5 +82,21 @@ if (stage === "6") {
   if (out.rc) await look(out.rc[0], out.rc[1], 2.6);
   await frame(() => window.city.refresh()); await shot("recycling");
 }
+if (stage === "7") {
+  // IND-7: a warehouse on a free road-side tile nearest the factories, with some stock, panel open.
+  out.wh = await frame(() => {
+    const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length));
+    w.peakPop = Math.max(w.peakPop, 3000);
+    const fs = []; w.tiles.forEach((t, i) => { if (t.zone === "industrial" && t.level > 0) fs.push(i); });
+    const man = (a, b) => Math.abs(a % N - b % N) + Math.abs(Math.floor(a / N) - Math.floor(b / N));
+    let a = -1, best = 1e9;
+    w.tiles.forEach((t, i) => { if (i < N || i >= w.tiles.length - N || t.zone || t.road || t.water || t.structure !== "none" || t.edge || ![1, -1, N, -N].some((d) => w.tiles[i + d].road)) return; const d = Math.min(...fs.map((f) => man(i, f))); if (d < best) { best = d; a = i; } });
+    const t = w.tiles[a]; t.structure = "service"; t.kind = 9; t.part = 0; w.warehouses[a] = { lumber: 64, food: 48, plastics: 32 };
+    c.sim.version++; c.inspect(a % N, Math.floor(a / N)); c.refresh(); return [a % N, Math.floor(a / N)];
+  });
+  await look(out.wh[0], out.wh[1], 2.4);
+  for (let k = 0; k < 6; k++) await frame(() => { window.city.sim.update(0.5); window.city.refresh(); });
+  await shot("warehouse");
+}
 console.log(JSON.stringify({ out, errs: errs.slice(0, 3) }));
 await browser.close();

@@ -111,6 +111,7 @@ export function serializeWorld(world: World): string {
     taxRates: world.taxRates,
     propertyRate: world.propertyRate, // V1.5 stage 11
     policies: world.policies, // IND-4 (no version bump: missing = both off)
+    warehouses: world.warehouses, // IND-7 (missing = empty)
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -194,6 +195,13 @@ export function deserializeWorld(raw: string): World | null {
       if (typeof data.propertyRate === 'number') w.propertyRate = data.propertyRate;
       // IND-4: industrial policies. Only real booleans are taken; anything missing stays off.
       w.policies = { eco: data.policies?.eco === true, night: data.policies?.night === true };
+      // IND-7: warehouse stock (numbers only).
+      w.warehouses = {};
+      if (data.warehouses && typeof data.warehouses === 'object') for (const [k, v] of Object.entries(data.warehouses as Record<string, Record<string, unknown>>)) {
+        const m: Record<string, number> = {};
+        for (const [g, n] of Object.entries(v ?? {})) if (typeof n === 'number' && n > 0) m[g] = n;
+        w.warehouses[Number(k)] = m;
+      }
       w.ledger = mergeLedger(data.ledger) ?? emptyLedger();
       w.lastLedger = mergeLedger(data.lastLedger);
     }

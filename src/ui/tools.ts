@@ -50,7 +50,7 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   { id: 'roads', label: 'Roads', icon: '🛣️', tools: ['road', 'avenue', 'freeRoad', 'roundabout', 'parkingLot', 'parkingGarage'] },
   { id: 'utilities', label: 'Utilities', icon: '🔌', tools: ['powerLine', 'powerPlant', 'oilPlant', 'windTurbine', 'nuclearPlant', 'waterPipe', 'waterTower', 'bigWaterTower', 'pumpStation'], sections: { powerLine: '⚡ Power', waterPipe: '💧 Water' } },
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
-  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard', 'shippingDepot'] },
+  { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard', 'shippingDepot', 'warehouse'] },
   // V1.5b city services (sim/services.ts).
   { id: 'services', label: 'Services', icon: '🏛️', tools: ['garbageDump', 'recyclingCenter', 'policeStation', 'clinic', 'hospital', 'elementarySchool', 'highSchool', 'college'] },
 ];
@@ -74,6 +74,7 @@ export const TOOLS: ToolDef[] = [
   { id: 'waterTower', label: 'Water Tower', icon: '🗼', key: 't', shape: 'point', hint: 'Supplies 800 water (about 1,000 people). Needs power to pump. $4,000 + $200/month.', group: 'utilities' },
   { id: 'waterPipe', label: 'Pipe', icon: '🚰', key: 'o', shape: 'line', hint: 'Roads already carry water mains (PR 6). Use pipes for runs across land with no road. Buildings beside a pipe get water.', group: 'utilities' },
   { id: 'shippingDepot', label: 'Shipping Depot', icon: '📦', key: 'f', shape: 'point', hint: '2×2. Industry and shops within 20 tiles ship through it: exports pay +15% and leave sooner, imports come from the depot instead of the highway (shorter trips). $100,000 + $500/month. Unlocks at 2,000 people.', group: 'industry' },
+  { id: 'warehouse', label: 'Warehouse', icon: '🏬', key: '', shape: 'point', hint: 'Stores up to 400 of every good. Factories within 20 tiles drop loads off here, and shops, yards and factories within 20 tiles are restocked from it first, so fewer trucks run half-empty. $12,000 + $150/month. Unlocks at 2,000 people.', group: 'industry' },
   { id: 'garbageDump', label: 'Landfill', icon: '🗑️', key: '4', shape: 'point', hint: '2×2. Sends 6 garbage trucks along the roads to empty bins within 16 tiles. Holds a limited amount of garbage — it fills up (the model grows) and once full it stops taking garbage until you build a new one. $10,000 + $400/month. Unlocks at 1,000 people.', group: 'services' },
   { id: 'recyclingCenter', label: 'Recycling Center', icon: '♻️', key: 'c', shape: 'point', hint: 'Burns garbage to make 5,000 power (like a coal plant). Runs 12 garbage trucks (2× a landfill) and cuts how much garbage buildings within 12 tiles make (up to −45%). Landfill trucks haul stored garbage here to be burned, freeing landfill space. $8,000 + $350/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'policeStation', label: 'Police Station (2×2)', icon: '🚓', key: '5', shape: 'point', hint: 'A 2×2 station. Cuts crime within 10 tiles (crime lowers land value and health); patrol cars drive the streets. $5,000 + $250/month. Unlocks at 2,500 people.', group: 'services' },

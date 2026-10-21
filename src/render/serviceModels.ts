@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { box, gable, merge, part } from './models';
 import { landfillStageModel, slab, V3 } from './landfillModel';
+import { newIndustryModels } from './industryModels';
 
 const cyl = (r: number, h: number, seg = 12) => new THREE.CylinderGeometry(r, r, h, seg).translate(0, h / 2, 0);
 const WIN = 0x9fc4e8, CONC = 0xc8c3b8, BRICK = 0xb5543c, ROOFD = 0x4d5560, GRASS = 0x6fb54f, WHITE = 0xf2f2ee;
@@ -320,6 +321,7 @@ export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
     svc8: recyclingModel(), // V1.6
+    svc9: newIndustryModels().warehouse, // IND-7: the distribution-centre model (already drawn for warehouse lots)
     // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>).
     ...Object.fromEntries(Array.from({ length: 6 }, (_, k) => [`svc0_${k}`, landfillStageModel(k)])),
     svc1: policeModel(), // V1.6: the 2×2 station

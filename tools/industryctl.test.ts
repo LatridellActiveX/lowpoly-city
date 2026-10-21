@@ -45,6 +45,11 @@
  *  u. default mode is power only (old saves unchanged, no stock added);
  *  v. plastics / materials mode: 8 per 100 garbage burned, power ×0.8;
  *  w. a full load ships to a factory / yard like any supplier; mode survives save → load.
+ *
+ * IND-7 warehouse (goods.ts WAREHOUSE_*, world.warehouses):
+ *  x. factories in reach drop loads off; never more than WAREHOUSE_CAP of a good;
+ *  y. a needy shop in reach is restocked from the warehouse first (and doesn't import);
+ *  z. stock survives save → load; bulldozing forgets it.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -60,6 +65,7 @@ import { EXPORT_PRICE, factoryGood, shopGood } from '../src/sim/goods';
 import { truckBody } from '../src/sim/truckBodies';
 import { RECYCLE_POWER, recycleMode, setRecycleMode } from '../src/sim/recycleMode';
 import { output } from '../src/sim/networks';
+import { LOAD, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../src/sim/goods';
 import { Svc } from '../src/sim/services';
 import { GRID_SIZE as GRID } from '../src/sim/types';
 import { buyUpgrade, hasUpg, outputMult, pollutionMult, powerMult, runningCostShare, UPG, UPGRADES, workerMult } from '../src/sim/factoryCtl';
@@ -321,6 +327,42 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   const end = w.tick + 200; while (w.tick < end) s.update(0.5);
   const sent = s.shipping.stats.chainLoads + s.shipping.stats.shopLoads + s.shipping.stats.exported - loads0;
   ok(t.stock < 40 && [...s.shipping.flow.links.values()].some((l) => l.from === a) || t.stock <= 40 - 16, 'w. the center ships its plastics', { stock: t.stock, sent, links: [...s.shipping.flow.links.values()].filter((l) => l.from === a).map((l) => l.good) });
+}
+
+// ---- IND-7 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world, N = GRID;
+  const fs = factories(s);
+  const man = (a: number, b: number) => Math.abs((a % N) - (b % N)) + Math.abs(Math.floor(a / N) - Math.floor(b / N));
+  // A free tile beside a road, as close to both a factory and a shop as possible.
+  const shopsAll = w.tiles.map((q, i) => (q.zone === 'commercial' && q.level > 0 && shopGood(w, i) !== 'vehicles' ? i : -1)).filter((i) => i >= 0);
+  let a = -1, best = Infinity;
+  w.tiles.forEach((t, i) => {
+    if (t.zone || t.road || t.water || t.structure !== 'none' || t.edge || ![1, -1, N, -N].some((d) => w.tiles[i + d]?.road)) return;
+    const d = fs.reduce((m, f) => Math.min(m, man(i, f)), Infinity) + shopsAll.reduce((m, f) => Math.min(m, man(i, f)), Infinity); if (d < best) { best = d; a = i; }
+  });
+  const t = w.tiles[a]; t.structure = 'service'; t.kind = Svc.Warehouse; t.part = 0;
+  w.version = (w as any).version; // (no-op; topology unchanged for roads)
+  const inReach = fs.filter((f) => man(f, a) <= WAREHOUSE_REACH).length;
+  ok(inReach > 0, 'x. factories within reach of the test warehouse', { inReach, best });
+  // y. a needy shop in reach + stock of what it sells.
+  const shop = w.tiles.findIndex((q, i) => q.zone === 'commercial' && q.level > 0 && man(i, a) <= WAREHOUSE_REACH && shopGood(w, i) !== 'vehicles');
+  const sg = shopGood(w, shop);
+  w.warehouses[a] = { [sg]: 100 }; w.tiles[shop].stock = 0;
+  const st0 = { ...s.shipping.stats };
+  let maxHeld = 0;
+  const end = w.tick + 1500; while (w.tick < end) { s.update(0.5); for (const n of Object.values(w.warehouses[a] ?? {})) maxHeld = Math.max(maxHeld, n); }
+  const sin = s.shipping.stats.warehouseIn - st0.warehouseIn, sout = s.shipping.stats.warehouseOut - st0.warehouseOut;
+  ok(sin > 0, 'x. factories drop loads off at the warehouse', sin);
+  ok(maxHeld <= WAREHOUSE_CAP, `x. never more than ${WAREHOUSE_CAP} of a good`, maxHeld);
+  ok(sout > 0 && [...s.shipping.flow.links.values()].some((l) => l.from === a && l.to === shop), 'y. the needy shop is restocked from the warehouse', { sout, sg });
+  // z. save → load, bulldoze
+  w.warehouses[a] = { steel: 48, food: 16 };
+  const w2 = deserializeWorld(serializeWorld(w))!;
+  ok(w2.warehouses[a]?.steel === 48 && w2.warehouses[a]?.food === 16, 'z. warehouse stock survives save → load');
+  t.structure = 'none'; { const e2 = w.tick + 3; while (w.tick < e2) s.update(0.5); }
+  ok(!w.warehouses[a], 'z. a bulldozed warehouse forgets its stock');
+  void LOAD;
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

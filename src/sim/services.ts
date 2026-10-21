@@ -23,7 +23,7 @@ import { roadComponents } from './roadnet';
 /** People at which police (and with them crime) unlock. */
 export const POLICE_UNLOCK_POP = 2500;
 
-export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8 }
+export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8, Warehouse = 9 }
 
 export interface ServiceDef {
   svc: Svc;
@@ -56,6 +56,12 @@ export const SERVICE_DEFS: ServiceDef[] = [
   { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 100000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
   // V1.6: RECYCLING CENTER. Its coverage cuts garbage build-up on every building in its radius (garbage.ts RECYCLE_CUT), so landfills last longer.
   { svc: Svc.Recycling, tool: 'recyclingCenter', label: 'Recycling Center', size: 1, cost: 8000, upkeep: 350, unlockPop: 2500, radius: 12, fleet: 12 }, // V1.6: 12 garbage trucks = 2× a landfill's 6; also burns garbage for 5,000 power (networks.ts)
+  // (SERVICE_DEFS is indexed by Svc — keep entries in enum order.)
+  // IND-7: WAREHOUSE. Stores up to WAREHOUSE_CAP of every good (goods.ts):
+  // factories within its reach drop loads off here, and shops / yards /
+  // processors in reach are restocked from it first. Its "coverage" radius is
+  // that reach (20 tiles). No vehicles of its own: deliveries are trucks.
+  { svc: Svc.Warehouse, tool: 'warehouse', label: 'Warehouse', size: 1, cost: 12000, upkeep: 150, unlockPop: 2000, radius: 20, fleet: 0 },
 ];
 export const SERVICE_BY_TOOL: Partial<Record<ToolId, ServiceDef>> = Object.fromEntries(SERVICE_DEFS.map((d) => [d.tool, d]));
 export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;

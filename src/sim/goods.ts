@@ -175,8 +175,29 @@ export function depotRoad(tiles: Tile[], a: number): number {
   return -1;
 }
 
+/**
+ * IND-7 — WAREHOUSES (services.ts Svc.Warehouse, stock in world.warehouses).
+ *
+ *  - A warehouse holds up to WAREHOUSE_CAP units of EACH good.
+ *  - DROP-OFF: a factory within WAREHOUSE_REACH tiles (Manhattan distance)
+ *    whose full load has no processor or needy shop to go to drops it at the
+ *    warehouse instead of waiting / exporting.
+ *  - PICK-UP FIRST: every tick, before factories ship, needy shops, Construction
+ *    Yards (materials) and processors (their input) within reach are restocked
+ *    from a warehouse that holds a full LOAD of what they need.
+ *  - Shops whose good sits in a warehouse in reach don't import it.
+ * Stock is booked when the truck ARRIVES at the warehouse and taken out when
+ * the truck LEAVES it (like factories).
+ */
+export const WAREHOUSE_CAP = 400;
+export const WAREHOUSE_REACH = 20;
+/** Units of good g in warehouse a. */
+export const whHas = (world: World, a: number, g: GoodType): number => world.warehouses[a]?.[g] ?? 0;
+
 /** IND-5: `incoming` key of a plant's SECOND hopper (main hopper is −1 − p, shops are p). */
 const secondKey = (p: number) => -2e7 - p;
+/** IND-7: `incoming` key of "a truck is bringing good g to warehouse a" (one per good). */
+const whKey = (a: number, g: GoodType) => 3e7 + a * 64 + Object.keys(EXPORT_PRICE).indexOf(g);
 
 export class Shipping {
   /** Tiles with a truck already on its way TO them (negative key = a processor's input side). */
@@ -222,7 +243,7 @@ export class Shipping {
     for (const y of this.steelYards) { const t = world.tiles[y]; if (t.structure === 'constructionYard' && t.stock > 0) return true; }
     return false;
   }
-  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0 };
+  stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0, warehouseIn: 0, warehouseOut: 0 };
 
   isIncoming(i: number): boolean {
     return this.incoming.has(i);
@@ -245,7 +266,9 @@ export class Shipping {
     let sites = 0;
     refreshRoles(world, operating);
     // V1.5b stage C: road-connected depots and who is inside their catchment.
-    const depots = serviceAnchors(world, Svc.Depot);
+    // IND-7: one scan for every service anchor (depots, warehouses, recyclers) instead of one per kind.
+    const svcs = serviceAnchors(world);
+    const depots = svcs.filter((a) => tiles[a].kind === Svc.Depot);
     const depotFor = (i: number): number => depotOf(depots, i);
     world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
       if (t.structure === 'powerPlant' && !t.part) plants.push(i); // V1.5b: a 2×2 coal plant is fuelled at its anchor
@@ -322,10 +345,15 @@ export class Shipping {
       }
     }
 
+    // ---- IND-7: warehouses restock needy customers first ----
+    const whs = svcs.filter((a) => tiles[a].kind === Svc.Warehouse);
+    for (const k of Object.keys(world.warehouses)) { const a = Number(k), t = tiles[a]; if (t.structure !== 'service' || t.kind !== Svc.Warehouse) delete world.warehouses[a]; } // bulldozed
+    if (whs.length) this.warehousePickups(world, traffic, whs, shops, yards, factories, maxTrucks);
+
     // ---- Factories ship full loads ----
     // IND-6: recycling centers in a product mode ship their plastics /
     // materials through the same loop, like any other supplier.
-    const recyclers = serviceAnchors(world, Svc.Recycling).filter((a) => recycleMode(tiles[a]) !== '');
+    const recyclers = svcs.filter((a) => tiles[a].kind === Svc.Recycling && recycleMode(tiles[a]) !== '');
     for (const f of [...factories, ...recyclers]) {
       const t = tiles[f];
       if (t.stock < LOAD || trucks() >= maxTrucks) continue;
@@ -379,6 +407,20 @@ export class Shipping {
           continue;
         }
       }
+      // 2b) IND-7: a warehouse in reach with room takes the load (nearest).
+      if (whs.length) {
+        let wh = -1, wd = Infinity;
+        for (const a of whs) { const d = manhattan(f, a); if (d <= WAREHOUSE_REACH && d < wd && whHas(world, a, good) <= WAREHOUSE_CAP - LOAD && !this.incoming.has(whKey(a, good))) { wd = d; wh = a; } }
+        const to = wh >= 0 ? roadNextTo(tiles, wh) : -1;
+        if (to >= 0) {
+          const a = wh, g = good;
+          if (traffic.spawn(world, 'truck', from, to, `to warehouse: ${good}`, undefined, () => this.storeAt(world, a, g))) {
+            t.stock -= LOAD; this.incoming.add(whKey(a, g)); this.stats.warehouseIn++;
+            this.flow.add(world.tick, f, a, good);
+            continue;
+          }
+        }
+      }
       // 3a) V1.5b stage C: inside a depot's catchment the surplus ships via
       //     the depot — sooner (half-full is enough), a short trip, and the
       //     depot's consolidated freight pays DEPOT_BONUS more.
@@ -426,6 +468,7 @@ export class Shipping {
     for (const s of shops) {
       const good = shopGood(world, s);
       if (tiles[s].stock > 0.5 || [...localMakes].some((g) => shopAccepts(good, g))) continue; // a local factory will come
+      if (whs.some((a) => manhattan(s, a) <= WAREHOUSE_REACH && whHas(world, a, good) >= LOAD)) continue; // IND-7: the warehouse will restock it
       if (imp(s, good, s, () => this.deliver(world, s))) this.importedSupply.add(s);
     }
     for (const p of factories) {
@@ -479,6 +522,54 @@ export class Shipping {
       if (traffic.spawn(world, 'truck', from, world.edgeIndex, 'night shift', undefined, () => this.nightOut.delete(f))) {
         this.nightOut.set(f, world.tick); this.stats.nightTrucks++;
       }
+    }
+  }
+
+  /** IND-7: a truck unloads `g` at warehouse a (it may have been bulldozed meanwhile: the load is lost). */
+  private storeAt(world: World, a: number, g: GoodType): void {
+    this.incoming.delete(whKey(a, g));
+    const t = world.tiles[a];
+    if (t.structure !== 'service' || t.kind !== Svc.Warehouse) return;
+    const m = (world.warehouses[a] ??= {});
+    m[g] = Math.min(WAREHOUSE_CAP, (m[g] ?? 0) + LOAD);
+  }
+
+  /**
+   * IND-7: restock from warehouses. For every customer that needs something
+   * (shop below SHOP_LOW, yard below SHOP_LOW while sites need materials,
+   * processor with hopper room), the nearest warehouse in reach holding a
+   * full LOAD of a good it takes sends a truck. One truck per customer at a
+   * time (the usual `incoming` keys).
+   */
+  private warehousePickups(world: World, traffic: Traffic, whs: number[], shops: number[], yards: number[], factories: number[], maxTrucks: number): void {
+    const tiles = world.tiles;
+    const send = (cust: number, key: number, goods: GoodType[], arrive: (g: GoodType) => () => void): void => {
+      if (traffic.count('truck') >= maxTrucks || this.incoming.has(key)) return;
+      let best = -1, bd = Infinity, bg: GoodType | null = null;
+      for (const a of whs) {
+        const d = manhattan(cust, a); if (d > WAREHOUSE_REACH || d >= bd) continue;
+        const g = goods.find((x) => whHas(world, a, x) >= LOAD);
+        if (g) { best = a; bd = d; bg = g; }
+      }
+      if (best < 0 || !bg) return;
+      const from = roadNextTo(tiles, best), to = roadNextTo(tiles, cust);
+      if (from < 0 || to < 0) return;
+      if (traffic.spawn(world, 'truck', from, to, `from warehouse: ${bg}`, undefined, arrive(bg))) {
+        world.warehouses[best][bg]! -= LOAD; this.incoming.add(key); this.importedSupply.delete(cust);
+        this.stats.warehouseOut++; this.flow.add(world.tick, best, cust, bg);
+      }
+    };
+    const ALL = Object.keys(EXPORT_PRICE) as GoodType[];
+    for (const s of shops) {
+      if (tiles[s].stock >= SHOP_LOW) continue;
+      const sells = shopGood(world, s);
+      send(s, s, ALL.filter((g) => shopAccepts(sells, g)), () => () => this.deliver(world, s));
+    }
+    for (const y of yards) if (tiles[y].stock < SHOP_LOW) send(y, y, ['materials'], () => () => this.deliver(world, y));
+    for (const p of factories) {
+      const rec = RECIPES[roleOf(world, p)];
+      if (!rec || tiles[p].input > PLANT_INPUT_MAX - LOAD) continue;
+      send(p, -1 - p, rec.inputs, (g) => () => this.feedPlant(world, p, g === 'steel'));
     }
   }
 
