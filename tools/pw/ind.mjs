@@ -37,6 +37,10 @@ if (stage === "1" || stage === "3") {
   const p = await pickFactory(); out.factory = p;
   if (p) await look(p[0], p[1]);
   await frame(() => window.city.refresh());
+  if (stage === "3") { // buy Second shift and Filters through the real buttons
+    for (const u of ["SHIFT", "FILTER"]) { await frame((u) => document.querySelector(`[data-fc="upg"][data-u="${u}"]`).dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })), u); await frame(() => window.city.refresh()); }
+    out.upg = await frame(() => [...document.querySelectorAll('[data-fc="upg"]')].map((b) => b.textContent));
+  }
   await shot(stage === "1" ? "panel" : "upgrades");
   if (stage === "1" && p) {
     await page.selectOption(".fc-recipe", "printer");

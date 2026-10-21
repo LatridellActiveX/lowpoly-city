@@ -64,6 +64,7 @@ import { FUEL_MAX } from './rules';
 import { SERVICE_DEFS, serviceAnchors, Svc } from './services';
 import { farmRate, fieldCount, isFarmLot } from './industry';
 import { ChainFlow } from './chainFlow';
+import { outputMult, runningCostShare } from './factoryCtl';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
 /** Hopper size of a processor (raw input waiting). Also used by food plants. */
@@ -220,18 +221,22 @@ export class Shipping {
         if (t.pause > world.tick) return; // IND-1: retooling after a recipe switch (factoryCtl.ts): no output
         if (rec) {
           // PROCESSOR: convert hopper input 1:1 into output.
-          const r = Math.min(t.input, t.level * PROCESS_RATE, FACTORY_MAX - t.stock);
+          // IND-3: upgrades (second shift, automation) raise the rate (factoryCtl.ts).
+          const r = Math.min(t.input, t.level * PROCESS_RATE * outputMult(world, t), FACTORY_MAX - t.stock);
           if (r > 0) {
             t.input -= r; t.stock += r; this.stats.processed += r;
             // Inputs consumed at the wholesale price (premium if imported) + chips.
             this.book(this.costs, i, r * this.unit(rec.inputs[0]) * (this.importedSupply.has(i) ? IMPORT_PREMIUM : 1) + (role === 'electronics' ? r * CHIP_COST : 0));
             this.book(this.sales, i, r * this.unit(rec.outputs[0]));
+            this.book(this.costs, i, r * this.unit(rec.outputs[0]) * runningCostShare(world, t)); // IND-3 filters
           }
         } else {
           // Extractors / farms / plain factories: value of what they produced.
           const before = t.stock;
-          t.stock = Math.min(FACTORY_MAX, t.stock + (isFarmLot(world, i) ? farmRate(PRODUCE_RATE, fieldCount(world, i)) : t.level * PRODUCE_RATE));
-          this.book(this.sales, i, (t.stock - before) * this.unit(roleOutput(world, i, role)));
+          t.stock = Math.min(FACTORY_MAX, t.stock + (isFarmLot(world, i) ? farmRate(PRODUCE_RATE, fieldCount(world, i)) : t.level * PRODUCE_RATE) * outputMult(world, t)); // IND-3 upgrades
+          const made = (t.stock - before) * this.unit(roleOutput(world, i, role));
+          this.book(this.sales, i, made);
+          this.book(this.costs, i, made * runningCostShare(world, t)); // IND-3 filters
         }
       } else if (t.zone === 'commercial') {
         shops.push(i);

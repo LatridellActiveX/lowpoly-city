@@ -30,6 +30,7 @@
  * a big city, about the same as the utility flood-fill.
  */
 import { GRID_SIZE, TileService } from './types';
+import { pollutionMult } from './factoryCtl';
 import { World } from './grid';
 import { garbageNorm } from './garbageRules';
 import { isFarmLot } from './industry';
@@ -278,7 +279,7 @@ export function computeEnvironment(world: World, service?: TileService[], pre?: 
   world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2: sources live in active chunks
     const x = i % GRID_SIZE, z = Math.floor(i / GRID_SIZE);
     if (t.structure === 'powerPlant' && !t.part) spread(pollution, x, z, PLANT_POLLUTION_RADIUS, PLANT_POLLUTION);
-    else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1)); // PR 5: farms pollute ¼
+    else if (t.zone === 'industrial' && t.level > 0) spread(pollution, x, z, FACTORY_POLLUTION_RADIUS, FACTORY_POLLUTION_PER_LEVEL * t.level * (isFarmLot(world, i) ? 0.25 : 1) * pollutionMult(world, t)); // PR 5: farms pollute ¼; IND-3 filters
     else if (t.structure === 'park') parkReach(world, i, (j, d) => { parks[j] += PARK_BONUS * parkRoadFalloff(d); }); // OASIS-S4: along the roads
   });
   // V1.6 A4: outside the ring pollution and parks are 0 → desirability = DESIRE_BASE.

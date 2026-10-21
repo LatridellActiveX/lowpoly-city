@@ -18,6 +18,13 @@
  *  h. a link's "loads lately" halves every HALF_LIFE ticks; colours band right;
  *  i. at most MAX_LINKS links come back, busiest first;
  *  j. an empty shop with nothing on the way is a shortage.
+ *
+ * IND-3 upgrades (factoryCtl.ts UPG):
+ *  k. prices charged; Automation locked below the City tier; no double buy;
+ *  l. output (+50% shift, +30% automation), workers (+30% / −40%), power
+ *     (+50% automation), pollution (−60% filters) and running cost (+10%)
+ *     change as listed;
+ *  m. upgrades survive save → load and are lost when the building goes.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -27,6 +34,10 @@ import { deserializeWorld, serializeWorld } from '../src/sim/save';
 import { Simulation } from '../src/sim/simulation';
 import { RECIPES, roleOf } from '../src/sim/chains';
 import { band, ChainFlow, FLOW_GOOD, FLOW_WEAK, HALF_LIFE, MAX_LINKS, shortages } from '../src/sim/chainFlow';
+import { buyUpgrade, hasUpg, outputMult, pollutionMult, powerMult, runningCostShare, UPG, UPGRADES, workerMult } from '../src/sim/factoryCtl';
+import { jobsOf } from '../src/sim/industry';
+import { demandOf } from '../src/sim/networks';
+import { computeEnvironment } from '../src/sim/environment';
 import { canPickRecipe, clearIfGone, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe } from '../src/sim/factoryCtl';
 
 let fails = 0;
@@ -97,6 +108,30 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   const shop = w.tiles.findIndex((t) => t.zone === 'commercial' && t.level > 0 && t.kind !== 4);
   w.tiles[shop].stock = 0;
   ok(shop >= 0 && shortages(w, () => false, () => false).includes(shop), 'an empty shop with nothing on the way is a shortage');
+}
+
+// ---- IND-3 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  const i = factories(s).find((j) => w.tiles[j].jobs > 0)!, t = w.tiles[i];
+  w.cash = 20000; w.tier = 2;
+  const jobs0 = jobsOf(w, i), pow0 = demandOf(t, 'power');
+  const env0 = computeEnvironment(w);
+  ok(buyUpgrade(w, i, 'AUTO') !== null && !hasUpg(t, 'AUTO'), 'Automation is locked below the City tier');
+  ok(buyUpgrade(w, i, 'SHIFT') === null && w.cash === 20000 - UPGRADES.SHIFT.cost, `Second shift costs $${UPGRADES.SHIFT.cost}`);
+  ok(buyUpgrade(w, i, 'SHIFT') !== null && w.cash === 20000 - UPGRADES.SHIFT.cost, 'cannot buy it twice');
+  ok(Math.abs(outputMult(w, t) - 1.5) < 1e-9 && jobsOf(w, i) === Math.round(jobs0 * 1.3), 'shift: +50% output, +30% workers', { jobs0, jobs: jobsOf(w, i) });
+  w.tier = 3;
+  ok(buyUpgrade(w, i, 'AUTO') === null && Math.abs(outputMult(w, t) - 1.95) < 1e-9, 'automation at City tier: ×1.3 more output');
+  ok(jobsOf(w, i) === Math.round(jobs0 * 1.3 * 0.6) && Math.abs(demandOf(t, 'power') - pow0 * 1.5) < 1e-9, 'automation: −40% workers, +50% power', { pow0, pow: demandOf(t, 'power') });
+  ok(buyUpgrade(w, i, 'FILTER') === null && pollutionMult(w, t) === 0.4 && runningCostShare(w, t) === 0.1, 'filters: −60% pollution, +10% running cost');
+  const env1 = computeEnvironment(w);
+  ok(env1.pollution[i] < env0.pollution[i], 'pollution at the factory drops', { before: +env0.pollution[i].toFixed(2), after: +env1.pollution[i].toFixed(2) });
+  ok(workerMult(t) === 1.3 * 0.6 && powerMult(t) === 1.5, 'multipliers');
+  const w2 = deserializeWorld(serializeWorld(w))!;
+  ok(w2.tiles[i].upg === (UPG.SHIFT | UPG.AUTO | UPG.FILTER), 'upgrades survive save → load');
+  t.zone = null; clearIfGone(w, i);
+  ok(t.upg === 0, 'bulldozing loses the upgrades');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

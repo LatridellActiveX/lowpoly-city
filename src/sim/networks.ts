@@ -32,6 +32,7 @@ import { GRID_SIZE } from './types';
  * long line first, which feels natural.
  */
 import { coords, idx, inBounds, NEIGHBOURS, World } from './grid';
+import { powerMult } from './factoryCtl';
 import { DEMAND, OIL_PLANT_OUTPUT, PLANT_OIL, POWER_OUTPUT, PUMP_STATION_OUTPUT, BIG_TOWER_OUTPUT, sizeUnits, UNFUELLED_OUTPUT, WATER_OUTPUT } from './rules';
 import { Network, Tile, TileService } from './types';
 import { applyGraphUtilities, graphOnly, prepareGraphUtilities } from './graphutil';
@@ -94,7 +95,8 @@ export function output(t: Tile, kind: Kind, wind: number): number {
 /** How much of this utility a tile wants right now (0 for non-buildings). */
 export function demandOf(t: Tile, kind: Kind): number {
   if (t.zone === null || t.level === 0) return 0;
-  return DEMAND[t.zone][kind] * sizeUnits(t); // PR 5: homes scale per resident
+  // IND-3: an automated factory uses +50% power (factoryCtl.ts).
+  return DEMAND[t.zone][kind] * sizeUnits(t) * (kind === 'power' && t.upg ? powerMult(t) : 1); // PR 5: homes scale per resident
 }
 
 /** A consumer is anything zoned, plus water towers (they need power to pump). */

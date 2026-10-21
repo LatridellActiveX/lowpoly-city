@@ -84,3 +84,61 @@ export function clearIfGone(world: World, i: number): void {
   if (t.zone === 'industrial' && (t.level > 0 || t.construct > 0)) return;
   if (t.recipe || t.pause || t.upg) { t.recipe = ''; t.pause = 0; t.upg = 0; }
 }
+
+// ============================================================================
+// IND-3 — UPGRADES (bought in the factory panel)
+// ============================================================================
+/**
+ * Each upgrade is one bit of `tile.upg` (saved with the tile). A building
+ * can have all three. They are lost when the building is bulldozed
+ * (clearIfGone above).
+ *
+ *   SHIFT  Second shift   $3,000          +50% output, +30% workers
+ *   AUTO   Automation     $6,000, City    +30% output, −40% workers, +50% power use
+ *   FILTER Filters        $2,000          −60% pollution, +10% running cost
+ *
+ * "Running cost" = 10% of the value of what the building makes, booked as
+ * an input cost (goods.ts), so it shows in the building's profit.
+ */
+export const UPG = { SHIFT: 1, AUTO: 2, FILTER: 4 } as const;
+export type UpgKey = keyof typeof UPG;
+export const UPGRADES: Record<UpgKey, { label: string; cost: number; tier: number; text: string }> = {
+  SHIFT: { label: 'Second shift', cost: 3000, tier: 0, text: '+50% output, +30% workers' },
+  AUTO: { label: 'Automation', cost: 6000, tier: 3, text: '+30% output, −40% workers, +50% power' },
+  FILTER: { label: 'Filters', cost: 2000, tier: 0, text: '−60% pollution, +10% running cost' },
+};
+/** Does tile t have upgrade k? */
+export const hasUpg = (t: { upg: number }, k: UpgKey): boolean => (t.upg & UPG[k]) !== 0;
+
+/** Buy upgrade k for factory i. null = bought; otherwise why not. */
+export function buyUpgrade(world: World, i: number, k: UpgKey): string | null {
+  const t = world.tiles[i], u = UPGRADES[k];
+  if (t.zone !== 'industrial' || t.level === 0) return 'Only a working factory can be upgraded';
+  if (hasUpg(t, k)) return 'Already bought';
+  if (world.tier < u.tier) return '🔒 Automation unlocks at the City tier (10,000 people)';
+  if (world.cash < u.cost) return 'Not enough money';
+  world.cash -= u.cost;
+  world.ledger.construction += u.cost;
+  t.upg |= UPG[k];
+  return null;
+}
+
+/** Output multiplier of an industrial tile from its upgrades (IND-4 adds the night-shift policy). */
+export function outputMult(world: World, t: { upg: number }): number {
+  let m = 1;
+  if (hasUpg(t, 'SHIFT')) m *= 1.5;
+  if (hasUpg(t, 'AUTO')) m *= 1.3;
+  return m;
+}
+/** Workers multiplier (jobs offered) from upgrades. */
+export const workerMult = (t: { upg: number }): number => (hasUpg(t, 'SHIFT') ? 1.3 : 1) * (hasUpg(t, 'AUTO') ? 0.6 : 1);
+/** Power use multiplier from upgrades. */
+export const powerMult = (t: { upg: number }): number => (hasUpg(t, 'AUTO') ? 1.5 : 1);
+/** Pollution multiplier of an industrial tile (IND-4 adds eco standards). */
+export function pollutionMult(world: World, t: { upg: number }): number {
+  return hasUpg(t, 'FILTER') ? 0.4 : 1;
+}
+/** Extra running cost as a share of output value (filters +10%; IND-4 eco standards add more). */
+export function runningCostShare(world: World, t: { upg: number }): number {
+  return hasUpg(t, 'FILTER') ? 0.1 : 0;
+}

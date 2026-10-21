@@ -34,7 +34,7 @@ import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
-import { canPickRecipe, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe } from '../sim/factoryCtl';
+import { buyUpgrade, canPickRecipe, hasUpg, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe, UPGRADES, UpgKey } from '../sim/factoryCtl';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
 import { cellZoneLabel, industryMix } from '../sim/growth';
@@ -253,6 +253,16 @@ export class Hud {
 
     this.buildBudget(actions);
     // OASIS: click a <code class="cid"> id (node 42 / edge 17 / car 311) to copy it.
+    // IND-3: buy a factory upgrade. On POINTERDOWN, not click: the panel
+    // repaints a few times a second, and a click needs the same button to be
+    // there for both press and release.
+    this.info.addEventListener('pointerdown', (ev) => {
+      const fc = (ev.target as HTMLElement).closest('[data-fc="upg"]') as HTMLButtonElement | null;
+      if (!fc || fc.disabled || !this.lastSim) return;
+      const msg = buyUpgrade(this.lastSim.world, Number(fc.dataset.i), fc.dataset.u as UpgKey);
+      this.flash(msg ?? `Bought: ${UPGRADES[fc.dataset.u as UpgKey].label}`);
+      this.refresh(this.lastSim);
+    });
     // IND-1: recipe picker in the factory panel.
     this.info.addEventListener('change', (ev) => {
       const sel = ev.target as HTMLSelectElement;
@@ -755,6 +765,14 @@ export class Hud {
         rows.push(`<div class="row muted">Switching costs $${RECIPE_SWITCH_COST} and pauses output for ${RETOOL_TICKS} s while the line is retooled. Auto is free.</div>`);
         if (isPaused(sim.world, i)) rows.push(`<div class="row bad">🔧 Retooling: back in ${t.pause - sim.world.tick} s</div>`);
       }
+      // IND-3: upgrades. Bought ones show ✓; Automation shows 🔒 before the City tier.
+      const up = (Object.keys(UPGRADES) as UpgKey[]).map((k) => {
+        const u = UPGRADES[k], have = hasUpg(t, k), locked = sim.world.tier < u.tier;
+        return `<button class="btn" data-fc="upg" data-u="${k}" data-i="${i}" title="${u.text}"${have || locked ? ' disabled' : ''}>${have ? '✓ ' : locked ? '🔒 ' : ''}${u.label}${have ? '' : ` $${u.cost.toLocaleString()}`}</button>`;
+      });
+      rows.push(`<div class="row">Upgrades: ${up.join(' ')}</div>`);
+      const bought = (Object.keys(UPGRADES) as UpgKey[]).filter((k) => hasUpg(t, k));
+      if (bought.length) rows.push(`<div class="row muted">${bought.map((k) => `${UPGRADES[k].label}: ${UPGRADES[k].text}`).join(' · ')}</div>`);
     }
     if (t.zone === 'commercial' && t.level > 0) rows.push(`<div class="row">Sells: <b>${GOOD_NAMES[shopGood(sim.world, i)]}</b> · shelves ${t.stock.toFixed(1)}${t.stock <= 0 ? ' <span class="bad">(empty: half tax)</span>' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 delivery on the way' : ''}</div>`);
     if (t.structure === 'powerPlant') rows.push(`<div class="row">Fuel: <b class="${t.stock <= 0 ? 'bad' : ''}">${Math.round((t.stock / FUEL_MAX) * 100)}%</b>${t.stock <= 0 ? ' — running on backup (30)' : ''}${sim.shipping.isIncoming(i) ? ' · 🚚 fuel on the way' : ''}</div>`);

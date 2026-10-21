@@ -50,6 +50,7 @@
  * built instantly — they're paid one-off purchases, not growth.
  */
 import { GRID_SIZE, Tile } from './types';
+import { workerMult } from './factoryCtl';
 import { World } from './grid';
 import { Resource } from './resources';
 import { roadNextTo, Traffic } from './traffic';
@@ -156,7 +157,8 @@ export function fieldCount(world: World, i: number): number {
 export function jobsOf(world: World, i: number): number {
   const t = world.tiles[i];
   if (!t.zone || t.zone === 'residential') return 0;
-  return t.jobs;
+  // IND-3: second shift / automation change how many workers a factory hires.
+  return t.zone === 'industrial' && t.upg ? Math.round(t.jobs * workerMult(t)) : t.jobs;
 }
 
 /** Food per tick for a farm with `fields` fields (more fields = more output). */

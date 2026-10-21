@@ -21,6 +21,16 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-3: factoryCtl.ts UPG bits on tile.upg (shift / automation / filters), applied in goods.ts (output, running cost), industry.ts jobsOf (workers), networks.ts demandOf (power), environment.ts (pollution); hud Upgrades buttons; industryctl.test IND-3.
+    id: '2026-10-20-oasis-ind3-factory-upgrades',
+    title: 'Factory upgrades',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Factories, mines and farms now have an Upgrades row in their Inspect panel. Second shift ($3,000) gives +50% output and hires 30% more workers. Automation ($6,000, unlocks at the City tier) gives +30% output with 40% fewer workers but uses 50% more power. Filters ($2,000) cut the pollution by 60% and add 10% to running costs.' },
+      { tag: 'improved', text: 'A building can have all three upgrades, and they stack. They are kept when you save and load, and lost if the building is bulldozed.' },
+    ],
+  },
+  {
     // IND-2: sim/chainFlow.ts (producer → customer links, fading "loads lately", shortages), goods.ts records each delivery truck, render/chainOverlay.ts arrows + red rings, 🔗 Supply chain view; tools/industryctl.test.ts IND-2 block.
     id: '2026-10-20-oasis-ind2-supply-chain-view',
     title: 'Supply chain view',
