@@ -118,6 +118,12 @@ export class VrMode {
   private marker: THREE.Mesh;
   private cursor: THREE.Mesh;
   private lastPoll = 0;
+  // Floating inspect window next to the inspected asset.
+  private infoMesh: THREE.Mesh;
+  private infoCanvas = document.createElement('canvas');
+  private infoTex: THREE.CanvasTexture;
+  private infoAt: THREE.Vector3 | null = null;
+  private infoShown = '';
   private polled: { hud: VrHud; info: string } | null = null;
   // Pointer state
   private dragPad: Pad | null = null;
@@ -156,6 +162,13 @@ export class VrMode {
     this.cursor.renderOrder = 12;
     this.cursor.visible = false;
     scene.add(this.cursor);
+    this.infoCanvas.width = 640; this.infoCanvas.height = 480;
+    this.infoTex = new THREE.CanvasTexture(this.infoCanvas);
+    this.infoTex.colorSpace = THREE.SRGBColorSpace;
+    this.infoMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.75), new THREE.MeshBasicMaterial({ map: this.infoTex, transparent: true, side: THREE.DoubleSide, toneMapped: false, depthTest: false }));
+    this.infoMesh.renderOrder = 11;
+    this.infoMesh.visible = false;
+    scene.add(this.infoMesh);
     for (let i = 0; i < 2; i++) this.addPad(i);
     this.makePanel();
     const xr = (navigator as unknown as { xr?: VrSystem }).xr;
@@ -272,7 +285,7 @@ export class VrMode {
   }
 
   /** Where a pad's laser meets the panel (button under it) or the ground plane. */
-  private aim(p: Pad): { btn: Btn | null; panelDist: number; panelPt: THREE.Vector3 | null; ground: THREE.Vector3 | null } {
+  private aim(p: Pad): { btn: Btn | null; panelDist: number; panelPt: THREE.Vector3 | null; infoDist: number; ground: THREE.Vector3 | null } {
     const r = this.rayOf(p);
     let btn: Btn | null = null, panelDist = Infinity, panelPt: THREE.Vector3 | null = null;
     if (this.panelShown && this.panel.parent && this.panel.parent !== p.object) {
@@ -284,13 +297,16 @@ export class VrMode {
         btn = this.btns.find((b) => cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h) ?? null;
       }
     }
+    let infoDist = Infinity;
+    if (this.infoMesh.visible) { const h = r.intersectObject(this.infoMesh, false)[0]; if (h) infoDist = h.distance; }
+    const near = Math.min(panelDist, infoDist);
     let ground: THREE.Vector3 | null = null;
     const o = r.ray.origin, d = r.ray.direction;
     if (d.y < -1e-4) {
       const t = -o.y / d.y;
-      if (t > 0 && t < panelDist) ground = new THREE.Vector3(o.x + d.x * t, 0, o.z + d.z * t);
+      if (t > 0 && t < near) ground = new THREE.Vector3(o.x + d.x * t, 0, o.z + d.z * t);
     }
-    return { btn, panelDist, panelPt, ground };
+    return { btn, panelDist, panelPt, infoDist, ground };
   }
 
   private onTrigger(p: Pad, down: boolean): void {
@@ -299,6 +315,7 @@ export class VrMode {
     if (down) {
       const a = this.aim(p);
       if (a.btn) { a.btn.act(); this.haptic(p); this.lastPanelKey = ''; return; }
+      if (a.infoDist < a.panelDist) { this.infoMesh.visible = false; this.infoAt = null; this.haptic(p); return; } // pointing at the window closes it
       if (a.ground) {
         const t = this.tile(a.ground);
         if (t) { this.dragPad = p; this.cb.dragStart(t); }
@@ -308,8 +325,12 @@ export class VrMode {
       const t = a.ground ? this.tile(a.ground) : null;
       this.dragPad = null;
       this.cb.dragEnd(t);
+      if (t && this.hooks.tool() === 'inspect') { this.infoAt = new THREE.Vector3(t[0] + 0.5, 0, t[1] + 0.5); this.infoShown = ''; this.lastPoll = 0; this.polled = null; }
+      else this.hideInfo();
     }
   }
+
+  private hideInfo(): void { this.infoMesh.visible = false; this.infoAt = null; }
 
   private tile(g: THREE.Vector3): [number, number] | null {
     pointer.x = g.x; pointer.z = g.z;
@@ -386,7 +407,7 @@ export class VrMode {
     if (prim) {
       const a = this.aim(prim);
       prim.laser.visible = true;
-      const reach = a.panelPt ? a.panelDist : a.ground ? a.ground.distanceTo(this.rayOf(prim).ray.origin) : 3 * S2;
+      const reach = a.infoDist < Infinity ? a.infoDist : a.panelPt ? a.panelDist : a.ground ? a.ground.distanceTo(this.rayOf(prim).ray.origin) : 3 * S2;
       prim.laser.scale.z = reach / S2; // laser is parented under the scaled rig
       if (a.btn) hoverId = a.btn.id;
       // A cursor dot sits on the panel where the laser lands (the laser stops there).
@@ -416,6 +437,49 @@ export class VrMode {
     if (hoverId !== this.hoverBtn) { this.hoverBtn = hoverId; this.lastPanelKey = ''; }
 
     this.drawPanel();
+    this.updateInfoWindow(S2);
+  }
+
+  /** The inspect window floats above the inspected tile, turned toward you. */
+  private updateInfoWindow(S: number): void {
+    if (!this.infoAt) return;
+    const text = this.polled?.info ?? '';
+    if (this.hooks.tool() !== 'inspect') { this.hideInfo(); return; }
+    if (!text) { this.infoMesh.visible = false; return; }
+    if (text !== this.infoShown) {
+      this.infoShown = text;
+      const c = this.infoCanvas.getContext('2d')!;
+      c.clearRect(0, 0, 640, 480);
+      const lines: string[] = [];
+      c.font = '26px system-ui, sans-serif';
+      for (const raw of text.split('\n')) {
+        let line = '';
+        for (const w of raw.split(' ')) {
+          const t = line ? line + ' ' + w : w;
+          if (c.measureText(t).width > 590 && line) { lines.push(line); line = w; } else line = t;
+        }
+        if (line.trim()) lines.push(line);
+      }
+      const shown = lines.slice(0, 13);
+      if (lines.length > shown.length) shown[shown.length - 1] += ' …';
+      const h = 70 + shown.length * 32;
+      c.fillStyle = 'rgba(14,22,32,0.95)'; c.beginPath(); c.roundRect(0, 0, 640, h, 24); c.fill();
+      c.strokeStyle = 'rgba(127,209,255,0.6)'; c.lineWidth = 3; c.beginPath(); c.roundRect(2, 2, 636, h - 4, 22); c.stroke();
+      c.fillStyle = '#e8f3ff'; c.textBaseline = 'middle'; c.textAlign = 'left';
+      shown.forEach((l, i) => { c.font = (i === 0 ? '600 ' : '') + '26px system-ui, sans-serif'; c.fillText(l, 22, 34 + i * 32); });
+      c.fillStyle = '#7fd1ff'; c.font = '20px system-ui, sans-serif'; c.fillText('Point at this window and pull the trigger to close it', 22, h - 20);
+      this.infoTex.needsUpdate = true;
+      this.infoMesh.userData.h = h / 480;
+    }
+    const w = 0.34 * S, hh = (this.infoMesh.userData.h ?? 1) * 0.255 * S;
+    this.infoMesh.visible = true;
+    this.infoMesh.scale.set(w, hh, 1);
+    // Sits above the tile with its bottom edge just over the roofs; the geometry is centred, so lift by half its height.
+    this.infoMesh.position.set(this.infoAt.x, 0.08 * S + hh / 2, this.infoAt.z);
+    const head = new THREE.Vector3();
+    this.camera.getWorldPosition(head);
+    head.y = this.infoMesh.position.y;
+    this.infoMesh.lookAt(head);
   }
 
   // ---------------------------------------------------------------- panel
@@ -473,11 +537,11 @@ export class VrMode {
       this.polled = { hud: this.hooks.hud(), info: this.hooks.info() };
       this.lastPoll = now;
     }
-    const hud = this.polled.hud, info = this.polled.info;
+    const hud = this.polled.hud;
     const btns = this.layout();
     this.btns = btns;
     const hov = btns.find((b) => b.id === this.hoverBtn);
-    const key = [this.panelShown, JSON.stringify(hud), toast ? toast : info.slice(0, 120), this.hoverBtn, this.tab, this.hooks.tool(), this.hooks.speed()].join('|');
+    const key = [this.panelShown, JSON.stringify(hud), toast, this.hoverBtn, this.tab, this.hooks.tool(), this.hooks.speed()].join('|');
     this.panel.visible = this.panelShown;
     if (key === this.lastPanelKey) return;
     this.lastPanelKey = key;
@@ -522,7 +586,7 @@ export class VrMode {
       c.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + 1);
     }
     // Info area: toast > hovered tool hint > inspect text.
-    const text = toast || hov?.hint || info.replace(/\s+/g, ' ').trim();
+    const text = toast || hov?.hint || '';
     c.fillStyle = toast ? '#ffe28a' : '#cfe3f5'; c.textAlign = 'left'; c.font = '24px system-ui, sans-serif';
     const words = text.split(' ');
     let line = '', y = HDR + 400, lines = 0;
