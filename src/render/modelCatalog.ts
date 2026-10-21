@@ -50,7 +50,7 @@ const LABEL: Record<string, string> = {
   outlet: 'Outlet mall', officetower: 'Office tower', bizpark: 'Business park',
   brewery: 'Brewery', pharma: 'Pharmaceutical lab', clothing: 'Clothing factory', coldstore: 'Cold storage', indpark: 'Industrial park', megafactory: 'Mega-factory',
   bakery: 'Bakery', bookstore: 'Bookstore', toystore: 'Toy store', gardencentre: 'Garden centre', restaurant: 'Restaurant', bank: 'Bank', cardealer: 'Car dealership', gym: 'Gym & pool', laundromat: 'Laundromat', vetclinic: 'Vet clinic', printworks: 'Print works', toyfactory: 'Toy factory',
-  logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry', lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
+  logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry', mine: 'Ore mine', steelMill: 'Steel mill (role)', vehiclePlant: 'Vehicle plant', lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
 };
 
 export function buildCatalog(): CatalogItem[] {

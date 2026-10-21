@@ -66,6 +66,8 @@ if (stage === "5") {
   out.ore = ore;
   await frame(() => window.city.setOverlay("resources")); if (ore) await look(ore[0], ore[1], 1.2); await shot("ore");
   await frame(() => window.city.setOverlay("none"));
+  // The avenue save is a Village: make one pickable factory a steel mill (as the picker would) so its model shows.
+  await frame(() => { const c = window.city, w = c.sim.world; w.tier = 3; const N = Math.round(Math.sqrt(w.tiles.length)); for (let i = 0; i < w.tiles.length; i++) { const t = w.tiles[i]; if (t.zone !== "industrial" || t.level === 0) continue; c.inspect(i % N, Math.floor(i / N)); c.refresh(); if (document.querySelector(".fc-recipe")) { t.recipe = "steelMill"; t.pause = 0; c.sim.version++; break; } } });
   const sm = await frame(() => { const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length)); for (let i = 0; i < w.tiles.length; i++) { const t = w.tiles[i]; if (t.zone === "industrial" && t.recipe === "steelMill") { c.inspect(i % N, Math.floor(i / N)); c.refresh(); return [i % N, Math.floor(i / N)]; } } return null; });
   out.steel = sm; if (sm) await look(sm[0], sm[1], 2.6); await shot("steel");
 }

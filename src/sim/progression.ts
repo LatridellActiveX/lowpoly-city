@@ -26,8 +26,8 @@ export interface Tier {
 export const TIERS: Tier[] = [
   { pop: 0, name: 'Hamlet', unlocks: 'Roads, zones, power, water, parks, farms, food plants and the Construction Yard' },
   { pop: 500, name: 'Village', unlocks: 'Avenues if not already open (they unlock at 250 people)' },
-  { pop: 2000, name: 'Town', unlocks: 'Oil power plant (8,000 power); level-6 homes (taller medium buildings); factories on forest, quarry or oil patches make raw goods' },
-  { pop: 10000, name: 'City', unlocks: 'Nuclear power plant (2×2, 32,000 power), high-capacity pump station and +25% export prices' },
+  { pop: 2000, name: 'Town', unlocks: 'Oil power plant (8,000 power); level-6 homes (taller medium buildings); factories on forest, quarry or oil patches make raw goods; ore mines on iron-ore patches' },
+  { pop: 10000, name: 'City', unlocks: 'Nuclear power plant (2×2, 32,000 power), high-capacity pump station, the vehicle plant and +25% export prices' },
   { pop: 20000, name: 'Metropolis', unlocks: '10% cheaper upkeep on every utility' },
 ];
 

@@ -644,7 +644,7 @@ export class Hud {
     const resBtn = this.overlayButtons.get('resources')!;
     const resLocked = sim.world.tier < RESOURCES_TIER;
     resBtn.classList.toggle('locked', resLocked);
-    resBtn.title = resLocked ? `🔒 Unlocks at ${TIERS[RESOURCES_TIER].pop.toLocaleString()} people` : 'Resource patches: farmland (yellow), logging (green), quarry (grey), oil (black)';
+    resBtn.title = resLocked ? `🔒 Unlocks at ${TIERS[RESOURCES_TIER].pop.toLocaleString()} people` : 'Resource patches: farmland (yellow), logging (green), quarry (grey), oil (black), iron ore (rust red; mines from 2,000 people)';
     // Tier unlock messages from the sim become notifications.
     for (const msg of sim.events.splice(0)) this.notices.push(msg, 'good');
     {
@@ -774,7 +774,7 @@ export class Hud {
       // IND-1: recipe picker. A <select> (not a row of buttons) keeps the
       // panel short; renderInfo skips repainting while it is open (see top).
       if (canPickRecipe(sim.world, i)) {
-        const opts = [['', `Auto${t.recipe ? '' : ` (${ROLE_NAMES[role]})`}`], ...pickableRecipes().map((r) => [r, `${ROLE_NAMES[r]}: ${RECIPES[r]!.inputs.map((g) => GOOD_NAMES[g]).join(' or ')} → ${RECIPES[r]!.outputs.map((g) => GOOD_NAMES[g]).join(' + ')}`])];
+        const opts = [['', `Auto${t.recipe ? '' : ` (${ROLE_NAMES[role]})`}`], ...pickableRecipes(sim.world).map((r) => [r, `${ROLE_NAMES[r]}: ${RECIPES[r]!.inputs.map((g) => GOOD_NAMES[g]).join(' or ')} → ${RECIPES[r]!.outputs.map((g) => GOOD_NAMES[g]).join(' + ')}`])];
         rows.push(`<div class="row">Recipe: <select class="fc-recipe" style="max-width:100%;width:100%" data-i="${i}">${opts.map(([v, l]) => `<option value="${v}"${v === t.recipe ? ' selected' : ''}>${l}</option>`).join('')}</select></div>`);
         rows.push(`<div class="row muted">Switching costs $${RECIPE_SWITCH_COST} and pauses output for ${RETOOL_TICKS} s while the line is retooled. Auto is free.</div>`);
         if (isPaused(sim.world, i)) rows.push(`<div class="row bad">🔧 Retooling: back in ${t.pause - sim.world.tick} s</div>`);

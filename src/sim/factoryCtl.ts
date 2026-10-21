@@ -24,7 +24,7 @@
  * what their land / zone says, so they have no picker.
  */
 import { World } from './grid';
-import { ADOPTABLE, RECIPES, Role, roleOf, setAutoRole } from './chains';
+import { ADOPTABLE, RECIPES, Role, roleOf, roleUnlocked, setAutoRole } from './chains';
 
 /** $ per recipe switch (balance knob). */
 export const RECIPE_SWITCH_COST = 500;
@@ -40,8 +40,8 @@ export function canPickRecipe(world: World, i: number): boolean {
   return r === 'factory' || (ADOPTABLE as Role[]).includes(r);
 }
 
-/** The recipes the picker offers (the same ones the automatic rules may adopt). */
-export const pickableRecipes = (): Role[] => [...ADOPTABLE];
+/** The recipes the picker offers (the same ones the automatic rules may adopt; IND-5: only unlocked ones when a world is given). */
+export const pickableRecipes = (world?: World): Role[] => ADOPTABLE.filter((r) => !world || roleUnlocked(world, r));
 
 /** Is factory i retooling right now (no output)? */
 export const isPaused = (world: World, i: number): boolean => world.tiles[i].pause > world.tick;
@@ -62,6 +62,7 @@ export function setRecipe(world: World, i: number, role: Role | ''): string | nu
     return null;
   }
   if (!RECIPES[role] || !(ADOPTABLE as Role[]).includes(role)) return 'Unknown recipe';
+  if (!roleUnlocked(world, role)) return '🔒 The vehicle plant unlocks at the City tier (10,000 people)'; // IND-5
   if (t.recipe === role) return null; // already picked: nothing to pay
   const current = roleOf(world, i);
   if (current === role) { t.recipe = role; return null; } // pin what it already makes: free, no pause
