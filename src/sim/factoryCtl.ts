@@ -83,6 +83,7 @@ export function setRecipe(world: World, i: number, role: Role | ''): string | nu
 export function clearIfGone(world: World, i: number): void {
   const t = world.tiles[i];
   if (t.zone === 'industrial' && (t.level > 0 || t.construct > 0)) return;
+  if (t.structure === 'service') return; // IND-6: a recycling center keeps its mode in tile.recipe
   if (t.recipe || t.pause || t.upg) { t.recipe = ''; t.pause = 0; t.upg = 0; }
 }
 

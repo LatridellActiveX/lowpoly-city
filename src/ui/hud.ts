@@ -35,6 +35,7 @@ import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
 import { POLICIES, Policies, setPolicy } from '../sim/factoryCtl';
+import { RECYCLE_MODES, RECYCLE_POWER, RECYCLE_YIELD, RecycleMode, recycleMode, setRecycleMode } from '../sim/recycleMode';
 import { buyUpgrade, canPickRecipe, hasUpg, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe, UPGRADES, UpgKey } from '../sim/factoryCtl';
 import { RESOURCE_NAMES } from '../sim/resources';
 import { TPL } from '../sim/footprints';
@@ -262,6 +263,15 @@ export class Hud {
       if (!fc || fc.disabled || !this.lastSim) return;
       const msg = buyUpgrade(this.lastSim.world, Number(fc.dataset.i), fc.dataset.u as UpgKey);
       this.flash(msg ?? `Bought: ${UPGRADES[fc.dataset.u as UpgKey].label}`);
+      this.refresh(this.lastSim);
+    });
+    // IND-6: recycling center product mode (power only / plastics / materials).
+    this.info.addEventListener('change', (ev) => {
+      const sel = ev.target as HTMLSelectElement;
+      if (!sel.classList.contains('rc-mode') || !this.lastSim) return;
+      setRecycleMode(this.lastSim.world.tiles[Number(sel.dataset.a)], sel.value as RecycleMode);
+      sel.blur();
+      this.flash(`Recycling center: ${RECYCLE_MODES.find((m) => m.mode === sel.value)?.label}`);
       this.refresh(this.lastSim);
     });
     // IND-1: recipe picker in the factory panel.
@@ -873,7 +883,13 @@ export class Hud {
       }
       if (d.svc === Svc.Recycling) {
         rows.push('<div class="row">♻️ Buildings in range make up to 45% less garbage, and its trucks collect from the whole road network.</div>');
-        rows.push(`<div class="row">🔥 Burns garbage for <b>${POWER_OUTPUT.powerPlant}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
+        // IND-6: product mode picker + stock.
+        const rt = sim.world.tiles[a], mode = recycleMode(rt);
+        rows.push(`<div class="row">Makes: <select class="rc-mode" data-a="${a}">${RECYCLE_MODES.map((m) => `<option value="${m.mode}"${m.mode === mode ? ' selected' : ''}>${m.label}</option>`).join('')}</select></div>`);
+        rows.push(mode
+          ? `<div class="row">♻️ ${Math.round(RECYCLE_YIELD * 100)} ${mode === 'plastics' ? 'plastics' : 'building materials'} per 100 garbage burned · in stock <b>${rt.stock.toFixed(1)}</b>. Power is ${Math.round((1 - RECYCLE_POWER) * 100)}% lower. Trucks deliver to factories like any supplier.</div>`
+          : '<div class="row muted">Pick Plastics or Building materials to turn garbage into products (20% less power).</div>');
+        rows.push(`<div class="row">🔥 Burns garbage for <b>${Math.round((POWER_OUTPUT.powerPlant ?? 0) * (mode ? RECYCLE_POWER : 1))}</b> power (like a coal plant). Garbage trucks out: <b>${sim.garbage.outOf(a)} / ${d.fleet}</b> · burned so far ${Math.round(sim.garbage.burnedBy(a)).toLocaleString()}</div>`);
         rows.push('<div class="row muted">Landfill trucks haul stored garbage here to be burned, freeing landfill space.</div>');
       }
       if (d.svc === Svc.Depot) {

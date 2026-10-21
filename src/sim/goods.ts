@@ -68,6 +68,7 @@ import { farmRate, fieldCount, isFarmLot } from './industry';
 import { ChainFlow } from './chainFlow';
 import { isNight, outputMult, runningCostShare } from './factoryCtl';
 import { timeOfDay } from './traffic';
+import { recycleMode } from './recycleMode';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
 /** Hopper size of a processor (raw input waiting). Also used by food plants. */
@@ -322,11 +323,15 @@ export class Shipping {
     }
 
     // ---- Factories ship full loads ----
-    for (const f of factories) {
+    // IND-6: recycling centers in a product mode ship their plastics /
+    // materials through the same loop, like any other supplier.
+    const recyclers = serviceAnchors(world, Svc.Recycling).filter((a) => recycleMode(tiles[a]) !== '');
+    for (const f of [...factories, ...recyclers]) {
       const t = tiles[f];
       if (t.stock < LOAD || trucks() >= maxTrucks) continue;
-      const role = roleOf(world, f);
-      let good = factoryGood(world, f);
+      const rmode = recycleMode(t);
+      const role = rmode ? 'factory' : roleOf(world, f);
+      let good: GoodType = rmode || factoryGood(world, f);
       if (role === 'refinery') { const fl = !this.flip.get(f); this.flip.set(f, fl); good = fl ? 'fuel' : 'plastics'; }
       const from = roadNextTo(tiles, f);
       if (from < 0) continue;
@@ -404,6 +409,7 @@ export class Shipping {
 
     // ---- Imports: empty shops, starving processors and yards with no local supplier ----
     const localMakes = new Set(factories.map((f) => factoryGood(world, f)));
+    for (const a of recyclers) localMakes.add(recycleMode(tiles[a]) as GoodType); // IND-6
     if (factories.some((f) => roleOf(world, f) === 'refinery')) { localMakes.add('fuel'); localMakes.add('plastics'); }
     const imp = (dest: number, good: GoodType, key: number, onArrive: () => void): boolean => {
       if (edge < 0 || trucks() >= maxTrucks || this.incoming.has(key)) return false;

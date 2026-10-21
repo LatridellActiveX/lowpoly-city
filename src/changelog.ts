@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-6: sim/recycleMode.ts (mode on the center's tile.recipe, saved; '' = power only), garbage.ts burn() adds 8 per 100 garbage to tile.stock, networks.ts output ×0.8 in a product mode, goods.ts ships recycler stock through the factory loop, factoryCtl clearIfGone skips service tiles; hud Makes dropdown; industryctl.test IND-6.
+    id: '2026-10-20-oasis-ind6-recycling-products',
+    title: 'Recycling centers make products',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'The recycling center panel has a new Makes dropdown with Power only, Plastics or Building materials. In a product mode, every 100 garbage burned also makes 8 plastics or 8 building materials, and the center makes 20% less power.' },
+      { tag: 'improved', text: 'Recycled products go out by truck like any factory\'s goods: plastics to factories that use them, building materials to Construction Yards and hardware stores, and any surplus is exported.' },
+      { tag: 'improved', text: 'Existing recycling centers stay on Power only, so old saves work exactly as before.' },
+    ],
+  },
+  {
     // IND-5: resources.ts Resource.Ore (after every other patch, ORE_THRESHOLD 0.84) + oreMask (no ore under pre-existing industry; mines marked tile.recipe='mine'); chains.ts mine / steelMill / vehiclePlant (RecipeDef.needs second ingredient), ROLE_TIER (mine 2, vehiclePlant 3), materials takes steel; goods.ts ore/steel/vehicles prices 180/480/900, Shipping.second hopper, steelYards → growth.ts +20% build speed; car_dealer sells vehicles; mineModel + heavy steel/assembly reused; Resources view ore colour; industryctl.test IND-5.
     id: '2026-10-20-oasis-ind5-ore-steel-vehicles',
     title: 'Ore, steel and vehicles',
