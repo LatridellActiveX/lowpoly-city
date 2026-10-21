@@ -44,7 +44,7 @@ export const CHANGELOG: ChangeEntry[] = [
       { tag: 'improved', text: 'In the Meta Quest browser (outside VR) the thumbsticks, which arrive as scrolling, now pan the map instead of zooming, and + / - buttons appear for zoom.' },
       { tag: 'new', text: 'Outside VR, the left stick of a connected gamepad or controller now pans the map (press any button once so the browser sees it).' },
       { tag: 'improved', text: 'The VR panel also shows jobs, power and water meters and the R / C / I demand bars. The laser now stops at the panel and shows a cursor dot where it lands.' },
-      { tag: 'improved', text: 'In VR the shadow map is smaller so the headset keeps its frame rate.' },
+      { tag: 'improved', text: 'VR runs lighter so it stays smooth: no shadows, lighter building models, a slightly lower render resolution, and the panel and HUD refresh less often.' },
     ],
   },
   {

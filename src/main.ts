@@ -546,7 +546,7 @@ renderer.setAnimationLoop(() => {
   // PR 5: camera sensitivity sliders apply live.
   cam.rotateSpeed = sim.settings.camRotate;
   cam.panSpeed = sim.settings.camPan;
-  city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM ? 'high' : 'low');
+  city.setLod(sim.settings.detail === 'high' && cam.zoom >= LOD_ZOOM && !vr.active ? 'high' : 'low'); // VR always uses the light models
   city.setWireLod(cam.zoom < LOD_ZOOM * 0.5); // NEBULA: wires off when far out
   vr.update(dt);
   city.cameraQuat.copy(vr.active ? vr.headQuat : cam.camera.quaternion);
@@ -569,7 +569,7 @@ renderer.setAnimationLoop(() => {
     } else if (sim.traffic.stats.noRoute < lastNoRoute) lastNoRoute = sim.traffic.stats.noRoute;
     // Previews depend on the world (a tile may have just been built on).
     updatePreview();
-    hudTimer = 0.25;
+    hudTimer = vr.active ? 1 : 0.25; // the DOM HUD is invisible in VR
   }
   renderer.render(scene, vr.active ? vr.camera : cam.camera);
 });

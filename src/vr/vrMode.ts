@@ -117,6 +117,8 @@ export class VrMode {
   private panelShown = true;
   private marker: THREE.Mesh;
   private cursor: THREE.Mesh;
+  private lastPoll = 0;
+  private polled: { hud: VrHud; info: string } | null = null;
   // Pointer state
   private dragPad: Pad | null = null;
   private lastTile = '';
@@ -179,13 +181,13 @@ export class VrMode {
     const x = this.renderer.xr;
     x.enabled = true;
     x.setReferenceSpaceType('local-floor');
-    x.setFramebufferScaleFactor(1.0);
+    x.setFramebufferScaleFactor(0.8); // lighter than native resolution: the headset needs 72+ fps
     x.setFoveation(1);
     session.addEventListener('end', () => this.onEnded(), { once: true });
     try { await x.setSession(session as any); } catch (e) { this.onEnded(); throw e; }
-    // The 8k shadow map is too heavy for a headset: use a 2k one while in VR.
-    this.savedShadow = [this.sun.shadow.mapSize.x, this.sun.shadow.mapSize.y];
-    this.sun.shadow.mapSize.set(2048, 2048);
+    // Shadows cost a whole extra render of the city; the headset can't afford it (and the 8k map is huge).
+    this.savedShadow = [1, 1];
+    this.sun.castShadow = false;
     this.sun.shadow.map?.dispose();
     (this.sun.shadow as unknown as { map: unknown }).map = null;
     this.cam.resize(1, 1); // square view box for chunk culling
@@ -204,9 +206,7 @@ export class VrMode {
     for (const p of this.pads) p.laser.visible = false;
     if (this.dragPad) { this.cb.dragCancel(); this.dragPad = null; }
     if (this.savedShadow) {
-      this.sun.shadow.mapSize.set(this.savedShadow[0], this.savedShadow[1]);
-      this.sun.shadow.map?.dispose();
-      (this.sun.shadow as unknown as { map: unknown }).map = null;
+      this.sun.castShadow = true;
       this.savedShadow = null;
     }
     this.hooks.onExit();
@@ -468,8 +468,12 @@ export class VrMode {
   private drawPanel(): void {
     const now = performance.now();
     const toast = now < this.toastUntil ? this.toastText : '';
-    const hud = this.hooks.hud();
-    const info = this.hooks.info();
+    // The game's numbers and the inspect text (a DOM read) only refresh 4 times a second.
+    if (now - this.lastPoll > 250 || !this.polled) {
+      this.polled = { hud: this.hooks.hud(), info: this.hooks.info() };
+      this.lastPoll = now;
+    }
+    const hud = this.polled.hud, info = this.polled.info;
     const btns = this.layout();
     this.btns = btns;
     const hov = btns.find((b) => b.id === this.hoverBtn);
