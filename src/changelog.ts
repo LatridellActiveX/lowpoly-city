@@ -21,6 +21,15 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // keeptraffic.test: split-street tolerance 8 m → 18 m (one real car/truck place, safe-gap lengths); failing since OASIS-S6 changed the traffic snapshot. Test-only, no game change.
+    id: '2026-10-20-oasis-keeptraffic-test-fix',
+    title: 'Traffic test fix',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'fix', text: 'Fixed a traffic test that had been failing since the busier everyday traffic. When a new road splits a street, waiting cars can now move up by one car or truck length. The game itself is unchanged.' },
+    ],
+  },
+  {
     // IND-6: sim/recycleMode.ts (mode on the center's tile.recipe, saved; '' = power only), garbage.ts burn() adds 8 per 100 garbage to tile.stock, networks.ts output ×0.8 in a product mode, goods.ts ships recycler stock through the factory loop, factoryCtl clearIfGone skips service tiles; hud Makes dropdown; industryctl.test IND-6.
     id: '2026-10-20-oasis-ind6-recycling-products',
     title: 'Recycling centers make products',

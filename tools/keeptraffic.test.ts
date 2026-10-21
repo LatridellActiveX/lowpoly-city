@@ -66,9 +66,14 @@ const adopt = () => (lg as unknown as { sync(w: World): void }).sync(w);
   const onSplit = before.filter((r) => r.key && !alive.has(r.key));
   if (process.env.DBG) for (const r of onSplit) { const n = now.get(r.id); console.log('S', r.id, n ? Math.hypot(n.x - r.x, n.z - r.z).toFixed(2) : 'gone'); }
   // The split street gets a new junction (with stop lines) in its middle, so
-  // a queue there may have to shuffle up a few metres to keep safe gaps.
-  const splitKept = onSplit.filter((r) => { const n = now.get(r.id); return n && Math.hypot(n.x - r.x, n.z - r.z) <= 8; });
-  ok(onSplit.length > 0 && splitKept.length >= onSplit.length - 1, 'cars on the split street stay on it (≤ 8 m; at most one finishes)', { onSplit: onSplit.length, kept: splitKept.length });
+  // a queue there may have to shuffle up to keep safe gaps. Since the
+  // safe-gap stage cars keep their REAL length (car ≈ 8.5 m, truck ≈ 13.8 m),
+  // so "shuffling up one place" is one body + gap: up to SHUFFLE_M. The old
+  // 8 m bound dated from 4.5 m cars and broke once OASIS-S6's busier traffic
+  // happened to leave a queue (with a truck) where the new junction box goes.
+  const SHUFFLE_M = 18;
+  const splitKept = onSplit.filter((r) => { const n = now.get(r.id); return n && Math.hypot(n.x - r.x, n.z - r.z) <= SHUFFLE_M; });
+  ok(onSplit.length > 0 && splitKept.length >= onSplit.length - 1, `cars on the split street stay on it (≤ ${SHUFFLE_M} m = one car/truck place; at most one finishes)`, { onSplit: onSplit.length, kept: splitKept.length });
   ok(overlaps() === 0, 'no overlapping cars after the edit', overlaps());
 }
 // ---- b. a free road off an existing road, then undo ----
