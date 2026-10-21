@@ -978,7 +978,7 @@ export class CityRenderer {
       if (this.overlay === 'resources') {
         // PR 4 Resources view (unlocks at 2,000 people): seeded patches.
         const r = sim.world.resourceAt(i);
-        const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24 }[r as 1];
+        const col = { [Resource.Farmland]: 0xe8d36a, [Resource.Logging]: 0x2f8a46, [Resource.Quarry]: 0x9aa0a8, [Resource.Oil]: 0x1d1d24, [Resource.Ore]: 0xa0522d /* IND-5 rust-red ore */ }[r as 1];
         if (r !== Resource.None && col !== undefined) P.overlay.add(this.place(center.clone().setY(0.09)), this.c.setHex(col));
       } else if (this.overlay === 'garbage') {
         // V1.5b: dump coverage (soft green) and garbage at buildings (yellow → brown).

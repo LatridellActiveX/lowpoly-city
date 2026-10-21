@@ -11,6 +11,7 @@
  *    oilRig   — Oil rig         on an OIL patch     → crude oil
  *    quarry   — Quarry          on a QUARRY patch   → stone
  *    farm     — Farm            on FARMLAND / Farm tool → food   (PR 5)
+ *    mine     — Ore mine        on an ORE patch     → ore   (IND-5, Town tier 2,000)
  *  PROCESSORS (any other factory; recipe chosen once, see below):
  *    lumberMill  — wood            → lumber
  *    refinery    — crude oil       → fuel + plastics (alternate loads)
@@ -18,6 +19,11 @@
  *    furniture   — lumber          → furniture
  *    electronics — plastics (+ imported chips, goods.ts CHIP_COST) → electronics
  *    foodPlant   — food            → packaged food  (PR 5 kind 2 / Food Plant tool)
+ *    steelMill    — ore              → steel                (IND-5)
+ *    vehiclePlant — steel + plastics → vehicles  (IND-5, City tier 10,000;
+ *                   plastics is a SECOND ingredient, see RecipeDef.needs)
+ *    materials also takes steel (IND-5): steel-based materials make
+ *    Construction Yards build 20% faster (goods.ts steelYards, growth.ts).
  *  factory — a plain factory making general "goods" (no local raw inputs yet)
  *
  * CHOOSING A PROCESSOR RECIPE
@@ -40,21 +46,29 @@ import { isFarmLot, isFoodPlant } from './industry';
 import type { GoodType } from './goods';
 import { clearIfGone } from './factoryCtl';
 
-export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery' | 'printer' | 'toymaker';
+export type Role = 'factory' | 'farm' | 'foodPlant' | 'logging' | 'oilRig' | 'quarry' | 'lumberMill' | 'refinery' | 'materials' | 'furniture' | 'electronics' | 'tailor' | 'pharma' | 'brewery' | 'printer' | 'toymaker' | 'mine' | 'steelMill' | 'vehiclePlant';
 
 export const ROLE_NAMES: Record<Role, string> = {
   factory: 'Factory', farm: 'Farm', foodPlant: 'Food processing plant', logging: 'Logging camp', oilRig: 'Oil rig', quarry: 'Quarry',
   lumberMill: 'Lumber mill', refinery: 'Refinery', materials: 'Building-materials plant', furniture: 'Furniture factory', electronics: 'Electronics plant',
   tailor: 'Clothing factory', pharma: 'Pharmaceutical lab', brewery: 'Brewery & bottler',
   printer: 'Print works', toymaker: 'Toy factory',
+  mine: 'Ore mine', steelMill: 'Steel mill', vehiclePlant: 'Vehicle plant', // IND-5
 };
 
+/**
+ * A processor recipe. `inputs` are alternatives that fill the one hopper
+ * (tile.input): any of them works. IND-5: `needs` is an optional SECOND
+ * ingredient the recipe also consumes 1:1 (kept in its own hopper,
+ * goods.ts Shipping.second) — the vehicle plant needs steel AND plastics.
+ */
+export interface RecipeDef { inputs: GoodType[]; outputs: GoodType[]; needs?: GoodType }
 /** Processor recipes (1 unit in → 1 unit out). outputs[0] is the "main" product. */
-export const RECIPES: Partial<Record<Role, { inputs: GoodType[]; outputs: GoodType[] }>> = {
+export const RECIPES: Partial<Record<Role, RecipeDef>> = {
   foodPlant: { inputs: ['food'], outputs: ['packaged'] },
   lumberMill: { inputs: ['wood'], outputs: ['lumber'] },
   refinery: { inputs: ['oil'], outputs: ['fuel', 'plastics'] },
-  materials: { inputs: ['lumber', 'stone'], outputs: ['materials'] },
+  materials: { inputs: ['lumber', 'stone', 'steel'], outputs: ['materials'] }, // IND-5: steel as an alternative to stone
   furniture: { inputs: ['lumber'], outputs: ['furniture'] },
   electronics: { inputs: ['plastics'], outputs: ['electronics'] },
   tailor: { inputs: ['plastics'], outputs: ['apparel'] },
@@ -62,14 +76,21 @@ export const RECIPES: Partial<Record<Role, { inputs: GoodType[]; outputs: GoodTy
   brewery: { inputs: ['food'], outputs: ['beverages'] },
   printer: { inputs: ['lumber'], outputs: ['books'] },
   toymaker: { inputs: ['plastics'], outputs: ['toys'] },
+  steelMill: { inputs: ['ore'], outputs: ['steel'] }, // IND-5
+  vehiclePlant: { inputs: ['steel'], outputs: ['vehicles'], needs: 'plastics' }, // IND-5
 };
 /** Recipes a plain factory may adopt (the food plant comes from its own zone kind). */
-export const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery', 'printer', 'toymaker'];
+export const ADOPTABLE: Role[] = ['lumberMill', 'refinery', 'materials', 'furniture', 'electronics', 'tailor', 'pharma', 'brewery', 'printer', 'toymaker', 'steelMill', 'vehiclePlant'];
+/** IND-5: tier a recipe or extractor needs (missing = none): mines at Town (2,000), the vehicle plant at City (10,000). */
+export const ROLE_TIER: Partial<Record<Role, number>> = { mine: 2, vehiclePlant: 3 };
+/** May the city use role r yet? */
+export const roleUnlocked = (world: World, r: Role): boolean => world.tier >= (ROLE_TIER[r] ?? 0);
 /** Extractor role and product per resource patch. */
 const EXTRACT: Partial<Record<Resource, [Role, GoodType]>> = {
   [Resource.Logging]: ['logging', 'wood'],
   [Resource.Oil]: ['oilRig', 'oil'],
   [Resource.Quarry]: ['quarry', 'stone'],
+  [Resource.Ore]: ['mine', 'ore'], // IND-5
 };
 export const ROLE_REFRESH = 30;
 
@@ -83,7 +104,12 @@ export function roleOf(world: World, i: number): Role {
   if (isFoodPlant(t)) return 'foodPlant';
   if (isFarmLot(world, i)) return 'farm';
   const ex = EXTRACT[world.resourceAt(i)];
-  if (ex) return ex[0];
+  if (ex && ex[0] === 'mine') {
+    // IND-5: an industrial lot on ORE is a mine once the Town tier is reached.
+    // Mark it (tile.recipe = 'mine', saved) so the ore mask (resources.ts)
+    // keeps the ore under it after a reload. Before the tier it's a plain factory.
+    if (roleUnlocked(world, 'mine') && t.zone === 'industrial') { if (t.recipe !== 'mine') t.recipe = 'mine'; return 'mine'; }
+  } else if (ex) return ex[0];
   // IND-1: a recipe the player picked (factoryCtl.ts) beats the automatic one.
   if (t.recipe && RECIPES[t.recipe as Role]) return t.recipe as Role;
   return memo(world).get(i) ?? 'factory';
@@ -128,7 +154,7 @@ export function refreshRoles(world: World, operating: (i: number) => boolean): v
   const makes = cityMakes(world);
   world.chunks.activeTilesSorted().forEach((i) => { const t = world.tiles[i]; // V1.6 A2
     if (t.zone !== 'industrial' || t.level === 0 || !operating(i) || roleOf(world, i) !== 'factory') return;
-    const options = ADOPTABLE.filter((r) => RECIPES[r]!.inputs.some((g) => makes.has(g)));
+    const options = ADOPTABLE.filter((r) => roleUnlocked(world, r) && RECIPES[r]!.inputs.some((g) => makes.has(g))); // IND-5 tier gates
     if (!options.length) return;
     // Prefer recipes whose output nobody makes yet; hash picks among equals.
     const fresh = options.filter((r) => !RECIPES[r]!.outputs.some((g) => makes.has(g)));

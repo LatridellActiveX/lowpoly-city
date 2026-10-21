@@ -129,6 +129,9 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
 
   // ---- 2. every building ----
   sim.completed = [];
+  // IND-5: steel-based materials at a Construction Yard → sites build 20% faster
+  // (every 5th tick of work, staggered by building id, counts twice).
+  const steel = sim.shipping.steelBoost(w);
   for (const b of [...lots.buildings.values()]) {
     const tpl = TPL[b.tpl];
     if (isFiller(tpl)) continue;
@@ -137,6 +140,7 @@ export function growLots(sim: Simulation, sparePower: number[], spareWater: numb
     if (b.construct > 0) {
       if (serviced && host.crew) {
         b.construct--;
+        if (steel && b.construct > 1 && (w.tick + b.id) % 5 === 0) b.construct--; // IND-5 +20%
         if (b.construct === 0) {
           b.level++;
           b.happy = 0;

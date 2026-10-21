@@ -21,6 +21,19 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-5: resources.ts Resource.Ore (after every other patch, ORE_THRESHOLD 0.84) + oreMask (no ore under pre-existing industry; mines marked tile.recipe='mine'); chains.ts mine / steelMill / vehiclePlant (RecipeDef.needs second ingredient), ROLE_TIER (mine 2, vehiclePlant 3), materials takes steel; goods.ts ore/steel/vehicles prices 180/480/900, Shipping.second hopper, steelYards → growth.ts +20% build speed; car_dealer sells vehicles; mineModel + heavy steel/assembly reused; Resources view ore colour; industryctl.test IND-5.
+    id: '2026-10-20-oasis-ind5-ore-steel-vehicles',
+    title: 'Ore, steel and vehicles',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Iron ore patches now appear on the map, shown in rust red in the Resources view. They are rarer than quarries and only on land that had no other resource, so none of your existing buildings change what they make.' },
+      { tag: 'new', text: 'Industry zoned on ore becomes an ore mine once you reach 2,000 people. Factories can pick two new recipes: steel mill (ore → steel) and, once you reach 10,000 people, vehicle plant (steel + plastics → vehicles).' },
+      { tag: 'new', text: 'Car dealerships now sell vehicles. Export prices per load are $180 for ore, $480 for steel and $900 for vehicles.' },
+      { tag: 'improved', text: 'Building-materials plants accept steel instead of stone. Construction Yards stocked with steel-based materials build 20% faster.' },
+      { tag: 'improved', text: 'Mines and steel mills have their own 3D models. Ore travels in dump trucks.' },
+    ],
+  },
+  {
     id: '2026-10-20-oasis-vr',
     title: 'VR mode for Meta Quest 3',
     date: '2026-10-20',

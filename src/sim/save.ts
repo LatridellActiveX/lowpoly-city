@@ -276,6 +276,7 @@ export function deserializeWorld(raw: string): World | null {
     // PR 5 wind direction: older saves get the seeded default heading.
     w.windDir = typeof data.windDir === 'number' ? data.windDir : initialWindDir(seed);
     w.windDirVel = typeof data.windDirVel === 'number' ? data.windDirVel : 0;
+    w.resetResources(); // IND-5: recompute patches + ore mask from the loaded tiles
     return w;
   } catch (e) {
     console.warn('Load failed: save data unreadable —', e instanceof Error ? e.message : e);

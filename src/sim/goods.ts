@@ -47,6 +47,8 @@
  *    stone ───────────────────────────▶ MATERIALS PLANT
  *    oil ──▶ REFINERY ─▶ fuel + plastics ─▶ ELECTRONICS (+ imported chips)
  *    food ─▶ FOOD PLANT ─▶ packaged food
+ *    ore ──▶ STEEL MILL ─▶ steel ─┬▶ VEHICLE PLANT (+ plastics) ─▶ vehicles ─▶ car dealerships
+ *                                 └▶ MATERIALS PLANT (steel instead of stone; IND-5)
  *
  * Raw/intermediate loads go to the nearest processor that takes them (its
  * `input` hopper); finished goods go to shops that sell them; building
@@ -75,12 +77,14 @@ export const PROCESS_RATE = 0.15;
 
 export type GoodType = 'goods' | 'food' | 'lumber' | 'stone' | 'oil' | 'coal' | 'packaged'
   | 'wood' | 'materials' | 'furniture' | 'fuel' | 'plastics' | 'electronics'
-  | 'apparel' | 'medicine' | 'beverages' | 'books' | 'toys';
+  | 'apparel' | 'medicine' | 'beverages' | 'books' | 'toys'
+  | 'ore' | 'steel' | 'vehicles'; // IND-5
 
 export const GOOD_NAMES: Record<GoodType, string> = {
   goods: 'Manufactured goods', food: 'Food', lumber: 'Lumber', stone: 'Stone', oil: 'Crude oil', coal: 'Coal', packaged: 'Packaged food',
   wood: 'Logs', materials: 'Building materials', furniture: 'Furniture', fuel: 'Fuel', plastics: 'Plastics', electronics: 'Electronics',
   apparel: 'Clothing', medicine: 'Medicine', beverages: 'Beverages', books: 'Books', toys: 'Toys',
+  ore: 'Iron ore', steel: 'Steel', vehicles: 'Vehicles', // IND-5
 };
 /** Units in one truckload (PR 5: 16). */
 export const LOAD = 16;
@@ -98,6 +102,7 @@ export const EXPORT_PRICE: Record<GoodType, number> = {
   goods: 240, food: 180, lumber: 220, stone: 200, oil: 320, coal: 0, packaged: 420,
   wood: 140, materials: 360, furniture: 520, fuel: 400, plastics: 380, electronics: 760,
   apparel: 460, medicine: 640, beverages: 300, books: 340, toys: 420,
+  ore: 180, steel: 480, vehicles: 900, // IND-5
 };
 /** V1.5: an imported load costs this × its export price (freight + middlemen). */
 export const IMPORT_PREMIUM = 1.5;
@@ -111,6 +116,12 @@ export const FUEL_PER_UNIT = 5;
 export const COAL_PRICE = 600;
 /** V1.5: building materials a crew uses per tick on an active construction site. */
 export const MATERIAL_USE = 0.04;
+/**
+ * IND-5: Construction Yards stocked with STEEL-BASED building materials (made
+ * by a materials plant fed with steel) build this much faster (growth.ts:
+ * every 5th work tick counts twice = +20%).
+ */
+export const STEEL_BUILD_BONUS = 0.2;
 /** IND-4: a working factory sends a night-shift truck about this often at night (ticks)… */
 export const NIGHT_TRUCK_EVERY = 90;
 /** …and forgets a truck that never arrived after this many ticks. */
@@ -130,6 +141,9 @@ export function factoryGood(world: World, i: number): GoodType {
  * electronics and gas stations (fuel).
  */
 export function shopGood(world: World, i: number): GoodType {
+  // IND-5: a CAR DEALERSHIP (footprints.ts car_dealer) sells vehicles. Every
+  // other shop keeps the type its tile hash gives it (unchanged).
+  if (world.tiles[i].zone === 'commercial' && world.lots.hostedOn(i).some((b) => b.tpl === 'car_dealer')) return 'vehicles';
   const r = hash2(i % GRID_SIZE, Math.floor(i / GRID_SIZE), world.seed + 321);
   return r < 0.24 ? 'goods' : r < 0.40 ? 'food' : r < 0.47 ? 'materials' : r < 0.54 ? 'furniture' : r < 0.61 ? 'electronics' : r < 0.66 ? 'fuel' : r < 0.75 ? 'apparel' : r < 0.81 ? 'medicine' : r < 0.90 ? 'books' : 'toys';
 }
@@ -160,6 +174,9 @@ export function depotRoad(tiles: Tile[], a: number): number {
   return -1;
 }
 
+/** IND-5: `incoming` key of a plant's SECOND hopper (main hopper is −1 − p, shops are p). */
+const secondKey = (p: number) => -2e7 - p;
+
 export class Shipping {
   /** Tiles with a truck already on its way TO them (negative key = a processor's input side). */
   private incoming = new Set<number>();
@@ -189,6 +206,21 @@ export class Shipping {
   depotLoads = new Map<number, number>();
   /** IND-2: producer → customer links for the Supply chain view (chainFlow.ts). Not saved. */
   flow = new ChainFlow();
+  /**
+   * IND-5: the SECOND hopper of recipes with a `needs` ingredient (vehicle
+   * plant: plastics), plant tile → units. Not saved: after a reload it
+   * refills with the next delivery (the main hopper tile.input is saved).
+   */
+  second = new Map<number, number>();
+  /** IND-5: materials plants whose last hopper load was steel (their materials are steel-based). */
+  private steelFed = new Set<number>();
+  /** IND-5: Construction Yards whose current materials are steel-based. Not saved. */
+  steelYards = new Set<number>();
+  /** IND-5: does any yard hold steel-based materials right now? (growth.ts builds 20% faster.) */
+  steelBoost(world: World): boolean {
+    for (const y of this.steelYards) { const t = world.tiles[y]; if (t.structure === 'constructionYard' && t.stock > 0) return true; }
+    return false;
+  }
   stats = { depotExports: 0, depotImports: 0, delivered: 0, exported: 0, imported: 0, fuelLoads: 0, processed: 0, materialsUsed: 0, chainLoads: 0, shopLoads: 0, nightTrucks: 0 };
 
   isIncoming(i: number): boolean {
@@ -227,9 +259,12 @@ export class Shipping {
         if (rec) {
           // PROCESSOR: convert hopper input 1:1 into output.
           // IND-3: upgrades (second shift, automation) raise the rate (factoryCtl.ts).
-          const r = Math.min(t.input, t.level * PROCESS_RATE * outputMult(world, t), FACTORY_MAX - t.stock);
+          // IND-5: a recipe with a second ingredient (`needs`) is also limited by that hopper.
+          const sec = rec.needs ? (this.second.get(i) ?? 0) : Infinity;
+          const r = Math.min(t.input, t.level * PROCESS_RATE * outputMult(world, t), FACTORY_MAX - t.stock, sec);
           if (r > 0) {
             t.input -= r; t.stock += r; this.stats.processed += r;
+            if (rec.needs) { this.second.set(i, sec - r); this.book(this.costs, i, r * this.unit(rec.needs)); } // second ingredient used up and paid for
             // Inputs consumed at the wholesale price (premium if imported) + chips.
             this.book(this.costs, i, r * this.unit(rec.inputs[0]) * (this.importedSupply.has(i) ? IMPORT_PREMIUM : 1) + (role === 'electronics' ? r * CHIP_COST : 0));
             this.book(this.sales, i, r * this.unit(rec.outputs[0]));
@@ -297,17 +332,21 @@ export class Shipping {
       if (from < 0) continue;
       const price = EXPORT_PRICE[good];
       // 1) A processor that takes this good, with room in its hopper (nearest).
-      let plant = -1, pd = Infinity;
+      let plant = -1, pd = Infinity, toSecond = false;
       for (const p of factories) {
         const rec = RECIPES[roleOf(world, p)];
-        if (!rec || !rec.inputs.includes(good) || tiles[p].input > PLANT_INPUT_MAX - LOAD || this.incoming.has(-1 - p)) continue;
+        if (!rec) continue;
+        // Main hopper (any of `inputs`) or, IND-5, the second-ingredient hopper (`needs`).
+        const main = rec.inputs.includes(good) && tiles[p].input <= PLANT_INPUT_MAX - LOAD && !this.incoming.has(-1 - p);
+        const sec = !main && rec.needs === good && (this.second.get(p) ?? 0) <= PLANT_INPUT_MAX - LOAD && !this.incoming.has(secondKey(p));
+        if (!main && !sec) continue;
         const d = manhattan(f, p);
-        if (d < pd) { pd = d; plant = p; }
+        if (d < pd) { pd = d; plant = p; toSecond = sec; }
       }
       if (plant >= 0) {
-        const p = plant;
-        if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, p), `delivery: ${good} to ${ROLE_NAMES[roleOf(world, p)]}`, good === 'food' ? 0x6e9e3a : undefined, () => this.feedPlant(world, p))) {
-          t.stock -= LOAD; this.incoming.add(-1 - p); this.importedSupply.delete(p);
+        const p = plant, second = toSecond, steel = good === 'steel';
+        if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, p), `delivery: ${good} to ${ROLE_NAMES[roleOf(world, p)]}`, good === 'food' ? 0x6e9e3a : undefined, () => (second ? this.feedSecond(world, p) : this.feedPlant(world, p, steel)))) {
+          t.stock -= LOAD; this.incoming.add(second ? secondKey(p) : -1 - p); if (!second) this.importedSupply.delete(p);
           this.stats.chainLoads++;
           this.flow.add(world.tick, f, p, good); // IND-2
           continue;
@@ -327,7 +366,9 @@ export class Shipping {
       }
       if (best >= 0) {
         const shop = best;
-        if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, shop), `delivery: ${good}`, undefined, () => this.deliver(world, shop))) {
+        // IND-5: materials from a steel-fed plant are steel-based (yards build faster with them).
+        const steelMat = good === 'materials' ? this.steelFed.has(f) : undefined;
+        if (traffic.spawn(world, 'truck', from, roadNextTo(tiles, shop), `delivery: ${good}`, undefined, () => this.deliver(world, shop, steelMat))) {
           t.stock -= LOAD; this.incoming.add(shop); this.importedSupply.delete(shop);
           this.flow.add(world.tick, f, shop, good); this.stats.shopLoads++; // IND-2
           continue;
@@ -385,7 +426,14 @@ export class Shipping {
       const rec = RECIPES[roleOf(world, p)];
       if (!rec || tiles[p].input > 0.5 || rec.inputs.some((g) => localMakes.has(g))) continue;
       const good = rec.inputs[0];
-      if (imp(p, good, -1 - p, () => this.feedPlant(world, p))) this.importedSupply.add(p);
+      if (imp(p, good, -1 - p, () => this.feedPlant(world, p, false))) this.importedSupply.add(p);
+    }
+    // IND-5: second ingredient (vehicle plant plastics) with no local maker → import it.
+    for (const p of factories) {
+      const rec = RECIPES[roleOf(world, p)];
+      if (!rec?.needs || (this.second.get(p) ?? 0) > 0.5 || localMakes.has(rec.needs)) continue;
+      const need = rec.needs;
+      if (imp(p, need, secondKey(p), () => this.feedSecond(world, p))) this.book(this.costs, p, LOAD * this.unit(need) * (IMPORT_PREMIUM - 1)); // premium on top of the unit cost booked when used
     }
     for (const y of yards) {
       if (tiles[y].stock > 2 || localMakes.has('materials') || sites === 0) continue;
@@ -428,19 +476,32 @@ export class Shipping {
     }
   }
 
-  private deliver(world: World, shop: number): void {
+  private deliver(world: World, shop: number, steelMat?: boolean): void {
     this.incoming.delete(shop);
     const t: Tile = world.tiles[shop];
     if (t.zone !== 'commercial' && t.structure !== 'constructionYard') return; // bulldozed while the truck was driving
+    // IND-5: remember whether a yard's materials are steel-based (undefined = imported / not materials: unchanged).
+    if (t.structure === 'constructionYard' && steelMat !== undefined) { if (steelMat) this.steelYards.add(shop); else this.steelYards.delete(shop); }
     t.stock = Math.min(SHOP_MAX, t.stock + LOAD);
     this.stats.delivered++;
   }
 
-  private feedPlant(world: World, plant: number): void {
+  private feedPlant(world: World, plant: number, steel = false): void {
     this.incoming.delete(-1 - plant);
     const t = world.tiles[plant];
     if (t.zone !== 'industrial' || !RECIPES[roleOf(world, plant)]) return; // bulldozed / changed meanwhile
     t.input = Math.min(PLANT_INPUT_MAX, t.input + LOAD);
+    this.stats.delivered++;
+    // IND-5: a materials plant's output counts as steel-based while its last load was steel.
+    if (steel) this.steelFed.add(plant); else this.steelFed.delete(plant);
+  }
+
+  /** IND-5: a load of the second ingredient (e.g. plastics for a vehicle plant) arrives. */
+  private feedSecond(world: World, plant: number): void {
+    this.incoming.delete(secondKey(plant));
+    const t = world.tiles[plant];
+    if (t.zone !== 'industrial' || !RECIPES[roleOf(world, plant)]?.needs) return;
+    this.second.set(plant, Math.min(PLANT_INPUT_MAX, (this.second.get(plant) ?? 0) + LOAD));
     this.stats.delivered++;
   }
 

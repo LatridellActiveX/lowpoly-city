@@ -14,7 +14,7 @@ import { GRID_SIZE, Tile } from './types';
 import { CALENDAR_MONTH_TICKS, DAY_TICKS, defaultTaxRates, emptyLedger, Ledger, MONTH_DAYS, STARTING_CASH, TaxRates } from './economy';
 import { scatterDecorations } from './terrain';
 import { generateWater, placeEdgeConnection } from './mapgen';
-import { computeResources, Resource } from './resources';
+import { computeResources, oreMask, Resource } from './resources';
 import { hash2 } from './random';
 import { CellLayer } from './cells';
 import { Lots } from './lots';
@@ -193,9 +193,11 @@ export class World {
 
   /** PR 4: seeded resource patches per tile (resources.ts). Computed once, never saved. */
   get resources(): Uint8Array {
-    if (!this.resourceCache) this.resourceCache = computeResources(this.tiles, this.seed);
+    if (!this.resourceCache) { this.resourceCache = computeResources(this.tiles, this.seed); oreMask(this.tiles, this.resourceCache); } // IND-5 ore mask
     return this.resourceCache;
   }
+  /** IND-5: forget the resource cache (save.ts calls it once the tiles are loaded, so the ore mask sees them). */
+  resetResources(): void { this.resourceCache = null; }
   /** Resource under tile i. */
   resourceAt(i: number): Resource {
     return this.resources[i] as Resource;

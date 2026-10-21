@@ -749,6 +749,44 @@ function quarryModel(): THREE.BufferGeometry {
   return merge(P);
 }
 
+/**
+ * IND-5: ORE MINE (role model, 1×1 lot, front = +z). An underground mine:
+ * a steel lattice HEADFRAME over the shaft with its two sheave wheels on
+ * top, cables down to the hoist house beside it, a conveyor carrying ore
+ * from the shaft top to rust-red ore stockpiles, a waste-rock heap at the
+ * back, a loaded haul truck, a small office at the front and a fence.
+ */
+function mineModel(): THREE.BufferGeometry {
+  const P: THREE.BufferGeometry[] = [part(box(0.96, 0.012, 0.96), 0x8f8070)];
+  const ORE = 0xa0522d, ORE_D = 0x7a3a22, ROCK = 0x8a8478;
+  // ---- Headframe: four legs leaning in, cross braces, platform, two sheave wheels ----
+  const hx = -0.18, hz = -0.12, H = 0.46;
+  for (const [dx, dz] of [[-0.07, -0.07], [0.07, -0.07], [-0.07, 0.07], [0.07, 0.07]]) P.push(slab([hx + dx, 0.012, hz + dz], [hx + dx * 0.5, H, hz + dz * 0.5], 0.014, 0.014, STEEL_D));
+  for (let k = 1; k <= 4; k++) { const y = 0.012 + (H - 0.012) * k / 5, s = 0.14 - 0.07 * k / 5; P.push(part(box(s, 0.008, 0.008), STEEL, [hx, y, hz - s / 2]), part(box(s, 0.008, 0.008), STEEL, [hx, y, hz + s / 2]), part(box(0.008, 0.008, s), STEEL, [hx - s / 2, y, hz]), part(box(0.008, 0.008, s), STEEL, [hx + s / 2, y, hz])); }
+  P.push(part(box(0.1, 0.012, 0.1), 0x4d555d, [hx, H, hz])); // head platform
+  for (const dz of [-0.025, 0.025]) P.push(part(new THREE.CylinderGeometry(0.045, 0.045, 0.01, 14).rotateX(Math.PI / 2), 0xc23b2e, [hx, H + 0.05, hz + dz])); // sheave wheels
+  P.push(part(box(0.012, 0.06, 0.06), STEEL_D, [hx, H + 0.012, hz]));
+  P.push(part(box(0.08, 0.05, 0.08), 0x6d757b, [hx, 0.012, hz])); // shaft collar house
+  // ---- Hoist house with cables up to the wheels ----
+  P.push(part(box(0.2, 0.14, 0.16), 0xb5643c, [0.18, 0.012, -0.22])); // brick hoist house
+  P.push(part(gable(0.22, 0.06, 0.18), 0x4b535b, [0.18, 0.152, -0.22]));
+  P.push(part(box(0.12, 0.03, 0.004), 0x9fd7ff, [0.18, 0.09, -0.138]));
+  for (const dz of [-0.025, 0.025]) P.push(slab([0.09, 0.12, -0.2 + dz], [hx, H + 0.05, hz + dz], 0.004, 0.004, 0x2b2b2b)); // hoist cables
+  P.push(part(cyl(0.018, 0.2, 8), 0x5a5f66, [0.26, 0.152, -0.27])); // chimney
+  // ---- Ore conveyor from the shaft top to the stockpiles; waste heap behind ----
+  beltConveyor(P, [hx + 0.05, 0.22, hz + 0.06], [0.2, 0.14, 0.18], 3);
+  stockpile(P, 0.24, 0.22, 0.1, ORE); stockpile(P, 0.36, 0.08, 0.07, ORE_D);
+  stockpile(P, -0.36, -0.36, 0.12, ROCK);
+  for (let k = 0; k < 6; k++) P.push(part(new THREE.IcosahedronGeometry(0.018 + 0.01 * (k % 3), 0).translate(0, 0.012, 0), k % 2 ? ORE : ORE_D, [0.08 + k * 0.05, 0.012, 0.32 - (k % 2) * 0.04]));
+  // ---- Loaded haul truck, office, fence ----
+  P.push(...haulTruck(Math.PI / 2, -0.05, 0.012, 0.22, 0.0));
+  P.push(part(box(0.16, 0.09, 0.1), 0xf2f0ea, [-0.34, 0.012, 0.34]), part(box(0.18, 0.012, 0.12), 0x4d555d, [-0.34, 0.102, 0.34]));
+  P.push(part(box(0.1, 0.04, 0.006), 0xf28c1d, [-0.34, 0.12, 0.392])); // sign
+  for (let k = 0; k < 10; k++) P.push(part(box(0.012, 0.07, 0.012), 0x8d949c, [-0.46 + k * 0.1, 0.012, 0.475]));
+  P.push(part(box(0.94, 0.006, 0.006), 0xb8bec4, [0, 0.06, 0.475]));
+  return merge(P);
+}
+
 /** Every role model by name (keys match sim/chains.ts Role). */
 export function roleModels(): Record<string, THREE.BufferGeometry> {
   const heavy = heavyIndustryModels();
@@ -775,6 +813,8 @@ export function roleModels(): Record<string, THREE.BufferGeometry> {
     ]),
     // Refinery / materials / electronics: detailed versions live in heavyIndustry.ts.
     refinery: heavy.refinery, materials: heavy.materials, electronics: heavy.electronics,
+    // IND-5: ore mine (new), steel mill and vehicle plant reuse the detailed heavy-industry models.
+    mine: mineModel(), steelMill: heavy.steel.clone(), vehiclePlant: heavy.assembly.clone(),
   };
 }
 

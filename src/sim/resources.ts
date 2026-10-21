@@ -23,6 +23,14 @@ export enum Resource {
   Logging = 2,
   Quarry = 3,
   Oil = 4,
+  /**
+   * IND-5: iron ORE. Rarer than quarry stone. Only placed on land that has
+   * NO other patch, so adding ore never turns an existing logging camp,
+   * quarry, oil rig or farm into something else. World.resources (grid.ts)
+   * also drops ore under industry that was already built before ore existed
+   * (oreMask below), so old factories keep their role.
+   */
+  Ore = 5,
 }
 
 export const RESOURCE_NAMES: Record<Resource, string> = {
@@ -31,7 +39,25 @@ export const RESOURCE_NAMES: Record<Resource, string> = {
   [Resource.Logging]: 'Logging',
   [Resource.Quarry]: 'Quarry',
   [Resource.Oil]: 'Oil',
+  [Resource.Ore]: 'Ore',
 };
+/** IND-5: noise threshold for ore patches (higher = rarer). */
+export const ORE_THRESHOLD = 0.84;
+
+/**
+ * IND-5: ORE MASK. Built industry standing on an ore tile that is NOT a mine
+ * (its tile.recipe isn't 'mine', chains.ts marks mines) was there before ore
+ * existed — e.g. a factory in a save from before IND-5. Clear the ore under
+ * it so that building keeps the role it had. A tile is "built industry"
+ * when it is industrial with a level or a construction site.
+ */
+export function oreMask(tiles: Tile[], out: Uint8Array): void {
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] !== Resource.Ore) continue;
+    const t = tiles[i];
+    if (t.zone === 'industrial' && (t.level > 0 || t.construct > 0) && t.recipe !== 'mine') out[i] = Resource.None;
+  }
+}
 
 export function computeResources(tiles: Tile[], seed: number): Uint8Array {
   const N = GRID_SIZE;
@@ -44,6 +70,8 @@ export function computeResources(tiles: Tile[], seed: number): Uint8Array {
       else if (fbm(x, z, 9, seed + 7) > 0.72) out[i] = Resource.Quarry; // same field as rocky ground
       else if (fbm(x, z, 11, seed + 23) > 0.66) out[i] = Resource.Logging; // same field as forests
       else if (fbm(x, z, 10, seed + 930) > 0.64) out[i] = Resource.Farmland;
+      // IND-5: ore only where nothing else is (last in the chain), its own noise field.
+      else if (valueNoise(x, z, 6, seed + 1300) > ORE_THRESHOLD) out[i] = Resource.Ore;
     }
   return out;
 }

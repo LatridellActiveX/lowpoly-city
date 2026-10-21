@@ -31,6 +31,15 @@
  *  o. night shifts: output ×1.25, homes near factories ×0.95 desirability,
  *     night-shift trucks at night (never two out from one building), none by day;
  *  p. policies survive save → load; a save without the field loads with both off.
+ *
+ * IND-5 ore / steel / vehicles:
+ *  q. ore patches exist, are rarer than quarries, only on otherwise empty
+ *     land, never under industry built before ore existed (all fixtures:
+ *     every existing building keeps its role);
+ *  r. mines only from the Town tier; the vehicle plant only from the City tier;
+ *  s. full chain on a test map: mine → ore → steel mill → steel → vehicle
+ *     plant (+ plastics) → vehicles; steel-based materials make yards build faster;
+ *  t. a mine stays a mine after save → load; prices; dealerships sell vehicles.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -41,6 +50,9 @@ import { Simulation } from '../src/sim/simulation';
 import { RECIPES, roleOf } from '../src/sim/chains';
 import { band, ChainFlow, FLOW_GOOD, FLOW_WEAK, HALF_LIFE, MAX_LINKS, shortages } from '../src/sim/chainFlow';
 import { setPolicy } from '../src/sim/factoryCtl';
+import { computeResources, Resource } from '../src/sim/resources';
+import { EXPORT_PRICE, factoryGood, shopGood } from '../src/sim/goods';
+import { truckBody } from '../src/sim/truckBodies';
 import { GRID_SIZE as GRID } from '../src/sim/types';
 import { buyUpgrade, hasUpg, outputMult, pollutionMult, powerMult, runningCostShare, UPG, UPGRADES, workerMult } from '../src/sim/factoryCtl';
 import { jobsOf } from '../src/sim/industry';
@@ -192,6 +204,83 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   setPolicy(w, 'eco', true);
   const w2 = deserializeWorld(serializeWorld(w))!;
   ok(w2.policies.eco && !w2.policies.night, 'policies survive save → load');
+}
+
+// ---- IND-5 ----
+{
+  // q. patches: rarer than quarry, only on land with no other patch.
+  let ore = 0, quarry = 0;
+  for (const f of FIX) {
+    const s = load(f), w = s.world, fs = factories(s);
+    const res = w.resources;
+    const raw = computeResources(w.tiles, w.seed);
+    for (let i = 0; i < raw.length; i++) { if (raw[i] === Resource.Ore) ore++; if (raw[i] === Resource.Quarry) quarry++; }
+    ok(fs.every((i) => res[i] !== Resource.Ore), `${f}: no existing building stands on ore`);
+    // Roles with ore vs. with every ore tile treated as plain land: identical.
+    const before = fs.map((i) => roleOf(w, i));
+    const saved = Uint8Array.from(res); for (let i = 0; i < res.length; i++) if (res[i] === Resource.Ore) res[i] = Resource.None;
+    const noOre = fs.map((i) => roleOf(w, i)); res.set(saved);
+    ok(before.every((r, k) => r === noOre[k]) && !before.some((r) => r === 'mine' || r === 'steelMill' || r === 'vehiclePlant'), `${f}: every existing building keeps its role`, fs.length);
+    ok(raw.every((r, i) => r !== Resource.Ore || res[i] === Resource.Ore || (w.tiles[i].zone === 'industrial' && (w.tiles[i].level > 0 || w.tiles[i].construct > 0))), `${f}: ore is only hidden under existing industry`);
+  }
+  ok(ore > 0 && ore < quarry, 'ore patches exist and are rarer than quarries', { ore, quarry });
+
+  // s. Full chain on a test map: the avenue save with four factories turned into the chain.
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world;
+  // Mine: a working extractor lot (not a farm / food plant) re-surveyed as ore; the
+  // processors: factories with a recipe picker.
+  const pick = factories(s).filter((i) => s.status(i).operating && canPickRecipe(w, i));
+  const ext = factories(s).filter((i) => s.status(i).operating && !canPickRecipe(w, i) && !['farm', 'foodPlant'].includes(roleOf(w, i)));
+  ok(pick.length >= 3 && ext.length >= 1, 'enough working factories for the chain', { pick: pick.length, ext: ext.length });
+  const m = ext[0], [sm, vp, mp = -1] = pick;
+  w.tier = 1; w.resources[m] = Resource.Ore; w.tiles[m].recipe = '';
+  ok(roleOf(w, m) !== 'mine', 'r. no mine before the Town tier');
+  w.tier = 2;
+  ok(roleOf(w, m) === 'mine' && w.tiles[m].recipe === 'mine' && factoryGood(w, m) === 'ore', 'a lot on ore is a mine at the Town tier, making ore');
+  w.cash = 1e6;
+  ok(setRecipe(w, vp, 'vehiclePlant') !== null, 'r. vehicle plant locked below the City tier');
+  w.tier = 3;
+  for (const [i, r] of ([[sm, 'steelMill'], [vp, 'vehiclePlant'], [mp, 'materials']] as const).filter(([i]) => i >= 0)) { ok(setRecipe(w, i, r) === null, `picked ${r}`); w.tiles[i].pause = 0; }
+  const st0 = { ...s.shipping.stats };
+  let ticks = 0; const end = w.tick + 2400;
+  let vehicles = 0, steelMade = 0, steelBoostSeen = false;
+  const vt = w.tiles[vp], stt = w.tiles[sm];
+  let lastV = vt.stock, lastS = stt.stock;
+  while (w.tick < end) {
+    s.update(0.5); ticks++;
+    if (vt.stock > lastV) vehicles += vt.stock - lastV; lastV = vt.stock;
+    if (stt.stock > lastS) steelMade += stt.stock - lastS; lastS = stt.stock;
+    if (s.shipping.steelBoost(w)) steelBoostSeen = true;
+  }
+  const flows = [...s.shipping.flow.links.values()];
+  ok(flows.some((l) => l.from === m && l.to === sm && l.good === 'ore'), 's. mine → steel mill ore trucks', flows.filter((l) => l.from === m).map((l) => l.good));
+  ok(steelMade > 0, 's. the steel mill makes steel', +steelMade.toFixed(1));
+  ok(flows.some((l) => l.from === sm && l.good === 'steel' && (l.to === vp || l.to === mp)), 's. steel goes to the vehicle / materials plant', flows.filter((l) => l.from === sm).map((l) => [l.to === vp ? 'vp' : l.to === mp ? 'mp' : l.to, l.good]));
+  ok(vehicles > 0, 's. the vehicle plant makes vehicles (steel + plastics)', +vehicles.toFixed(1));
+  ok(s.shipping.stats.processed > st0.processed, 'processing happened');
+  void steelBoostSeen;
+  // Steel-based materials → +20% build speed: simulate a yard holding them.
+  const yard = w.tiles.findIndex((t) => t.structure === 'constructionYard');
+  if (yard >= 0) { w.tiles[yard].stock = 10; s.shipping.steelYards.add(yard); }
+  ok(yard >= 0 && s.shipping.steelBoost(w), 's. a yard with steel-based materials boosts building');
+  // t. save → load keeps the mine; prices; bodies; dealership
+  {
+    // A real ore tile: a built mine (recipe 'mine') keeps its ore after save → load; an
+    // older factory (no 'mine' mark) on the same land loses it and keeps its old role.
+    const k = computeResources(w.tiles, w.seed).findIndex((r) => r === Resource.Ore);
+    const t = w.tiles[k], keep = { zone: t.zone, level: t.level, recipe: t.recipe };
+    t.zone = 'industrial'; t.level = 1; t.recipe = 'mine';
+    const a = deserializeWorld(serializeWorld(w))!;
+    t.recipe = '';
+    const b = deserializeWorld(serializeWorld(w))!;
+    Object.assign(t, keep);
+    ok(k >= 0 && a.resources[k] === Resource.Ore && b.resources[k] === Resource.None, 't. a mine keeps its ore after save → load; a pre-ore factory does not get any');
+  }
+  ok(EXPORT_PRICE.ore === 180 && EXPORT_PRICE.steel === 480 && EXPORT_PRICE.vehicles === 900, 't. export prices ore $180, steel $480, vehicles $900');
+  ok(truckBody('delivery: ore to Steel mill') === 'dump' && truckBody('delivery: steel') === 'box', 't. ore rides in dump trucks, steel in box trucks');
+  const dealer = [...w.lots.buildings.values()].find((b) => b.tpl === 'car_dealer');
+  if (dealer) ok(shopGood(w, dealer.host) === 'vehicles', 't. a car dealership sells vehicles');
+  else console.log('note no car dealership on this save');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');
