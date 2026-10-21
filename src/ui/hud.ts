@@ -32,9 +32,10 @@ import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services'
 import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
-import { factoryGood, GOOD_NAMES, shopGood, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../sim/goods';
+import { EXPORT_PRICE, factoryGood, GOOD_NAMES, shopGood, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../sim/goods';
 import { RECIPES, Role, roleOf, ROLE_NAMES } from '../sim/chains';
 import { POLICIES, Policies, setPolicy } from '../sim/factoryCtl';
+import { buyRailYard, hasRail, priceMult, RAIL_BONUS, RAIL_COST, RAIL_REACH } from '../sim/trade';
 import { RECYCLE_MODES, RECYCLE_POWER, RECYCLE_YIELD, RecycleMode, recycleMode, setRecycleMode } from '../sim/recycleMode';
 import { buyUpgrade, canPickRecipe, hasUpg, isPaused, pickableRecipes, RECIPE_SWITCH_COST, RETOOL_TICKS, setRecipe, UPGRADES, UpgKey } from '../sim/factoryCtl';
 import { RESOURCE_NAMES } from '../sim/resources';
@@ -274,6 +275,14 @@ export class Hud {
       this.flash(`Recycling center: ${RECYCLE_MODES.find((m) => m.mode === sel.value)?.label}`);
       this.refresh(this.lastSim);
     });
+    // IND-8: buy a rail yard for a shipping depot (pointerdown: the panel repaints often).
+    this.info.addEventListener('pointerdown', (ev) => {
+      const b = (ev.target as HTMLElement).closest('[data-rail]') as HTMLButtonElement | null;
+      if (!b || b.disabled || !this.lastSim) return;
+      this.flash(buyRailYard(this.lastSim.world, Number(b.dataset.rail)) ?? '🚆 Rail yard built: this depot now ships by train');
+      this.lastSim.version++;
+      this.refresh(this.lastSim);
+    });
     // IND-1: recipe picker in the factory panel.
     this.info.addEventListener('change', (ev) => {
       const sel = ev.target as HTMLSelectElement;
@@ -337,6 +346,8 @@ export class Hud {
       <label class="tax"><span>🏡 Property</span><input type="range" min="0" max="${MAX_PROPERTY * 100}" step="1" data-prop="1">
           <b data-k="rate.property"></b></label>
       <div class="muted small" data-k="growth"></div>
+      <h4>Export prices</h4>
+      <div class="small" data-k="ticker"></div>
       <h4>Industrial policies</h4>
       ${(Object.keys(POLICIES) as Array<keyof Policies>).map((k) => `<label style="display:flex;gap:6px;align-items:center;margin-top:4px" title="${POLICIES[k].text}"><input type="checkbox" data-policy="${k}"> <span>${POLICIES[k].label}</span></label><div class="muted small">${POLICIES[k].text}</div>`).join('')}
       <h4>Businesses (last month)</h4>
@@ -380,6 +391,12 @@ export class Hud {
     this.setCell('tax.property.now', fmt(now.property ?? 0));
     this.setCell('tax.property.last', fmt(last?.property));
     this.setCell('rate.property', `${Math.round(w.propertyRate * 100)}%`);
+    // IND-8: export price ticker — each good's price now and how far it has drifted.
+    const tick = (Object.keys(EXPORT_PRICE) as Array<keyof typeof EXPORT_PRICE>).filter((g) => g !== 'coal').map((g) => {
+      const m = priceMult(w, g), pct = Math.round((m - 1) * 100);
+      return `<span style="white-space:nowrap">${GOOD_NAMES[g]} $${Math.round(EXPORT_PRICE[g] * m * w.exportBonus)} <span class="${pct > 0 ? 'ok' : pct < 0 ? 'bad' : 'muted'}">${pct > 0 ? '▲' : pct < 0 ? '▼' : '•'}${Math.abs(pct)}%</span></span>`;
+    });
+    this.setCell('ticker', `${tick.join(' · ')}<div class="muted">Per truckload exported. Prices drift each month by up to ±30%.</div>`);
     // IND-4: keep the policy boxes in step with the world (e.g. after loading a save).
     this.budget.querySelectorAll<HTMLInputElement>('input[data-policy]').forEach((inp) => { inp.checked = w.policies[inp.dataset.policy as keyof Policies]; });
     const pin = this.budget.querySelector<HTMLInputElement>('input[data-prop]')!;
@@ -903,6 +920,10 @@ export class Hud {
         let n = 0; sim.world.tiles.forEach((q, j) => { if ((q.zone === 'industrial' || q.zone === 'commercial') && q.level > 0 && depotOf([a], j) === a) n++; });
         rows.push(`<div class="row">📦 Loads handled: <b>${sim.shipping.depotLoads.get(a) ?? 0}</b> · businesses in catchment: <b>${n}</b></div>`);
         rows.push(`<div class="row muted">Exports via the depot pay +${Math.round(DEPOT_BONUS * 100)}% and leave at half a hopper; imports to the catchment start here.</div>`);
+        // IND-8: rail yard upgrade.
+        rows.push(hasRail(sim.world, a)
+          ? `<div class="row">🚆 Rail yard: ships by train — reaches ${RAIL_REACH} tiles and exports pay +${Math.round(RAIL_BONUS * 100)}% more.</div>`
+          : `<div class="row"><button class="btn" data-rail="${a}"${sim.world.cash < RAIL_COST ? ' disabled' : ''}>🚆 Add rail yard $${RAIL_COST.toLocaleString()}</button> <span class="muted">ships by train: reach ${RAIL_REACH} tiles, exports +${Math.round(RAIL_BONUS * 100)}%, fewer trucks to the highway</span></div>`);
       }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
@@ -917,7 +938,7 @@ export class Hud {
       const cr = sim.safety.crime[i] ?? 0;
       if (cr > 0.02) rows.push(`<div class="row">🚓 Crime: <b class="${cr > 0.4 ? 'bad' : ''}">${Math.round(cr * 100)}%</b>${c[Svc.Police][i] < 0.3 && cr > 0.2 ? ' — build a Police Station nearby' : ''}</div>`);
       const pct = (v: number) => `${Math.round(v * 100)}%`;
-      if ((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0) { const dp = depotOf(serviceAnchors(sim.world, Svc.Depot), i); if (dp >= 0) rows.push(`<div class="row">📦 Ships via the depot at ${coords(dp).join(', ')}</div>`); }
+      if ((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0) { const dp = depotOf(serviceAnchors(sim.world, Svc.Depot), i, sim.world); if (dp >= 0) rows.push(`<div class="row">📦 Ships via the depot at ${coords(dp).join(', ')}</div>`); }
       rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · ♻️ ${pct(c[Svc.Recycling][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);

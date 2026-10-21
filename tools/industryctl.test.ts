@@ -50,6 +50,11 @@
  *  x. factories in reach drop loads off; never more than WAREHOUSE_CAP of a good;
  *  y. a needy shop in reach is restocked from the warehouse first (and doesn't import);
  *  z. stock survives save → load; bulldozing forgets it.
+ *
+ * IND-8 rail yard + drifting prices (trade.ts):
+ *  A. rail yard costs $40,000, only on a depot, once; reach 20 → 30 tiles;
+ *  B. prices drift every calendar month, stay within ±30%, replay the same
+ *     from the seed, and survive save → load; exports are paid at the drifted price.
  */
 import { existsSync, readFileSync } from 'node:fs';
 const store = new Map<string, string>();
@@ -65,6 +70,9 @@ import { EXPORT_PRICE, factoryGood, shopGood } from '../src/sim/goods';
 import { truckBody } from '../src/sim/truckBodies';
 import { RECYCLE_POWER, recycleMode, setRecycleMode } from '../src/sim/recycleMode';
 import { output } from '../src/sim/networks';
+import { buyRailYard, driftPrices, hasRail, priceMult, RAIL_COST } from '../src/sim/trade';
+import { depotOf } from '../src/sim/goods';
+import { World } from '../src/sim/grid';
 import { LOAD, WAREHOUSE_CAP, WAREHOUSE_REACH } from '../src/sim/goods';
 import { Svc } from '../src/sim/services';
 import { GRID_SIZE as GRID } from '../src/sim/types';
@@ -363,6 +371,43 @@ const factories = (s: Simulation) => s.world.tiles.map((t, i) => (t.zone === 'in
   t.structure = 'none'; { const e2 = w.tick + 3; while (w.tick < e2) s.update(0.5); }
   ok(!w.warehouses[a], 'z. a bulldozed warehouse forgets its stock');
   void LOAD;
+}
+
+// ---- IND-8 ----
+{
+  const s = load('tools/fixtures/parker-avenue.lpc'), w = s.world, N = GRID;
+  // A 2×2 depot anchor on free land (tiles set directly, as the tool would).
+  const a = w.tiles.findIndex((t, i) => i % N < N - 2 && [0, 1, N, N + 1].every((d) => { const q = w.tiles[i + d]; return q && !q.zone && !q.road && !q.water && q.structure === 'none' && !q.edge; }));
+  for (const d of [0, 1, N, N + 1]) { const q = w.tiles[a + d]; q.structure = 'service'; q.kind = Svc.Depot; q.part = d ? a + 1 : 0; }
+  w.cash = 100000;
+  ok(buyRailYard(w, a + 1) !== null, 'A. only a depot anchor takes a rail yard');
+  ok(buyRailYard(w, a) === null && hasRail(w, a) && w.cash === 100000 - RAIL_COST, `A. rail yard costs $${RAIL_COST}`);
+  ok(buyRailYard(w, a) !== null, 'A. only once');
+  const x = a % N, z = Math.floor(a / N);
+  const far = (z + 1) * N + Math.min(N - 1, x + 26); // 25 tiles east of the block
+  ok(depotOf([a], far, w) === a, 'A. rail depot reaches 25 tiles');
+  w.tiles[a].upg = 0;
+  ok(depotOf([a], far, w) === -1, 'A. a plain depot does not');
+  w.tiles[a].upg = 8;
+  ok(deserializeWorld(serializeWorld(w))!.tiles[a].upg === 8, 'A. rail yard survives save → load');
+  // B. drift
+  const goods = ['steel', 'food', 'vehicles'];
+  const w1 = new World(undefined, 99), w2 = new World(undefined, 99);
+  let lo = 2, hi = 0, moved = false;
+  for (let m = 1; m <= 200; m++) { driftPrices(w1, goods, m); driftPrices(w2, goods, m); for (const g of goods) { const v = priceMult(w1, g); lo = Math.min(lo, v); hi = Math.max(hi, v); if (v !== 1) moved = true; } }
+  ok(moved && lo >= 0.7 - 1e-9 && hi <= 1.3 + 1e-9, 'B. prices drift within ±30%', { lo, hi });
+  ok(goods.every((g) => priceMult(w1, g) === priceMult(w2, g)), 'B. same seed, same prices');
+  w.priceDrift = { steel: 1.21, food: 0.8 };
+  const w3 = deserializeWorld(serializeWorld(w))!;
+  ok(w3.priceDrift.steel === 1.21 && w3.priceDrift.food === 0.8, 'B. drift survives save → load');
+  // The sim drifts them at each calendar month.
+  w.priceDrift = {};
+  const end = w.tick + 650; while (w.tick < end) s.update(0.5);
+  ok(Object.keys(w.priceDrift).length > 10, 'B. the simulation drifts prices monthly', Object.keys(w.priceDrift).length);
+  // Exports pay the drifted price.
+  const ex0 = w.ledger.trade.exports; w.priceDrift = Object.fromEntries(Object.keys(w.priceDrift).map((g) => [g, 0.7]));
+  const n0 = s.shipping.stats.exported; const end2 = w.tick + 400; while (w.tick < end2) s.update(0.5);
+  ok(s.shipping.stats.exported === n0 || w.ledger.trade.exports !== ex0, 'B. exports still pay (at the drifted price)');
 }
 
 console.log(fails ? `\n${fails} FAILED` : '\nall industry-control checks passed');

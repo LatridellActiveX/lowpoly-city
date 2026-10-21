@@ -69,6 +69,7 @@ import { ChainFlow } from './chainFlow';
 import { isNight, outputMult, runningCostShare } from './factoryCtl';
 import { timeOfDay } from './traffic';
 import { recycleMode } from './recycleMode';
+import { hasRail, priceMult, RAIL_BONUS, RAIL_REACH } from './trade';
 import { RECIPES, refreshRoles, roleOf, roleOutput, ROLE_NAMES } from './chains';
 
 /** Hopper size of a processor (raw input waiting). Also used by food plants. */
@@ -159,10 +160,11 @@ export const DEPOT_SHIP_AT = 24;
  * V1.5b stage C: the depot (anchor index) whose catchment holds tile i —
  * the nearest one within its radius (Chebyshev from the 2×2 centre) — or −1.
  */
-export function depotOf(depots: number[], i: number): number {
-  const N = GRID_SIZE, x = i % N, z = Math.floor(i / N), r = SERVICE_DEFS[Svc.Depot].radius;
+export function depotOf(depots: number[], i: number, world?: World): number {
+  const N = GRID_SIZE, x = i % N, z = Math.floor(i / N), r0 = SERVICE_DEFS[Svc.Depot].radius;
   let best = -1, bd = Infinity;
   for (const a of depots) {
+    const r = world && hasRail(world, a) ? RAIL_REACH : r0; // IND-8: a rail yard reaches further
     const d = Math.max(Math.abs(x - ((a % N) + 0.5)), Math.abs(z - (Math.floor(a / N) + 0.5))) - 0.5;
     if (d <= r && d < bd) { bd = d; best = a; }
   }
@@ -269,7 +271,7 @@ export class Shipping {
     // IND-7: one scan for every service anchor (depots, warehouses, recyclers) instead of one per kind.
     const svcs = serviceAnchors(world);
     const depots = svcs.filter((a) => tiles[a].kind === Svc.Depot);
-    const depotFor = (i: number): number => depotOf(depots, i);
+    const depotFor = (i: number): number => depotOf(depots, i, world);
     world.chunks.activeTilesSorted().forEach((i) => { const t = tiles[i]; // V1.6 A2: active chunks only
       if (t.structure === 'powerPlant' && !t.part) plants.push(i); // V1.5b: a 2×2 coal plant is fuelled at its anchor
       if (t.structure === 'constructionYard') yards.push(i);
@@ -426,7 +428,8 @@ export class Shipping {
       //     depot's consolidated freight pays DEPOT_BONUS more.
       const dep = depotFor(f);
       if (dep >= 0 && t.stock >= DEPOT_SHIP_AT) {
-        const pay = price * world.exportBonus * (1 + DEPOT_BONUS);
+        // IND-8: drifting price; a rail yard adds RAIL_BONUS.
+        const pay = price * priceMult(world, good) * world.exportBonus * (1 + DEPOT_BONUS + (hasRail(world, dep) ? RAIL_BONUS : 0));
         const to = depotRoad(tiles, dep);
         if (to >= 0 && traffic.spawn(world, 'truck', from, to, `export via depot: ${good}`, undefined, () => {
           world.ledger.trade.exports += pay;
@@ -437,7 +440,7 @@ export class Shipping {
       }
       // 3) Nobody local needs it: export once the factory is full (local buyers get first dibs).
       if (t.stock >= FACTORY_MAX - 4 && edge >= 0) {
-        const pay = price * world.exportBonus;
+        const pay = price * priceMult(world, good) * world.exportBonus; // IND-8: drifting price
         if (traffic.spawn(world, 'truck', from, edge, `export: ${good}`, undefined, () => {
           world.ledger.trade.exports += pay;
           world.cash += pay;

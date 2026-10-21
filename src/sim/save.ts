@@ -112,6 +112,7 @@ export function serializeWorld(world: World): string {
     propertyRate: world.propertyRate, // V1.5 stage 11
     policies: world.policies, // IND-4 (no version bump: missing = both off)
     warehouses: world.warehouses, // IND-7 (missing = empty)
+    priceDrift: world.priceDrift, // IND-8 (missing = all 1)
     ledger: world.ledger,
     lastLedger: world.lastLedger,
     wind: world.wind,
@@ -195,6 +196,9 @@ export function deserializeWorld(raw: string): World | null {
       if (typeof data.propertyRate === 'number') w.propertyRate = data.propertyRate;
       // IND-4: industrial policies. Only real booleans are taken; anything missing stays off.
       w.policies = { eco: data.policies?.eco === true, night: data.policies?.night === true };
+      // IND-8: export price drift (numbers within 0.7..1.3 only).
+      w.priceDrift = {};
+      if (data.priceDrift && typeof data.priceDrift === 'object') for (const [g, n] of Object.entries(data.priceDrift as Record<string, unknown>)) if (typeof n === 'number' && n >= 0.7 && n <= 1.3) w.priceDrift[g] = n;
       // IND-7: warehouse stock (numbers only).
       w.warehouses = {};
       if (data.warehouses && typeof data.warehouses === 'object') for (const [k, v] of Object.entries(data.warehouses as Record<string, Record<string, unknown>>)) {

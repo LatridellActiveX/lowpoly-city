@@ -21,6 +21,17 @@ export interface ChangeEntry {
 
 export const CHANGELOG: ChangeEntry[] = [
   {
+    // IND-8: sim/trade.ts — rail yard (depot anchor upg bit 8, $40,000, reach 30, +10% exports, svc7rail model) and drifting export prices (world.priceDrift saved, monthly hash-seeded step ±0.08 pulled to 1, clamp ±30%, exports only); budget ticker; industryctl.test IND-8.
+    id: '2026-10-20-oasis-ind8-rail-yard-prices',
+    title: 'Rail yards and changing export prices',
+    date: '2026-10-20',
+    changes: [
+      { tag: 'new', text: 'Shipping depots can get a 🚆 rail yard for $40,000, bought from their Inspect panel. A rail depot ships by train: it serves industry and shops within 30 tiles instead of 20, so fewer trucks drive to the highway, and its exports pay 10% more. Its model gets tracks and a freight train.' },
+      { tag: 'new', text: 'Export prices now change every month, up or down by as much as 30%. The Budget panel has an Export prices ticker showing each good\'s price per load and its change (▲ / ▼).' },
+      { tag: 'improved', text: 'Rail yards and prices are saved with your city. Older saves start at normal prices. A harbor version will come later.' },
+    ],
+  },
+  {
     // IND-7: services.ts Svc.Warehouse (tool 'warehouse', $12,000, 2,000 people, reach 20), world.warehouses saved per good; goods.ts warehousePickups (shops / yards / processors restocked first), factory drop-off step 2b, no import when a warehouse in reach holds the good; svc9 model = existing warehouse model; hud stock panel; industryctl.test IND-7.
     id: '2026-10-20-oasis-ind7-warehouse',
     title: 'Warehouses',

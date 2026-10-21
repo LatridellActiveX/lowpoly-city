@@ -73,6 +73,7 @@ import { bigFarmModel, constructionYardModel, crewLoadModel, parkedCrewTruckMode
 import { CREW_PURPOSE, YARD_FLEET } from "../sim/industry";
 import { rangeOf } from '../sim/parking';
 import { Resource } from '../sim/resources';
+import { RAIL } from '../sim/trade';
 import { CONSTRUCT_TICKS, PLANT_OIL } from '../sim/rules';
 import { tileCenter } from './scene';
 import { RES_DESIGNS, buildDesigns, pickLook } from './buildings';
@@ -947,7 +948,7 @@ export class CityRenderer {
           const stage = landfillStage(t), c = big ? new THREE.Vector3(x + 1, 0, z + 1) : center.clone();
           P[`svc0_${stage}`]?.add(big ? this.place(c, 0) : this.place(c, this.roadFacing(x, z, has) ?? turn, 0.5, 0.5, 0.5));
           if (big) this.landfills.push({ c, stage, phase: hash2(x, z, 31) * Math.PI * 2 });
-        } else if (big) P[`svc${t.kind}`]?.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), 0));
+        } else if (big) P[`svc${t.kind}${t.kind === Svc.Depot && t.upg & RAIL ? 'rail' : ''}`]?.add(this.place(new THREE.Vector3(x + 1, 0, z + 1), 0)); // IND-8: rail yard variant
         else if (t.kind === Svc.Elementary || t.kind === Svc.Police) P[`svc${t.kind}`]?.add(this.place(center, this.roadFacing(x, z, has) ?? turn, 0.5, 0.5, 0.5)); // legacy 1×1: the 2×2 model at half size
         else P[`svc${t.kind}`]?.add(this.place(center, this.roadFacing(x, z, has) ?? turn));
       }

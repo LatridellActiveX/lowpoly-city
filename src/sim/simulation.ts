@@ -52,6 +52,11 @@ import { computeDemand, Demand, demandGrowth } from './demand';
 import { loadSettings, Settings } from './settings';
 import { computeEnvironment, Environment, lvFinish } from './environment';
 import { garbageNorm } from './garbageRules';
+import { driftPrices } from './trade';
+import { EXPORT_PRICE } from './goods';
+/** IND-8: goods whose export price drifts (coal is never exported). */
+const TRADE_GOODS = Object.keys(EXPORT_PRICE).filter((g) => g !== 'coal');
+import { CALENDAR_MONTH_TICKS } from './economy';
 import { isUpkeepKind, bulldozeRefund, Ledger, MONTH_TICKS, monthlyTax, emptyLedger, placementCost, UPKEEP, propertyTax, WAGE, SALES_FLOOR } from './economy';
 
 /** PR 5: one "Next level" requirement row (Simulation.requirements). */
@@ -337,6 +342,8 @@ export class Simulation {
     // PR 4 progression: announce new tiers (UI drains `events`).
     prof.begin('tier'); this.events.push(...updateTier(w, this.stats().population)); prof.end();
     prof.begin('month'); if (w.tick % MONTH_TICKS === 0) this.bookMonth(); prof.end();
+    // IND-8: export prices drift once per calendar month (trade.ts).
+    if (w.tick % CALENDAR_MONTH_TICKS === 0) driftPrices(w, TRADE_GOODS, w.tick / CALENDAR_MONTH_TICKS);
     prof.begin('record'); if (w.tick % HISTORY_EVERY_TICKS === 0) this.record(); prof.end();
     this.version++;
   }

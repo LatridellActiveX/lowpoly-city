@@ -317,9 +317,30 @@ function policeModel(): THREE.BufferGeometry {
   return merge(p);
 }
 
+/**
+ * IND-8: RAIL YARD add-on for the 2×2 depot (centred on the block): two
+ * tracks on ballast along the south edge (sleepers + rails) with a short
+ * freight train — locomotive and three container wagons — and buffer stops.
+ */
+function railAddon(): THREE.BufferGeometry {
+  const p: THREE.BufferGeometry[] = [];
+  for (const z of [0.62, 0.84]) {
+    p.push(part(box(1.94, 0.016, 0.16), 0x8a8478, [0, 0.012, z])); // ballast
+    for (let k = 0; k < 24; k++) p.push(part(box(0.025, 0.008, 0.13), 0x5c4a3a, [-0.92 + k * 0.08, 0.028, z])); // sleepers
+    for (const dz of [-0.04, 0.04]) p.push(part(box(1.94, 0.01, 0.01), 0xb8bec4, [0, 0.036, z + dz])); // rails
+    for (const x of [-0.95, 0.95]) p.push(part(box(0.03, 0.05, 0.12), 0xc23b2e, [x, 0.028, z])); // buffer stops
+  }
+  // Train on the outer track: loco + three container wagons.
+  p.push(part(box(0.32, 0.14, 0.11), 0xf2c230, [-0.55, 0.046, 0.84]), part(box(0.12, 0.05, 0.1), 0x2b2e31, [-0.62, 0.186, 0.84]));
+  const C = [0x2f6db5, 0xc23b2e, 0x3f8f3a];
+  for (let k = 0; k < 3; k++) { p.push(part(box(0.3, 0.02, 0.1), 0x3a3f46, [-0.18 + k * 0.34, 0.046, 0.84]), part(box(0.28, 0.11, 0.1), C[k], [-0.18 + k * 0.34, 0.066, 0.84])); }
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
     svc7: depotModel(), // V1.5b stage C
+    svc7rail: merge([depotModel(), railAddon()]), // IND-8: depot with a rail yard
     svc8: recyclingModel(), // V1.6
     svc9: newIndustryModels().warehouse, // IND-7: the distribution-centre model (already drawn for warehouse lots)
     // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>).

@@ -98,5 +98,32 @@ if (stage === "7") {
   for (let k = 0; k < 6; k++) await frame(() => { window.city.sim.update(0.5); window.city.refresh(); });
   await shot("warehouse");
 }
+if (stage === "8") {
+  // IND-8: a 2×2 depot with a rail yard beside a road (bought through the real button), then the budget price ticker.
+  out.dep = await frame(() => {
+    const c = window.city, w = c.sim.world, N = Math.round(Math.sqrt(w.tiles.length));
+    w.peakPop = Math.max(w.peakPop, 3000); w.cash = Math.max(w.cash, 200000);
+    for (let i = N; i < w.tiles.length - 3 * N; i++) {
+      if (i % N > N - 3) continue;
+      const blk = [0, 1, N, N + 1].map((d) => w.tiles[i + d]);
+      if (!blk.every((q) => !q.zone && !q.road && !q.water && q.structure === "none" && !q.edge)) continue;
+      if (![i - N, i + 1 - N, i + 2 * N, i + 2 * N + 1].some((j) => w.tiles[j]?.road)) continue;
+      [0, 1, N, N + 1].forEach((d) => { const q = w.tiles[i + d]; q.structure = "service"; q.kind = 7; q.part = d ? i + 1 : 0; });
+      for (let m = 1; m <= 9; m++) c.sim.world.tick += 0; // (prices drift below)
+      c.sim.version++; c.inspect(i % N, Math.floor(i / N)); c.refresh(); return [i % N, Math.floor(i / N)];
+    }
+    return null;
+  });
+  if (out.dep) {
+    out.railBtn = await frame(() => { const b = document.querySelector("[data-rail]"); b?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); window.city.refresh(); return [!!b, window.city.sim.world.tiles.find((t) => t.kind === 7 && t.structure === "service" && !t.part)?.upg]; });
+    await frame(() => { const c = window.city; c.setSpeed?.(1); for (let k = 0; k < 6; k++) c.sim.update(0.5); c.setSpeed?.(0); });
+    await look(out.dep[0] + 1, out.dep[1] + 1, 2.2); await shot("railyard");
+  }
+  // Let a few months pass so prices have drifted, then open the budget at the ticker.
+  await frame(() => { const c = window.city, s = c.sim; c.setSpeed?.(1); const t0 = s.world.tick; for (let k = 0; k < 20000 && s.world.tick < t0 + 2400; k++) s.update(0.5); c.setSpeed?.(0); });
+  await frame(() => { for (const b of document.querySelectorAll("button")) if (/Budget/.test(b.textContent)) { b.click(); break; } });
+  await frame(() => { const t = document.querySelector('[data-k="ticker"]'); t?.scrollIntoView({ block: "center" }); });
+  await shot("prices");
+}
 console.log(JSON.stringify({ out, errs: errs.slice(0, 3) }));
 await browser.close();
