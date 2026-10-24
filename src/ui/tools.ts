@@ -52,7 +52,7 @@ export const TOOL_GROUPS: ToolGroupDef[] = [
   // PR 5: industry flyout — zone, farm, food plant and the Construction Yard.
   { id: 'industry', label: 'Industry', icon: '🏭', tools: ['industrial', 'constructionYard', 'shippingDepot'] },
   // V1.5b city services (sim/services.ts).
-  { id: 'services', label: 'Services', icon: '🏛️', tools: ['garbageDump', 'recyclingCenter', 'policeStation', 'clinic', 'hospital', 'elementarySchool', 'highSchool', 'college'] },
+  { id: 'services', label: 'Services', icon: '🏛️', tools: ['garbageDump', 'recyclingCenter', 'policeStation', 'clinic', 'hospital', 'elementarySchool', 'highSchool', 'college', 'tradeSpire'] },
 ];
 
 export const TOOLS: ToolDef[] = [
@@ -82,6 +82,8 @@ export const TOOLS: ToolDef[] = [
   { id: 'elementarySchool', label: 'Elementary School (2×2)', icon: '🏫', key: '8', shape: 'point', hint: 'A 2×2 school. Education level 1 within 9 tiles: homes need it to grow fast past level 3, and shops need educated workers. $4,000 + $200/month. Available from the start.', group: 'services' },
   { id: 'highSchool', label: 'High School', icon: '🎓', key: '9', shape: 'point', hint: 'Education level 2 within 14 tiles (with an elementary school): homes need it for levels 6–7; offices and electronics want educated workers. $9,000 + $450/month. Unlocks at 2,500 people.', group: 'services' },
   { id: 'college', label: 'College', icon: '🏛️', key: '0', shape: 'point', hint: '2×2. Education level 3 within 24 tiles: boosts offices, electronics and the top housing levels. $30,000 + $1,400/month. Unlocks at 2,500 people.', group: 'services' },
+  // ADMIN ONLY: hidden from the build menu unless settings.admin (?admin=1); the sim refuses placement too.
+  { id: 'tradeSpire', label: 'Trade Spire', icon: '💹', key: 'e', shape: 'point', hint: 'ADMIN ONLY. 2×2 economic capital: shops within 30 tiles pay up to +25% extra commercial tax, fading with distance. $250,000 + $2,000/month.', group: 'services' },
   { id: 'park', label: 'Park', icon: '🌳', key: 'k', shape: 'point', hint: 'Makes nearby homes more desirable and offsets pollution.' },
   // V1.5: 2×2 roundabout, available from the start.
   { id: 'freeRoad', label: 'Free road', icon: '〰️', key: 'c', shape: 'point', hint: 'V1.6 freeform roads: click start and end (Straight) or start, bend and end (Curve). Snaps to junctions, roads, 15° angles (Angle) and the 8 m grid (Grid); hold Shift to place freely. Zone cells are previewed while you draw. Ctrl+Z / Ctrl+Y undo and redo. Esc cancels.', group: 'roads' },
@@ -102,7 +104,7 @@ export function shapeTiles(id: ToolId, x0: number, z0: number, x1: number, z1: n
   // PR 4: the nuclear plant is 2×2 — the hovered tile is its top-left corner.
   // V1.5: the roundabout is 2×2 too (hovered tile = top-left).
   // V1.5b: the hospital and the college are 2×2 as well. V1.6: so are the landfill, the oil plant and the elementary school.
-  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'oilPlant' || id === 'elementarySchool' || id === 'policeStation' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot' || id === 'garbageDump') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < GRID_SIZE && z < GRID_SIZE) as Array<[number, number]>;
+  if (id === 'nuclearPlant' || id === 'powerPlant' || id === 'oilPlant' || id === 'elementarySchool' || id === 'policeStation' || id === 'roundabout' || id === 'hospital' || id === 'college' || id === 'shippingDepot' || id === 'garbageDump' || id === 'tradeSpire') return [[x1, z1], [x1 + 1, z1], [x1, z1 + 1], [x1 + 1, z1 + 1]].filter(([x, z]) => x < GRID_SIZE && z < GRID_SIZE) as Array<[number, number]>;
   if (shape === 'point') return [[x1, z1]];
   if (shape === 'area') {
     for (let z = Math.min(z0, z1); z <= Math.max(z0, z1); z++)

@@ -79,6 +79,7 @@ export const BUILD_COST: Record<Exclude<ToolId, 'inspect' | 'bulldoze'>, number>
   highSchool: 9000,
   college: 30000,
   recyclingCenter: 8000, // V1.6
+  tradeSpire: 250000, // ADMIN ONLY economic capital (services.ts SERVICE_DEFS has the same price)
 };
 
 /** PR 4: extra per-tile cost when a road crosses water (it becomes a bridge). */

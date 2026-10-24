@@ -23,7 +23,7 @@ import { roadComponents } from './roadnet';
 /** People at which police (and with them crime) unlock. */
 export const POLICE_UNLOCK_POP = 2500;
 
-export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8 }
+export enum Svc { Dump = 0, Police = 1, Clinic = 2, Hospital = 3, Elementary = 4, High = 5, College = 6, Depot = 7, Recycling = 8, TradeSpire = 9 }
 
 export interface ServiceDef {
   svc: Svc;
@@ -56,7 +56,16 @@ export const SERVICE_DEFS: ServiceDef[] = [
   { svc: Svc.Depot, tool: 'shippingDepot', label: 'Shipping Depot (2×2)', size: 2, cost: 100000, upkeep: 500, unlockPop: 2000, radius: 20, fleet: 0 },
   // V1.6: RECYCLING CENTER. Its coverage cuts garbage build-up on every building in its radius (garbage.ts RECYCLE_CUT), so landfills last longer.
   { svc: Svc.Recycling, tool: 'recyclingCenter', label: 'Recycling Center', size: 1, cost: 8000, upkeep: 350, unlockPop: 2500, radius: 12, fleet: 12 }, // V1.6: 12 garbage trucks = 2× a landfill's 6; also burns garbage for 5,000 power (networks.ts)
+  // ADMIN ONLY: the TRADE SPIRE, the city's economic capital. It never shows
+  // in the build menu for normal players: the HUD hides the tool and the sim
+  // refuses placement unless settings.admin is on (see settings.ts, ?admin=1).
+  // Its coverage is a trade aura: shops inside it pay up to +25% extra
+  // commercial tax (TRADE_SPIRE_TAX_BONUS, applied in simulation.ts).
+  { svc: Svc.TradeSpire, tool: 'tradeSpire', label: 'Trade Spire (2×2)', size: 2, cost: 250000, upkeep: 2000, unlockPop: 0, radius: 30, fleet: 0 },
 ];
+
+/** Peak extra commercial tax a shop pays at full Trade Spire coverage. */
+export const TRADE_SPIRE_TAX_BONUS = 0.25;
 export const SERVICE_BY_TOOL: Partial<Record<ToolId, ServiceDef>> = Object.fromEntries(SERVICE_DEFS.map((d) => [d.tool, d]));
 export const isServiceTool = (tool: ToolId) => tool in SERVICE_BY_TOOL;
 /** The service building on tile t (anchor or part), or null. */

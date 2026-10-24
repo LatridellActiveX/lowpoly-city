@@ -31,6 +31,7 @@ import { SERVICE_DEFS, serviceAnchors, serviceSize, Svc } from '../sim/services'
 import { garbageMax, garbageWarn } from '../sim/garbageRules';
 import { LANDFILL_MAX, landfillFill, landfillFull } from '../sim/garbage';
 import { isUnlocked, unlockPop, RESOURCES_TIER, TIERS } from '../sim/progression';
+import { loadSettings } from '../sim/settings';
 import { factoryGood, GOOD_NAMES, shopGood } from '../sim/goods';
 import { RECIPES, roleOf, ROLE_NAMES } from '../sim/chains';
 import { RESOURCE_NAMES } from '../sim/resources';
@@ -407,6 +408,8 @@ export class Hud {
         'fly-item',
         `<kbd>${n + 1}</kbd><span class="icon">${t.icon}</span><span class="name">${t.label}<small>${t.key.toUpperCase()}</small></span><span class="price"></span><span class="lock"></span>`,
       ) as HTMLButtonElement;
+      // ADMIN ONLY: the Trade Spire never shows in a normal player's menu.
+      if (id === 'tradeSpire' && !loadSettings().admin) row.style.display = 'none';
       row.onclick = () => {
         actions.selectTool(id);
         this.closeFlyout();
@@ -455,7 +458,8 @@ export class Hud {
   flyoutPick(n: number): ToolId | null {
     if (!this.openGroup) return null;
     const g = TOOL_GROUPS.find((x) => x.id === this.openGroup)!;
-    return g.tools[n - 1] ?? null;
+    const visible = g.tools.filter((id) => id !== 'tradeSpire' || loadSettings().admin); // ADMIN ONLY row stays unpickable
+    return visible[n - 1] ?? null;
   }
 
   setTool(id: ToolId): void {
@@ -816,6 +820,10 @@ export class Hud {
         rows.push(`<div class="row">📦 Loads handled: <b>${sim.shipping.depotLoads.get(a) ?? 0}</b> · businesses in catchment: <b>${n}</b></div>`);
         rows.push(`<div class="row muted">Exports via the depot pay +${Math.round(DEPOT_BONUS * 100)}% and leave at half a hopper; imports to the catchment start here.</div>`);
       }
+      if (d.svc === Svc.TradeSpire) {
+        rows.push('<div class="row">💹 Economic capital: shops in range pay up to <b>+25% commercial tax</b>, fading with distance. Their inspect panel shows the 💹 coverage.</div>');
+        rows.push('<div class="row muted">Admin building: only placeable in admin mode.</div>');
+      }
       if (!serviceAnchors(sim.world).includes(a)) rows.push('<div class="row bad">Not next to a road: covers nothing.</div>');
     }
     if (t.zone && t.level > 0 && t.garbage > 0) rows.push(`<div class="row">🗑 Garbage: <b class="${t.garbage >= garbageWarn(t.zone) ? 'bad' : ''}">${Math.round(t.garbage)}</b> / ${garbageMax(t.zone)}${t.garbage >= garbageWarn(t.zone) ? ' — piling up! Build a Landfill nearby' : ''}</div>`);
@@ -830,7 +838,7 @@ export class Hud {
       if (cr > 0.02) rows.push(`<div class="row">🚓 Crime: <b class="${cr > 0.4 ? 'bad' : ''}">${Math.round(cr * 100)}%</b>${c[Svc.Police][i] < 0.3 && cr > 0.2 ? ' — build a Police Station nearby' : ''}</div>`);
       const pct = (v: number) => `${Math.round(v * 100)}%`;
       if ((t.zone === 'industrial' || t.zone === 'commercial') && t.level > 0) { const dp = depotOf(serviceAnchors(sim.world, Svc.Depot), i); if (dp >= 0) rows.push(`<div class="row">📦 Ships via the depot at ${coords(dp).join(', ')}</div>`); }
-      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · ♻️ ${pct(c[Svc.Recycling][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]}</div>`);
+      rows.push(`<div class="row muted">Coverage — 🗑 ${pct(c[Svc.Dump][i])} · ♻️ ${pct(c[Svc.Recycling][i])} · 🚓 ${pct(c[Svc.Police][i])} · 🩺 ${pct(Math.min(1, c[Svc.Clinic][i] + c[Svc.Hospital][i]))} · 🎓 level ${sim.cov.edu[i]} · 💹 ${pct(c[Svc.TradeSpire][i])}</div>`);
     }
     if (t.construct > 0 && !t.crew) rows.push(`<div class="row bad">🚧 Waiting for construction crew${sim.crews.isEnRoute(i) ? ' (truck on its way)' : ''}</div>`);
     // PR 5 "Next level" bars from Simulation.requirements (the real growth rules).

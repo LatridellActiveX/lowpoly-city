@@ -316,8 +316,43 @@ function policeModel(): THREE.BufferGeometry {
   return merge(p);
 }
 
+
+/**
+ * ADMIN ONLY: the TRADE SPIRE (2×2, svc9). The city's economic capital:
+ * a twisted stack of five glass tiers on a stone podium, each tier turned
+ * ~12° past the one below, with gold trim between tiers (gold is used
+ * nowhere else in the palette, so the spire reads as admin-built from
+ * anywhere on the map) and a red beacon on a mast at the top. At ~2.3
+ * units it is the tallest building in the game.
+ */
+function tradeSpireModel(): THREE.BufferGeometry {
+  const GOLD = 0xd8a928, GLASS = 0x2e4356, STONE = 0x3c4148;
+  const p: THREE.BufferGeometry[] = [part(box(1.96, 0.012, 1.96), CONC)];
+  // Podium + entrance (front faces +z).
+  p.push(part(box(1.5, 0.16, 1.5), STONE, [0, 0.012, 0]));
+  p.push(part(box(1.54, 0.03, 1.54), GOLD, [0, 0.145, 0]));
+  p.push(part(box(0.52, 0.04, 0.2), CONC, [0, 0.012, 0.83]));
+  p.push(part(box(0.24, 0.12, 0.012), GOLD, [0, 0.03, 0.756]));
+  // Twisted tiers: width shrinks, rotation grows, glass band + gold lip each.
+  const widths = [1.02, 0.86, 0.71, 0.57, 0.44];
+  let y = 0.172;
+  widths.forEach((w, k) => {
+    const th = k * 0.21, rot: [number, number, number] = [0, th, 0];
+    p.push(part(box(w, 0.36, w), GLASS, [0, y, 0], rot));
+    p.push(part(box(w + 0.014, 0.06, w + 0.014), WIN, [0, y + 0.15, 0], rot));
+    p.push(part(box(w + 0.02, 0.025, w + 0.02), GOLD, [0, y + 0.335, 0], rot));
+    y += 0.36;
+  });
+  // Crown, mast and beacon.
+  p.push(part(box(0.3, 0.1, 0.3), GOLD, [0, y, 0]));
+  p.push(part(cyl(0.015, 0.22, 6), STONE, [0, y + 0.1, 0]));
+  p.push(part(new THREE.SphereGeometry(0.05, 10, 8), 0xff4438, [0, y + 0.35, 0]));
+  return merge(p);
+}
+
 export function serviceModels(): Record<string, THREE.BufferGeometry> {
   return {
+    svc9: tradeSpireModel(), // ADMIN ONLY economic capital
     svc7: depotModel(), // V1.5b stage C
     svc8: recyclingModel(), // V1.6
     // V1.6: the 2×2 landfill, one geometry per fill stage (renderer picks svc0_<stage>).

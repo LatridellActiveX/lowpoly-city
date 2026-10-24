@@ -26,19 +26,37 @@ export interface Settings {
   camPan: number;
   /** Show a frames-per-second counter on the HUD. */
   showFps: boolean;
+  /**
+   * Admin mode. Admin-only buildings (the Trade Spire) stay out of the
+   * build menu and refuse placement while this is off. It is a player
+   * setting, not a save field: turn it on with ?admin=1 in the URL and
+   * off again with ?admin=0; the choice persists in localStorage.
+   */
+  admin: boolean;
 }
 
 const KEY = 'lowpoly-city-settings';
 // PR 5: maxCars default 150 → 75 (half the commuters; see COMMUTE_PEOPLE).
-export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1, showFps: false });
+export const defaultSettings = (): Settings => ({ maxCars: 75, maxTrucks: 40, tickRate: TICKS_PER_SECOND, dayNight: true, detail: 'high', camRotate: 1, camPan: 1, showFps: false, admin: false });
 
 export function loadSettings(): Settings {
+  let out: Settings;
   try {
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(KEY) : null;
-    return { ...defaultSettings(), ...(raw ? JSON.parse(raw) : {}) };
+    out = { ...defaultSettings(), ...(raw ? JSON.parse(raw) : {}) };
   } catch {
-    return defaultSettings();
+    out = defaultSettings();
   }
+  // ?admin=1 / ?admin=0 in the page URL flips admin mode (and it sticks,
+  // because every saveSettings() call persists the whole object).
+  try {
+    if (typeof location !== 'undefined') {
+      const a = new URLSearchParams(location.search).get('admin');
+      if (a === '1') out.admin = true;
+      else if (a === '0') out.admin = false;
+    }
+  } catch { /* no URL (tests) — keep the stored value */ }
+  return out;
 }
 
 export function saveSettings(s: Settings): void {

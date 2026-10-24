@@ -41,7 +41,7 @@ import { allRegions, buyBlocker, ownedAt, regionPrice } from './regions';
 import { stepWind } from './wind';
 import { Traffic, roadNextTo, rushFactor, timeOfDay } from './traffic';
 import { Redevelopment } from './redevelop';
-import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS, serviceSize } from './services';
+import { computeCoverage, Coverage, SERVICE_BY_TOOL, SERVICE_DEFS, serviceSize, Svc, TRADE_SPIRE_TAX_BONUS } from './services';
 import { Garbage } from './garbage';
 import { applyServiceEffects, computeSafety, Responders, Safety, serviceEffectOne } from './safety';
 import { LV_MAX } from './environment';
@@ -375,7 +375,7 @@ export class Simulation {
       const sales = (sh.sales.get(i) ?? 0) + (op ? SALES_FLOOR * t.jobs : 0);
       const inputs = sh.costs.get(i) ?? 0;
       const wages = WAGE * t.jobs;
-      const taxes = monthlyTax(t, op, w.taxRates) + propertyTax(t, op, this.env.landValue[i], w.propertyRate);
+      const taxes = monthlyTax(t, op, w.taxRates) * this.spireTaxFactor(i, t) + propertyTax(t, op, this.env.landValue[i], w.propertyRate); // ADMIN: Trade Spire aura
       w.profits.set(i, { sales, inputs, wages, taxes, net: sales - inputs - wages - taxes });
     });
     sh.resetMonth();
@@ -396,6 +396,16 @@ export class Simulation {
     if (this.history.length > HISTORY_MAX) this.history.shift();
   }
 
+  /**
+   * Trade Spire trade aura at tile i: a commercial tile pays this multiple
+   * of its normal zone tax (1 = outside every spire's coverage).
+   */
+  private spireTaxFactor(i: number, t: Tile): number {
+    if (t.zone !== 'commercial' || !this.cov) return 1;
+    const c = this.cov.by[Svc.TradeSpire]?.[i] ?? 0;
+    return c > 0 ? 1 + TRADE_SPIRE_TAX_BONUS * c : 1;
+  }
+
   /** What taxes and upkeep would be if the month ended right now. */
   projectMonth(): Ledger {
     const w = this.world;
@@ -403,7 +413,7 @@ export class Simulation {
     const act = w.chunks.activeTilesSorted(); // V1.6 A2: bare tiles pay no tax and cost no upkeep
     act.forEach((i) => {
       const t = w.tiles[i];
-      if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.operating(i), w.taxRates);
+      if (t.zone) l.taxes[t.zone] += monthlyTax(t, t.level > 0 && this.operating(i), w.taxRates) * this.spireTaxFactor(i, t); // ADMIN: Trade Spire aura on shops
       if (t.structure === 'service' && !t.part) l.upkeep.service += Math.round((SERVICE_DEFS[t.kind]?.upkeep ?? 0) * upkeepFactor(w.tier)); // V1.5b
       else if (isUpkeepKind(t.structure) && !t.part) l.upkeep[t.structure] += Math.round((t.structure === 'powerPlant' && t.kind === PLANT_OIL ? OIL_PLANT_UPKEEP : t.structure === 'waterTower' && t.kind === 1 ? BIG_TOWER_UPKEEP : UPKEEP[t.structure]) * upkeepFactor(w.tier));
     });
@@ -614,6 +624,10 @@ export class Simulation {
     }
     // PR 4: tools above the city's tier are locked (progression.ts).
     if (!isUnlocked(tool, w.tier, w.peakPop)) return { ...res, locked: true };
+    // ADMIN ONLY: the Trade Spire is not a normal player's building. The HUD
+    // hides its menu row too; this is the enforcement, so no caller (hotkey,
+    // script, old save UI) can place one without admin mode.
+    if (tool === 'tradeSpire' && !this.settings.admin) return { ...res, locked: true };
     // PR 4 2×2 nuclear plant: all four tiles must be free, paid once, built together.
     // V1.5b: coal is 2×2 too. The UI's 2×2 tool sends all four tiles; a
     // single tile (scripts, tests, old API) still builds the legacy 1×1

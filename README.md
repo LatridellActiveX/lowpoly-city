@@ -117,3 +117,12 @@ Version 1.5b is on the same branch (`version-1.5`):
 * **Saves v10:** older saves load and their roads become graph roads; population, jobs and buildings are unchanged.
 * Tests: `test:roadgraph`, `test:blocks`, `test:blockbridge`, `test:gtraffic`, `test:utilities`, `test:freeroads`, `test:migrate`, `lint:tiles`; benches `bench:check`.
 * Wiki pages: [Road graph](docs/wiki/Road-graph.md), [Zone blocks](docs/wiki/Zone-blocks.md), [Performance](docs/wiki/Performance.md), [Release notes 1.6](docs/RELEASE-1.6.md).
+
+## Admin mode
+
+Open the game with `?admin=1` in the URL to turn on admin mode (it sticks in
+localStorage until you open `?admin=0`). Admin mode reveals one extra
+building in the Services menu: the **Trade Spire**, a 2×2 economic capital
+($250,000 + $2,000/month). Shops within 30 tiles of it pay up to +25% extra
+commercial tax, fading with distance. Normal players never see it in the
+build menu, and the simulation refuses to place it while admin mode is off.
